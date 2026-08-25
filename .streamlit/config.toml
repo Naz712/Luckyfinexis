@@ -1,0 +1,8 @@
+# App theme matched to the campaign passbook design:
+# royal blue header bars, white surfaces, light striped tables.
+[theme]
+base = "light"
+primaryColor = "#1E3A9F"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F2F4FB"
+textColor = "#14142B"

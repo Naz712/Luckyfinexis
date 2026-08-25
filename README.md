@@ -24,6 +24,10 @@ never logged, and never shown in the UI. `.streamlit/secrets.toml` is
 gitignored — do not commit it. The anon key cannot be used: all RLS policies
 are SELECT-only, so it cannot write.
 
+The app is gated behind a simple shared login password, also set in
+`secrets.toml` (`[auth] password`). It fails closed: with no password
+configured (or the placeholder still in place) the app refuses to run.
+
 ### How an import works
 
 1. **Upload** a `.csv` or `.xlsx` mastersheet.

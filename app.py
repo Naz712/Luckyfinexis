@@ -14,6 +14,8 @@ Supabase client — it is never logged, displayed, or written anywhere.
 from __future__ import annotations
 
 import hashlib
+import hmac
+import time
 
 import pandas as pd
 import streamlit as st
@@ -23,7 +25,68 @@ from importer.models import SEV_ERROR, ImporterError
 from importer.parsing import read_upload
 
 st.set_page_config(page_title="Campaign Mastersheet Importer", page_icon="🎟️", layout="wide")
+
+# Brand styling to match the campaign passbook: royal-blue banner headings
+# with white text, blue accents. Base colours live in .streamlit/config.toml.
+st.markdown(
+    """
+    <style>
+      .stApp h1 {
+        background: #1E3A9F; color: #FFFFFF !important;
+        padding: 0.55rem 1rem; border-radius: 10px;
+      }
+      .stApp h2, .stApp h3 {
+        background: #1E3A9F; color: #FFFFFF !important;
+        padding: 0.4rem 0.8rem; border-radius: 8px;
+      }
+      .stApp h1 a, .stApp h2 a, .stApp h3 a { color: #FFFFFF !important; }
+      [data-testid="stMetricValue"] { color: #1E3A9F; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 st.title("🎟️ Campaign Mastersheet Importer")
+
+
+# --------------------------------------------------------------------------
+# Login — simple shared password from st.secrets (the app holds the
+# service_role key behind the scenes, so it must not be open to anyone
+# who stumbles onto the URL). Fails closed if no password is configured.
+# --------------------------------------------------------------------------
+
+def _require_login() -> None:
+    try:
+        expected = st.secrets["auth"]["password"]
+    except Exception:
+        expected = None
+    if not expected or "CHOOSE" in str(expected):
+        st.error(
+            "Login is not configured.\n\n"
+            "Add an `[auth]` section with a `password` to `.streamlit/secrets.toml` "
+            "(see `.streamlit/secrets.toml.example`). The app refuses to run without one."
+        )
+        st.stop()
+    if st.session_state.get("authenticated"):
+        return
+    st.subheader("🔒 Log in")
+    with st.form("login"):
+        entered = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Log in", type="primary")
+    if submitted:
+        if hmac.compare_digest(str(entered), str(expected)):
+            st.session_state["authenticated"] = True
+            st.rerun()
+        time.sleep(1)  # slow down password guessing
+        st.error("Wrong password.")
+    st.stop()
+
+
+_require_login()
+
+with st.sidebar:
+    if st.button("🔓 Log out"):
+        st.session_state.clear()
+        st.rerun()
 
 
 # --------------------------------------------------------------------------
