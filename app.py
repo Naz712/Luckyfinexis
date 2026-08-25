@@ -45,7 +45,153 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-st.title("🎟️ Campaign Mastersheet Importer")
+
+# Login screen styling and decorations, implementing the Claude Design
+# mock (Login.dc.html): dotted backdrop, centred hero, white card, and the
+# tilted mastersheet + gold/blue lucky-draw pass illustrations.
+_LOGIN_CSS = """
+<style>
+  .stApp {
+    background-color: #F3F5FA;
+    background-image: radial-gradient(#DCE0EE 1px, transparent 1px);
+    background-size: 26px 26px;
+  }
+  [data-testid="stForm"] {
+    background: #FFFFFF;
+    border: 1px solid #E8EBF5;
+    border-radius: 16px;
+    padding: 1.5rem 1.5rem 1.3rem;
+    box-shadow: 0 24px 48px rgba(30, 58, 159, 0.10);
+    max-width: 460px;
+    margin: 0 auto;
+    position: relative; z-index: 1;
+  }
+  [data-testid="stForm"] .stTextInput input { background: #FFFFFF; }
+  [data-testid="stForm"] .stFormSubmitButton button {
+    width: 100%;
+    background: #1E3A9F; color: #FFFFFF;
+    border: none; border-radius: 10px;
+    font-weight: 600; padding: 0.62rem 0;
+  }
+  [data-testid="stForm"] .stFormSubmitButton button:hover { background: #16307F; color: #FFFFFF; }
+  [data-testid="stAlertContainer"], .stAlert { max-width: 460px; margin: 0.6rem auto 0; }
+  .login-hero { position: relative; z-index: 1; text-align: center; margin: 1rem 0 1.4rem; }
+  .login-hero .app-icon {
+    width: 56px; height: 56px; margin: 0 auto 1rem;
+    background: #1E3A9F; border-radius: 15px;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 10px 22px rgba(30, 58, 159, 0.35);
+  }
+  .login-hero .app-icon span {
+    width: 24px; height: 17px; border: 3px solid #FFFFFF; border-radius: 5px; display: block;
+  }
+  .login-hero .login-title {
+    font-size: 1.75rem; font-weight: 700; color: #171C3F; margin: 0; line-height: 1.2;
+  }
+  .login-hero .login-sub { color: #8A90A8; margin: 0.35rem 0 0; font-size: 0.95rem; }
+  .login-note {
+    text-align: center; color: #9AA0B5; font-size: 0.86rem;
+    margin-top: 1.1rem; position: relative; z-index: 1;
+  }
+  .login-decor { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+  .decor-sheet {
+    position: absolute; top: 42px; left: 4%; width: 330px;
+    background: #FFFFFF; border-radius: 12px; transform: rotate(-7deg);
+    box-shadow: 0 20px 40px rgba(30, 58, 159, 0.14); overflow: hidden;
+  }
+  .decor-sheet .sheet-head {
+    background: #1E3A9F; height: 34px; display: flex; align-items: center;
+    gap: 6px; padding: 0 12px;
+  }
+  .decor-sheet .sheet-head i {
+    width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.55);
+  }
+  .decor-sheet .sheet-head b { color: #FFFFFF; font-size: 12px; margin-left: 6px; font-weight: 600; }
+  .decor-sheet .sheet-cols, .decor-sheet .sheet-row {
+    display: grid; grid-template-columns: 34px 1fr 1fr 1fr; align-items: center;
+  }
+  .decor-sheet .sheet-cols { background: #EFF2F9; color: #9AA0B5; font-size: 11px; }
+  .decor-sheet .sheet-cols span { padding: 5px 8px; text-align: center; }
+  .decor-sheet .sheet-row { border-top: 1px solid #EFF1F7; }
+  .decor-sheet .rn { color: #9AA0B5; font-size: 11px; text-align: center; padding: 10px 0; }
+  .decor-sheet .cell { padding: 10px 8px; }
+  .decor-sheet .bar { display: block; height: 8px; border-radius: 4px; background: #D9DDEA; }
+  .decor-sheet .bar.gold { background: #E9CE7F; }
+  .decor-sheet .cell.sel { outline: 2px solid #2743B0; outline-offset: -2px; border-radius: 3px; }
+  .ticket {
+    position: absolute; width: 272px; height: 112px; border-radius: 14px;
+    color: #FFFFFF; display: flex; overflow: hidden;
+    box-shadow: 0 18px 36px rgba(23, 28, 63, 0.22);
+  }
+  .ticket .main { flex: 1; padding: 16px 12px 12px 18px; position: relative; }
+  .ticket .star { position: absolute; right: 6px; top: -14px; font-size: 90px; opacity: 0.22; }
+  .ticket .kicker { font-size: 10px; letter-spacing: 2.5px; font-weight: 700; opacity: 0.75; }
+  .ticket .name { font-size: 24px; font-weight: 800; letter-spacing: 1px; margin-top: 2px; }
+  .ticket .num { font-size: 11px; opacity: 0.8; margin-top: 10px; }
+  .ticket .stub {
+    width: 54px; border-left: 2px dashed rgba(255,255,255,0.75);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 18px;
+  }
+  .ticket.gold {
+    background: linear-gradient(135deg, #DDAC2E, #C6961B);
+    bottom: 7%; left: 4%; transform: rotate(-9deg);
+  }
+  .ticket.blue {
+    background: linear-gradient(135deg, #2E4BC6, #1B3390);
+    top: 46%; right: 3%; transform: rotate(8deg);
+  }
+  .sparkle { position: absolute; }
+  @media (max-width: 1100px) { .decor-sheet, .ticket, .sparkle { display: none; } }
+</style>
+"""
+
+_LOGIN_DECOR = """
+<div class="login-decor">
+  <div class="decor-sheet">
+    <div class="sheet-head"><i></i><i></i><i></i><b>mastersheet_july.csv</b></div>
+    <div class="sheet-cols"><span></span><span>A</span><span>B</span><span>C</span></div>
+    <div class="sheet-row"><span class="rn">1</span><span class="cell"><span class="bar" style="width:82%"></span></span><span class="cell"><span class="bar" style="width:65%"></span></span><span class="cell"><span class="bar" style="width:74%"></span></span></div>
+    <div class="sheet-row"><span class="rn">2</span><span class="cell"><span class="bar" style="width:70%"></span></span><span class="cell sel"><span class="bar" style="width:85%"></span></span><span class="cell"><span class="bar gold" style="width:60%"></span></span></div>
+    <div class="sheet-row"><span class="rn">3</span><span class="cell"><span class="bar" style="width:76%"></span></span><span class="cell"><span class="bar" style="width:58%"></span></span><span class="cell"><span class="bar" style="width:68%"></span></span></div>
+    <div class="sheet-row"><span class="rn">4</span><span class="cell"><span class="bar" style="width:64%"></span></span><span class="cell"><span class="bar" style="width:72%"></span></span><span class="cell"><span class="bar" style="width:52%"></span></span></div>
+  </div>
+  <div class="ticket gold">
+    <div class="main">
+      <span class="star">★</span>
+      <div class="kicker">LUCKY DRAW</div>
+      <div class="name">GOLD PASS</div>
+      <div class="num">№ 000318</div>
+    </div>
+    <div class="stub">×2</div>
+  </div>
+  <div class="ticket blue">
+    <div class="main">
+      <span class="star">★</span>
+      <div class="kicker">LUCKY DRAW</div>
+      <div class="name">BLUE PASS</div>
+      <div class="num">№ 002471</div>
+    </div>
+    <div class="stub">×1</div>
+  </div>
+  <span class="sparkle" style="top:11%; left:42%; color:#E3C04A; font-size:16px;">◆</span>
+  <span class="sparkle" style="top:16%; right:12%; color:#E9CE7F; font-size:22px;">✦</span>
+  <span class="sparkle" style="top:35%; right:28%; color:#AAB6E8; font-size:11px;">●</span>
+  <span class="sparkle" style="top:42%; left:8%; color:#3D55B8; font-size:14px;">✦</span>
+  <span class="sparkle" style="top:34%; right:7%; color:#4C63C4; font-size:18px;">✦</span>
+  <span class="sparkle" style="bottom:24%; left:24%; color:#D9B23C; font-size:12px;">●</span>
+  <span class="sparkle" style="bottom:38%; left:30%; color:#E3C04A; font-size:14px;">✦</span>
+  <span class="sparkle" style="bottom:18%; right:20%; color:#8C9BD9; font-size:12px;">◆</span>
+</div>
+"""
+
+_LOGIN_HERO = """
+<div class="login-hero">
+  <div class="app-icon"><span></span></div>
+  <div class="login-title">Lucky Draw Sheet Importer</div>
+  <p class="login-sub">admin access</p>
+</div>
+"""
 
 
 # --------------------------------------------------------------------------
@@ -68,20 +214,27 @@ def _require_login() -> None:
         st.stop()
     if st.session_state.get("authenticated"):
         return
-    st.subheader("🔒 Log in")
+    st.markdown(_LOGIN_CSS, unsafe_allow_html=True)
+    st.markdown(_LOGIN_DECOR, unsafe_allow_html=True)
+    st.markdown(_LOGIN_HERO, unsafe_allow_html=True)
     with st.form("login"):
-        entered = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Log in", type="primary")
+        entered = st.text_input("Password", type="password", placeholder="Enter admin password")
+        submitted = st.form_submit_button("Log in", type="primary", use_container_width=True)
     if submitted:
         if hmac.compare_digest(str(entered), str(expected)):
             st.session_state["authenticated"] = True
             st.rerun()
         time.sleep(1)  # slow down password guessing
         st.error("Wrong password.")
+    st.markdown(
+        '<p class="login-note">Shared admin password. The database key never leaves the server.</p>',
+        unsafe_allow_html=True,
+    )
     st.stop()
 
 
 _require_login()
+st.title("🎟️ Campaign Mastersheet Importer")
 
 with st.sidebar:
     if st.button("🔓 Log out"):
