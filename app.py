@@ -214,7 +214,10 @@ def _db(url: str, _key: str):
     return create_supabase_database(url, _key)
 
 
-@st.cache_data(ttl=120, show_spinner="Loading reference data from Supabase…")
+# cache_resource, not cache_data: the reference bundle is a plain in-memory
+# object we never mutate, and cache_data's pickling of custom dataclasses
+# breaks under Streamlit's module reloading.
+@st.cache_resource(ttl=120, show_spinner="Loading reference data from Supabase…")
 def _reference(url: str, _key: str):
     return _db(url, _key).load_reference()
 
