@@ -246,6 +246,21 @@ def main() -> int:
             == (len(report.ok_rows), len(report.warning_rows), len(report.error_rows)),
         )
 
+    from importer.core import suggest_month
+
+    sm, why = suggest_month("upload.csv", df_m, ref)
+    check(
+        "suggest_month: messy file's Monthly Draw column wins (typo 'Augst' ignored)",
+        sm == "August" and "Monthly Draw" in (why or ""),
+        f"got {sm!r} / {why!r}",
+    )
+    df_blank = df.copy()
+    df_blank["Monthly Draw"] = ""
+    sm, why = suggest_month("mastersheet_september.csv", df_blank, ref)
+    check("suggest_month: filename fallback", sm == "September", f"got {sm!r} / {why!r}")
+    sm, why = suggest_month("upload.csv", df_blank, ref)
+    check("suggest_month: no signal -> no guess", sm is None and why is None, f"got {sm!r}")
+
     xlsx_buf = io.BytesIO()
     pd.read_csv(sample_path, dtype=str, keep_default_na=False).to_excel(xlsx_buf, index=False)
     df_x, err = read_upload("sample.xlsx", xlsx_buf.getvalue())

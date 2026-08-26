@@ -318,6 +318,38 @@ def validate_file(df: pd.DataFrame, ref: ReferenceData, selected_month: str) -> 
     return report
 
 
+def suggest_month(filename: str, df: pd.DataFrame | None, ref: ReferenceData) -> tuple[str | None, str | None]:
+    """Best-effort guess of which draw month a mastersheet is for.
+
+    Used only to PRE-SELECT the month in the UI — the human still confirms,
+    and validation still rejects prize rows that contradict the selection.
+    Sources, in order of trust:
+      1. the file's Monthly Draw column, when every filled value maps to the
+         same known draw month (typos like 'Augst' simply don't match);
+      2. a known month name appearing in the filename.
+    Returns (month, human-readable reason) or (None, None).
+    """
+    if df is not None:
+        headers = {str(c).replace("\ufeff", "").strip(): c for c in df.columns}
+        col = headers.get("Monthly Draw")
+        if col is not None:
+            found = set()
+            for v in df[col]:
+                t = text(v)
+                if t:
+                    matched = ref.match_month(t)
+                    if matched:
+                        found.add(matched)
+            if len(found) == 1:
+                month = found.pop()
+                return month, f"the file's Monthly Draw column says {month}"
+    low = (filename or "").lower()
+    for month in ref.months():
+        if month.lower() in low:
+            return month, f"the filename mentions {month}"
+    return None, None
+
+
 # ---------------------------------------------------------------------------
 # =========================  THE UNPIVOT  ===================================
 # ---------------------------------------------------------------------------

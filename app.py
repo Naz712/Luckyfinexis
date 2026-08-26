@@ -26,7 +26,8 @@ import pandas as pd
 import streamlit as st
 
 import ui
-from importer.core import RunLog, build_plan, execute_plan, validate_file
+from datetime import date
+from importer.core import RunLog, build_plan, execute_plan, suggest_month, validate_file
 from importer.models import SEV_ERROR, ImporterError
 from importer.parsing import read_upload
 
@@ -333,10 +334,32 @@ with st.sidebar:
 # --------------------------------------------------------------------------
 st.title("File checked — ready to review" if _prev_file is not None else "Import a mastersheet")
 
+# Default month: the next upcoming draw. When a file arrives, pre-select the
+# month it appears to be for (its Monthly Draw column, or the filename) — the
+# human still confirms, and validation still rejects contradicting prize rows.
+if st.session_state.get("month") is None:
+    st.session_state["month"] = next(
+        (m for m in months if ref.month_date(m) and ref.month_date(m) >= date.today()),
+        months[0],
+    )
+
+_suggestion_note = None
+if _prev_file is not None:
+    _sig = hashlib.sha256(_prev_file.getvalue()).hexdigest()[:12]
+    if st.session_state.get("suggested_for") != _sig:
+        st.session_state["suggested_for"] = _sig
+        _sdf, _serr = read_upload(_prev_file.name, _prev_file.getvalue())
+        _sm, _swhy = suggest_month(_prev_file.name, _sdf if _serr is None else None, ref)
+        if _sm:
+            st.session_state["month"] = _sm
+            st.session_state["suggestion"] = (_sig, _sm, _swhy)
+    _s = st.session_state.get("suggestion")
+    if _s and _s[0] == _sig and st.session_state.get("month") == _s[1]:
+        _suggestion_note = _s[2]
+
 month = st.pills(
     "Which draw month is this file for?",
     months,
-    default=months[0],
     selection_mode="single",
     key="month",
 )
@@ -344,7 +367,9 @@ if month is None:
     st.info("Pick a draw month to continue.")
     st.stop()
 st.markdown(
-    f'<span class="muted-note">Everything in the file is stamped with {month}&rsquo;s draws.</span>',
+    f'<span class="muted-note">Everything in the file is stamped with {month}&rsquo;s draws.'
+    + (f" Pre-selected because {_suggestion_note} — change it if that's wrong." if _suggestion_note else "")
+    + "</span>",
     unsafe_allow_html=True,
 )
 if any(d.is_drawn for d in ref.draws if d.monthly_draw == month):
