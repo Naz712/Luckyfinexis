@@ -23,7 +23,29 @@ FONT_LINKS = """
 
 GLOBAL_CSS = """
 <style>
-  [data-testid="stHeader"] { display: none; }
+  /* The header is flattened for the design, but it hosts the control that
+     re-opens a collapsed sidebar — so that control is pulled out and given
+     its own fixed position and size, otherwise the panel cannot be restored. */
+  [data-testid="stHeader"] { background: transparent; }
+  /* NB: do not hide stToolbar itself — the sidebar expand button lives
+     inside it, and hiding it strands a collapsed sidebar. */
+  [data-testid="stDecoration"], [data-testid="stAppDeployButton"],
+  [data-testid="stMainMenu"] { display: none; }
+  [data-testid="stExpandSidebarButton"],
+  [data-testid="stSidebarCollapsedControl"] {
+    position: fixed; top: 10px; left: 10px; z-index: 1000;
+    width: 34px; height: 34px; overflow: visible; pointer-events: auto;
+    display: flex; align-items: center; justify-content: center;
+  }
+  button[data-testid="stExpandSidebarButton"],
+  [data-testid="stExpandSidebarButton"] button,
+  [data-testid="stSidebarCollapsedControl"] button {
+    width: 34px !important; height: 34px !important;
+    min-width: 34px !important; min-height: 34px !important;
+    padding: 0 !important; visibility: visible !important; opacity: 1 !important;
+    background: #FFFFFF; border: 1px solid #E8EAF2; border-radius: 8px; color: #1E3A9F;
+    box-shadow: 0 1px 3px rgba(16,24,40,.08);
+  }
   .stApp { background: #F6F7FB; }
   .block-container { padding: 0 2.2rem 4rem; max-width: 1280px; }
   .stApp :where(h1, h2, h3, h4, p, span, div, button, input, label, small, li, td, th)
