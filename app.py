@@ -276,7 +276,7 @@ except Exception as exc:
 if ref.campaign is None:
     st.error(
         "No active campaign found in the campaigns table. "
-        "Activate a campaign, then press “Refresh reference data”."
+        "Activate a campaign, then reload this page."
     )
     st.stop()
 if not ref.challenge_types:
@@ -324,10 +324,6 @@ with st.container(key="topbar"):
 # --------------------------------------------------------------------------
 with st.sidebar:
     st.markdown(ui.sidebar_html(ref), unsafe_allow_html=True)
-    st.markdown("")
-    if st.button("↻ Refresh reference data", key="refresh_btn"):
-        _reference.clear()
-        st.rerun()
 
 # --------------------------------------------------------------------------
 # Main column
