@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { advisors, cases as seedCases, DEFAULT_USER_ID, MANAGER_USER_ID } from "./mock/data";
+import { advisors, cases as seedCases, DEFAULT_USER_ID, MANAGER_USER_ID, type Case } from "./mock/data";
 import { advisorById, casesForAdvisor } from "./lib/calc";
 import { Stub } from "./components/ui";
 import Calculator from "./screens/Calculator";
 import Home from "./screens/Home";
+import Log from "./screens/Log";
 
 type Tab = "calculator" | "home" | "log" | "team" | "draw";
 
@@ -26,8 +27,10 @@ const ICONS: Record<Tab, string> = {
 export default function App() {
   const [userId, setUserId] = useState(DEFAULT_USER_ID);
   const [tab, setTab] = useState<Tab>("home");
-  // Cases live in memory only. Logging a case (next screen) will append here.
-  const [cases] = useState(seedCases);
+  // Cases live in memory only; the Log screen appends pending manual cases here.
+  const [cases, setCases] = useState(seedCases);
+  const addCase = (c: Case) => setCases((cs) => [...cs, c]);
+  const removePendingCase = (id: string) => setCases((cs) => cs.filter((c) => !(c.id === id && c.status === "pending")));
 
   const me = advisorById(userId)!;
   const isManager = advisors.some((a) => a.manager_id === me.id);
@@ -75,7 +78,7 @@ export default function App() {
       <main className="flex-1 pb-[calc(64px+env(safe-area-inset-bottom))]">
         {activeTab === "calculator" && <Calculator key={me.id} advisor={me} cases={myCases} />}
         {activeTab === "home" && <Home key={me.id} advisor={me} cases={cases} />}
-        {activeTab === "log" && <Stub title="Log a case" text="Built after Home." />}
+        {activeTab === "log" && <Log key={me.id} advisor={me} cases={cases} onAdd={addCase} onRemove={removePendingCase} />}
         {activeTab === "team" && <Stub title="Team" text="Manager view. Built after Log." />}
         {activeTab === "draw" && <Stub title="Lucky draw" text="Around The World — pass tracker. Existing module plugs in here." />}
       </main>
