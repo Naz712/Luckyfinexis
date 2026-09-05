@@ -30,5 +30,5 @@ the manager-only Team tab can be checked.
 - [x] Calculator
 - [x] Home / dashboard
 - [x] Log a case
-- [ ] Team (manager only)
+- [x] Team (manager only)
 - [ ] Lucky draw placeholder

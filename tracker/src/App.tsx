@@ -5,6 +5,7 @@ import { Stub } from "./components/ui";
 import Calculator from "./screens/Calculator";
 import Home from "./screens/Home";
 import Log from "./screens/Log";
+import Team from "./screens/Team";
 
 type Tab = "calculator" | "home" | "log" | "team" | "draw";
 
@@ -43,7 +44,7 @@ export default function App() {
       <header className="sticky top-0 z-10 border-b border-line bg-white/95 px-4 pb-3 pt-[max(12px,env(safe-area-inset-top))] backdrop-blur">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-accent">Finexis tracker</div>
+            <div className="whitespace-nowrap text-[11px] font-semibold uppercase tracking-wide text-accent">Finexis tracker</div>
             <div className="text-[17px] font-semibold text-ink">{TABS.find((t) => t.id === activeTab)?.label}</div>
           </div>
           <div className="flex items-center gap-2">
@@ -51,17 +52,16 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setUserId(isManager ? DEFAULT_USER_ID : MANAGER_USER_ID)}
-                className="rounded-full border border-dashed border-line px-2 py-1 text-[10px] font-medium text-muted"
+                className="whitespace-nowrap rounded-full border border-dashed border-line px-2 py-1 text-[10px] font-medium text-muted"
                 title="Dev only: switch between FC and manager"
               >
                 dev: {isManager ? "manager" : "FC"}
               </button>
             )}
             <div className="text-right">
-              <div className="text-[13px] font-semibold text-ink">{me.name}</div>
-              <div className="text-[11px] text-muted">
-                {me.fc_code} · {me.banding_code}
-                {isManager ? " · Manager" : ""}
+              <div className="whitespace-nowrap text-[13px] font-semibold text-ink">{me.name}</div>
+              <div className="whitespace-nowrap text-[11px] text-muted">
+                {me.banding_code} · {isManager ? "Manager" : me.fc_code}
               </div>
             </div>
             <div className="grid h-9 w-9 place-items-center rounded-full bg-accent-soft text-[13px] font-semibold text-accent" aria-hidden="true">
@@ -79,7 +79,7 @@ export default function App() {
         {activeTab === "calculator" && <Calculator key={me.id} advisor={me} cases={myCases} />}
         {activeTab === "home" && <Home key={me.id} advisor={me} cases={cases} />}
         {activeTab === "log" && <Log key={me.id} advisor={me} cases={cases} onAdd={addCase} onRemove={removePendingCase} />}
-        {activeTab === "team" && <Stub title="Team" text="Manager view. Built after Log." />}
+        {activeTab === "team" && isManager && <Team key={me.id} manager={me} cases={cases} />}
         {activeTab === "draw" && <Stub title="Lucky draw" text="Around The World — pass tracker. Existing module plugs in here." />}
       </main>
 
