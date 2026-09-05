@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+/* One accent colour (Finexis brand blue) plus neutrals. No gradients. */
+@theme {
+  --color-accent: #1e3a9f;
+  --color-accent-soft: #e8edf9;
+  --color-ink: #14235e;
+  --color-body: #2b3245;
+  --color-muted: #6b7280;
+  --color-line: #e5e7eb;
+  --color-canvas: #f4f5f9;
+  --color-ok: #16855a;
+  --color-warn: #b07908;
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+html {
+  background: var(--color-canvas);
+  color: var(--color-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+}
+
+/* Large numbers should line up. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Remove number-input spinners so premium fields look like plain money fields. */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
