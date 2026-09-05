@@ -270,3 +270,113 @@ export function tierProgress(metric: "mdrt_premium" | "mdrt_commission", value: 
   const progress = next ? Math.min(value / thresholdFor(metric, next), 1) : 1;
   return { reached, next, progress };
 }
+
+// ───────────────────────── Dashboard snapshots ─────────────────────────
+// Everything a metric card needs, computed in one place so Home and Team
+// show identical numbers.
+
+/** Metrics with no source table in the mock; they aggregate to 0 and cards say "not tracked yet". */
+export const UNTRACKED_METRICS: ReadonlySet<MetricCode> = new Set(["elite", "referrals", "testimonials"]);
+
+/**
+ * The same window last year, cut off at the same point in time as `today`
+ * so "vs same period last year" compares like with like (e.g. 1 Jan–5 Sep
+ * 2025 against 1 Jan–5 Sep 2026), not a finished year against a partial one.
+ */
+export function comparablePeriodLastYear(p: Period, today: Date): Period {
+  const ly = samePeriodLastYear(p);
+  const cutoff = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate());
+  return { start: ly.start, end: cutoff < ly.end ? cutoff : ly.end };
+}
+
+export interface MetricSnapshot {
+  definition: MetricDefinition;
+  period: Period;
+  achieved: number; // confirmed only
+  projected: number; // confirmed + pending
+  target: number | null;
+  gap: number | null;
+  pace: Pace | null;
+  tracked: boolean;
+  lastYear: { period: Period; achieved: number; delta: number; deltaRatio: number | null };
+  contributing: Case[];
+}
+
+export function metricSnapshot(advisorId: string, cases: Case[], metric: MetricCode, today: Date): MetricSnapshot {
+  const definition = metricDefinition(metric);
+  const period = periodBounds(definition.period_type, today);
+  const mine = cases.filter((c) => c.advisor_id === advisorId && c.status !== "superseded");
+  const confirmed = mine.filter((c) => c.status === "confirmed");
+
+  const achieved = aggregate(confirmed, metric, period.start, period.end);
+  const projected = aggregate(mine, metric, period.start, period.end);
+  const target = goalFor(advisorId, metric, period.start.getFullYear());
+  const gap = target === null ? null : Math.max(target - achieved, 0);
+  const tracked = !UNTRACKED_METRICS.has(metric);
+  const paceResult = target === null || !tracked ? null : pace(achieved, target, period.start, period.end, today);
+
+  const lyPeriod = comparablePeriodLastYear(period, today);
+  const lyAchieved = aggregate(confirmed, metric, lyPeriod.start, lyPeriod.end);
+  const delta = achieved - lyAchieved;
+
+  return {
+    definition,
+    period,
+    achieved,
+    projected,
+    target,
+    gap,
+    pace: paceResult,
+    tracked,
+    lastYear: { period: lyPeriod, achieved: lyAchieved, delta, deltaRatio: lyAchieved > 0 ? delta / lyAchieved : null },
+    contributing: tracked ? contributingCases(mine, period.start, period.end) : [],
+  };
+}
+
+export type MdrtRouteMetric = "mdrt_commission" | "mdrt_premium";
+
+export interface MdrtRoute {
+  metric: MdrtRouteMetric;
+  label: string;
+  achieved: number;
+  projected: number;
+  tiers: TierProgress;
+  /** Threshold of the next tier not yet reached (null once TOT is reached). */
+  nextThreshold: number | null;
+  pace: Pace | null;
+}
+
+export interface MdrtSnapshot {
+  period: Period;
+  routes: MdrtRoute[];
+  /** The route that is furthest along toward its next tier. */
+  closer: MdrtRouteMetric;
+  contributing: Case[];
+}
+
+export function mdrtSnapshot(advisorId: string, cases: Case[], today: Date): MdrtSnapshot {
+  const period = periodBounds(metricDefinition("mdrt_commission").period_type, today);
+  const mine = cases.filter((c) => c.advisor_id === advisorId && c.status !== "superseded");
+  const confirmed = mine.filter((c) => c.status === "confirmed");
+
+  const routes: MdrtRoute[] = (["mdrt_commission", "mdrt_premium"] as const).map((metric) => {
+    const achieved = aggregate(confirmed, metric, period.start, period.end);
+    const projected = aggregate(mine, metric, period.start, period.end);
+    const tiers = tierProgress(metric, achieved);
+    const nextThreshold = tiers.next ? thresholdFor(metric, tiers.next) : null;
+    return {
+      metric,
+      label: metric === "mdrt_commission" ? "Commission" : "Premium",
+      achieved,
+      projected,
+      tiers,
+      nextThreshold,
+      pace: nextThreshold === null ? null : pace(achieved, nextThreshold, period.start, period.end, today),
+    };
+  });
+
+  const rank = (r: MdrtRoute) => (r.tiers.reached ? TIER_ORDER.indexOf(r.tiers.reached) + 1 : 0) + r.tiers.progress;
+  const closer = routes.reduce((best, r) => (rank(r) > rank(best) ? r : best), routes[0]).metric;
+
+  return { period, routes, closer, contributing: contributingCases(mine, period.start, period.end) };
+}

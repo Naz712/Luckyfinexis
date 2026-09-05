@@ -1,15 +1,15 @@
 import { useState } from "react";
-import { advisors, cases as seedCases, DEFAULT_USER_ID, MANAGER_USER_ID, TODAY } from "./mock/data";
+import { advisors, cases as seedCases, DEFAULT_USER_ID, MANAGER_USER_ID } from "./mock/data";
 import { advisorById, casesForAdvisor } from "./lib/calc";
-import { longDate } from "./lib/format";
 import { Stub } from "./components/ui";
 import Calculator from "./screens/Calculator";
+import Home from "./screens/Home";
 
 type Tab = "calculator" | "home" | "log" | "team" | "draw";
 
 const TABS: { id: Tab; label: string; managerOnly?: boolean }[] = [
-  { id: "calculator", label: "Calculator" },
   { id: "home", label: "Home" },
+  { id: "calculator", label: "Calculator" },
   { id: "log", label: "Log" },
   { id: "team", label: "Team", managerOnly: true },
   { id: "draw", label: "Draw" },
@@ -25,7 +25,7 @@ const ICONS: Record<Tab, string> = {
 
 export default function App() {
   const [userId, setUserId] = useState(DEFAULT_USER_ID);
-  const [tab, setTab] = useState<Tab>("calculator");
+  const [tab, setTab] = useState<Tab>("home");
   // Cases live in memory only. Logging a case (next screen) will append here.
   const [cases] = useState(seedCases);
 
@@ -33,7 +33,7 @@ export default function App() {
   const isManager = advisors.some((a) => a.manager_id === me.id);
   const myCases = casesForAdvisor(me.id, cases);
   const visibleTabs = TABS.filter((t) => !t.managerOnly || isManager);
-  const activeTab = visibleTabs.some((t) => t.id === tab) ? tab : "calculator";
+  const activeTab = visibleTabs.some((t) => t.id === tab) ? tab : "home";
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-canvas sm:border-x sm:border-line">
@@ -74,7 +74,7 @@ export default function App() {
 
       <main className="flex-1 pb-[calc(64px+env(safe-area-inset-bottom))]">
         {activeTab === "calculator" && <Calculator key={me.id} advisor={me} cases={myCases} />}
-        {activeTab === "home" && <Stub title="Home" text={`Dashboard for ${me.name} · ${longDate(TODAY)}. Built next.`} />}
+        {activeTab === "home" && <Home key={me.id} advisor={me} cases={cases} />}
         {activeTab === "log" && <Stub title="Log a case" text="Built after Home." />}
         {activeTab === "team" && <Stub title="Team" text="Manager view. Built after Log." />}
         {activeTab === "draw" && <Stub title="Lucky draw" text="Around The World — pass tracker. Existing module plugs in here." />}

@@ -28,7 +28,7 @@ the manager-only Team tab can be checked.
 
 - [x] Data layer and calculations
 - [x] Calculator
-- [ ] Home / dashboard
+- [x] Home / dashboard
 - [ ] Log a case
 - [ ] Team (manager only)
 - [ ] Lucky draw placeholder
