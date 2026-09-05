@@ -118,6 +118,13 @@ export function parseISODate(s: string): Date {
   return new Date(y, m - 1, d);
 }
 
+/** Format a local Date as "YYYY-MM-DD". */
+export function toISODate(d: Date): string {
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
 /** The date a case counts on: confirmation date if confirmed, else submission date. */
 export function effectiveDate(c: Case): Date {
   return parseISODate(c.confirmed_on ?? c.submitted_on);
