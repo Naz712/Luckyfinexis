@@ -30,10 +30,13 @@ configured (or the placeholder still in place) the app refuses to run.
 
 ### How an import works
 
-1. **Upload** a `.csv` or `.xlsx` mastersheet.
-2. **Pick the draw month** — a dropdown of the active campaign's draws.
-   Everything imported is stamped with that month's draws (gold activities go
-   to the gold draw, blue to the blue draw). The app stops if no campaign is
+1. **Upload** a `.csv` or `.xlsx` mastersheet. It can hold one month or the
+   whole campaign — each row's `Monthly Draw` cell says which draw its passes
+   go to (gold activities to the gold draw, blue to the blue draw).
+2. **Draw month fallback** — only if some rows leave `Monthly Draw` blank or
+   misspell it does the app ask which draw those rows should go to,
+   pre-selecting the month the rest of the file (or its filename) suggests.
+   Rows that name their own month keep it. The app stops if no campaign is
    active.
 3. **Validate** (read-only): per-row report — unknown FC emails, wrong
    domain, FC code mismatches, blank names/emails, non-numeric or negative
@@ -52,13 +55,19 @@ configured (or the placeholder still in place) the app refuses to run.
 6. A copyable **run log** records everything, including every skipped row and
    the reason.
 
-### Month conflict rules (prize rows)
+### Month rules
 
-The dropdown and the `Monthly Draw` column both state the month. If they
-disagree the prize is **rejected and reported** — never guessed, never
-fuzzy-matched: an unknown month ("Augst"), a valid-but-different month, or a
-blank month with `Prize Won` filled are all errors. The row's pass ledger
-entries still import — a bad prize cell never discards the client's passes.
+A row's passes go to the month in its own `Monthly Draw` cell. A blank or
+unrecognised value ("Augst") falls back to the file-level month chosen in the
+app, with a warning; with no fallback chosen, such rows are errors. Because
+the ledger key includes the month, one running mastersheet can be re-uploaded
+whenever it changes: rows already imported update in place, new rows are
+added, nothing double-awards.
+
+Prizes are stricter: a prize is only recorded against the month the row
+itself names — never the fallback, never fuzzy-matched. An unknown month or a
+blank month with `Prize Won` filled rejects **the prize only**; the row's
+pass ledger entries still import.
 
 ### Column mapping and rates live in the database
 

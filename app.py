@@ -4,7 +4,7 @@ Streamlit app that imports the marketing mastersheet (wide: one row per
 client, one column per qualifying activity) into the Supabase pass ledger
 (long: one row per award).
 
-Flow: log in -> pick draw month -> upload -> validate (read-only) -> preview
+Flow: log in -> upload -> (draw month fallback only if rows need it) -> validate (read-only) -> preview
 (read-only) -> explicit Confirm -> batched idempotent import -> run log.
 
 The UI implements the Claude Design project (Login.dc.html / Home.dc.html):
@@ -27,7 +27,7 @@ import streamlit as st
 
 import ui
 from datetime import date
-from importer.core import RunLog, build_plan, execute_plan, suggest_month, validate_file
+from importer.core import RunLog, build_plan, execute_plan, suggest_month, validate_file, rows_needing_default
 from importer.models import SEV_ERROR, ImporterError
 from importer.parsing import read_upload
 
@@ -297,7 +297,7 @@ def _file_token(data: bytes, month: str | None) -> str:
 # Topbar with the Upload / Validate / Confirm stepper
 # --------------------------------------------------------------------------
 _prev_file = st.session_state.get("uploader")
-_prev_month = st.session_state.get("month")
+_prev_month = st.session_state.get("default_month_used")
 if _prev_file is None:
     _done, _active = 0, 0
 elif st.session_state.get("imported_token") == _file_token(_prev_file.getvalue(), _prev_month):
@@ -330,47 +330,6 @@ with st.sidebar:
 # --------------------------------------------------------------------------
 st.title("File checked — ready to review" if _prev_file is not None else "Import a mastersheet")
 
-# Default month: the next upcoming draw. When a file arrives, pre-select the
-# month it appears to be for (its Monthly Draw column, or the filename) — the
-# human still confirms, and validation still rejects contradicting prize rows.
-if st.session_state.get("month") is None:
-    st.session_state["month"] = next(
-        (m for m in months if ref.month_date(m) and ref.month_date(m) >= date.today()),
-        months[0],
-    )
-
-_suggestion_note = None
-if _prev_file is not None:
-    _sig = hashlib.sha256(_prev_file.getvalue()).hexdigest()[:12]
-    if st.session_state.get("suggested_for") != _sig:
-        st.session_state["suggested_for"] = _sig
-        _sdf, _serr = read_upload(_prev_file.name, _prev_file.getvalue())
-        _sm, _swhy = suggest_month(_prev_file.name, _sdf if _serr is None else None, ref)
-        if _sm:
-            st.session_state["month"] = _sm
-            st.session_state["suggestion"] = (_sig, _sm, _swhy)
-    _s = st.session_state.get("suggestion")
-    if _s and _s[0] == _sig and st.session_state.get("month") == _s[1]:
-        _suggestion_note = _s[2]
-
-month = st.pills(
-    "Which draw month is this file for?",
-    months,
-    selection_mode="single",
-    key="month",
-)
-if month is None:
-    st.info("Pick a draw month to continue.")
-    st.stop()
-st.markdown(
-    f'<span class="muted-note">Everything in the file is stamped with {month}&rsquo;s draws.'
-    + (f" Pre-selected because {_suggestion_note} — change it if that's wrong." if _suggestion_note else "")
-    + "</span>",
-    unsafe_allow_html=True,
-)
-if any(d.is_drawn for d in ref.draws if d.monthly_draw == month):
-    st.warning(f"The {month} draw has already been drawn — importing will add passes after the fact.")
-
 uploaded = st.file_uploader(
     "Campaign mastersheet",
     type=["csv", "xlsx"],
@@ -378,7 +337,7 @@ uploaded = st.file_uploader(
     label_visibility="collapsed",
 )
 if uploaded is None:
-    st.markdown(ui.dropzone_title_css(month), unsafe_allow_html=True)
+    st.markdown(ui.dropzone_title_css(None), unsafe_allow_html=True)
     st.stop()
 
 # a file is loaded — compact the dropzone into a "replace file" strip
@@ -402,8 +361,58 @@ if parse_error:
     st.error(parse_error)
     st.stop()
 
+# ---- draw month: each row names its own; a file-level fallback is asked for
+# only when some rows leave Monthly Draw blank or misspell it ---------------
+_blank_m, _unknown_m = rows_needing_default(df, ref)
+_needing = _blank_m + _unknown_m
+default_month = None
+if _needing:
+    if st.session_state.get("month") is None:
+        st.session_state["month"] = next(
+            (m for m in months if ref.month_date(m) and ref.month_date(m) >= date.today()),
+            months[0],
+        )
+    _sig = hashlib.sha256(file_bytes).hexdigest()[:12]
+    if st.session_state.get("suggested_for") != _sig:
+        st.session_state["suggested_for"] = _sig
+        _sm, _swhy = suggest_month(uploaded.name, df, ref)
+        if _sm:
+            st.session_state["month"] = _sm
+            st.session_state["suggestion"] = (_sig, _sm, _swhy)
+    _s = st.session_state.get("suggestion")
+    _suggestion_note = _s[2] if (_s and _s[0] == _sig and st.session_state.get("month") == _s[1]) else None
+    _what = " and ".join(
+        part
+        for part in (
+            f"{_blank_m} row{'s' if _blank_m != 1 else ''} leave Monthly Draw blank" if _blank_m else "",
+            f"{_unknown_m} row{'s' if _unknown_m != 1 else ''} have an unrecognised month" if _unknown_m else "",
+        )
+        if part
+    )
+    default_month = st.pills(
+        f"{_what} — which draw should those rows go to?",
+        months,
+        selection_mode="single",
+        key="month",
+    )
+    if default_month is None:
+        st.info("Pick a draw month for those rows to continue.")
+        st.stop()
+    st.markdown(
+        '<span class="muted-note">Rows that name their own month keep it. '
+        + (f"Pre-selected because {_suggestion_note} — change it if that's wrong." if _suggestion_note else "")
+        + "</span>",
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown(
+        '<span class="muted-note">Every row names its own draw month — nothing to choose.</span>',
+        unsafe_allow_html=True,
+    )
+st.session_state["default_month_used"] = default_month
+
 # ---- validate (read-only — nothing is written here) ----------------------
-report = validate_file(df, ref, month)
+report = validate_file(df, ref, default_month)
 if report.fatal:
     for msg in report.fatal:
         st.error(msg)
@@ -420,7 +429,21 @@ except Exception as exc:
     st.error(f"Could not build the import preview: {exc}")
     st.stop()
 
-st.markdown(ui.file_card_html(uploaded.name, len(file_bytes), month), unsafe_allow_html=True)
+_month_counts = report.month_counts()
+_month_label = (
+    " + ".join(_month_counts) + (" draws" if len(_month_counts) > 1 else " draw") if _month_counts else "no importable rows"
+)
+st.markdown(ui.file_card_html(uploaded.name, len(file_bytes), _month_label), unsafe_allow_html=True)
+if _month_counts:
+    st.markdown(
+        '<span class="muted-note">Draw months in this file: '
+        + " · ".join(f"<b>{m}</b> {n} row{'s' if n != 1 else ''}" for m, n in _month_counts.items())
+        + "</span>",
+        unsafe_allow_html=True,
+    )
+for _m in _month_counts:
+    if any(d.is_drawn for d in ref.draws if d.monthly_draw == _m):
+        st.warning(f"The {_m} draw has already been drawn — importing will add passes after the fact.")
 
 flagged_rows = len(report.warning_rows) + len(report.error_rows)
 passes_planned = sum(e.units * e.rate_applied for e in plan.ledger_entries)
@@ -502,14 +525,14 @@ st.markdown(
     "The import runs only when you press Confirm.</span>",
     unsafe_allow_html=True,
 )
-file_token = _file_token(file_bytes, month)
+file_token = _file_token(file_bytes, default_month)
 if st.session_state.get("imported_token") == file_token:
     st.info(
-        "This exact file and draw month were already imported in this session. "
+        "This exact file was already imported in this session. "
         "Confirming again is safe — the import is idempotent and will update rows in place."
     )
 
-confirm = st.button(f"Confirm import into {month} →", type="primary")
+confirm = st.button(f"Confirm import into {' and '.join(plan.months)} →", type="primary")
 
 # --------------------------------------------------------------------------
 # Import (the only place writes happen)
@@ -517,7 +540,7 @@ confirm = st.button(f"Confirm import into {month} →", type="primary")
 if confirm:
     log = RunLog()
     log.add(f"File: {uploaded.name} (sha256 {hashlib.sha256(file_bytes).hexdigest()[:12]}, {len(report.rows)} data rows)")
-    log.add(f"Target: campaign '{ref.campaign.name}', draw month {month}")
+    log.add(f"Target: campaign '{ref.campaign.name}', draw month{'s' if len(plan.months) != 1 else ''} {', '.join(plan.months)}")
     bar = st.progress(0.0, text="Starting…")
 
     def _progress(done: int, total: int, label: str) -> None:

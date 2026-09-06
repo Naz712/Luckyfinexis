@@ -123,6 +123,10 @@ class RowReport:
     row_num: int
     fc_email: str = ""
     fc_code: str = ""
+    # the draw month this row's passes go to, once resolved (row's own
+    # Monthly Draw value, else the file-level default chosen in the app)
+    month: str | None = None
+    month_source: str = ""  # "row" | "file" | ""
     advisor: Advisor | None = None
     client_name: str = ""
     client_email: str = ""  # trimmed + lowercased; the client upsert key
@@ -166,7 +170,10 @@ class RowReport:
 
 @dataclass
 class FileReport:
-    selected_month: str
+    """default_month is the file-level fallback for rows whose Monthly Draw
+    cell is blank or unrecognised; None when every row names its own month."""
+
+    default_month: str | None
     fatal: list[str] = field(default_factory=list)  # file cannot be processed at all
     unexpected_columns: list[str] = field(default_factory=list)
     rows: list[RowReport] = field(default_factory=list)
@@ -185,6 +192,14 @@ class FileReport:
 
     def importable(self) -> list[RowReport]:
         return [r for r in self.rows if not r.blocked]
+
+    def month_counts(self) -> dict[str, int]:
+        """Importable rows per resolved draw month, in first-seen order."""
+        counts: dict[str, int] = {}
+        for r in self.importable():
+            if r.month:
+                counts[r.month] = counts.get(r.month, 0) + 1
+        return counts
 
 
 @dataclass(frozen=True)
@@ -216,7 +231,7 @@ class PrizeItem:
 class ImportPlan:
     """Everything the Confirm button will write, computed read-only."""
 
-    month: str
+    months: list[str]  # every draw month touched, in campaign order
     campaign_id: str
     campaign_name: str
     rows_total: int
@@ -236,7 +251,7 @@ class ImportPlan:
 
 @dataclass
 class ImportSummary:
-    month: str
+    months: list[str]
     campaign_name: str
     rows_total: int
     rows_imported: int
@@ -254,7 +269,8 @@ class ImportSummary:
     def as_text(self) -> str:
         return "\n".join(
             [
-                f"Import complete — campaign '{self.campaign_name}', draw month {self.month}",
+                f"Import complete — campaign '{self.campaign_name}', "
+                f"draw month{'s' if len(self.months) != 1 else ''} {', '.join(self.months) or '—'}",
                 f"  Rows: {self.rows_imported} imported, {self.rows_skipped} skipped "
                 f"of {self.rows_total} total",
                 f"  Clients: {self.clients_created} created, {self.clients_updated} updated",

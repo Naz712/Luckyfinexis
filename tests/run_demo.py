@@ -246,6 +246,33 @@ def main() -> int:
             == (len(report.ok_rows), len(report.warning_rows), len(report.error_rows)),
         )
 
+    # ------------------------------------------------- per-row draw months
+    banner("PER-ROW MONTHS — one file spanning July and August")
+    df_mix = df.copy()
+    df_mix.loc[df_mix.index[:10], "Monthly Draw"] = "July"     # first 10 rows name July
+    df_mix.loc[df_mix.index[10:20], "Monthly Draw"] = "August"  # next 10 name August
+    # of the remaining 12 rows, one prize row already says August; 11 stay blank
+    report_mix = validate_file(df_mix, ref, "September")         # blanks fall back to September
+    db_mix = FakeDatabase(ref)
+    plan_mix = build_plan(report_mix, ref, db_mix)
+    counts = report_mix.month_counts()
+    check("mixed: rows resolve to their own months, blanks to the fallback",
+          counts.get("July") == 10 and counts.get("August") == 11 and counts.get("September") == 8, f"got {counts}")  # 3 blank rows are the siti errors
+    check("mixed: plan lists every month touched in campaign order", plan_mix.months == ["July", "August", "September"], f"got {plan_mix.months}")
+    check("mixed: ledger keys carry each row's own month",
+          any(e.external_ref.startswith("July:") for e in plan_mix.ledger_entries)
+          and any(e.external_ref.startswith("August:") for e in plan_mix.ledger_entries)
+          and any(e.external_ref.startswith("September:") for e in plan_mix.ledger_entries))
+    summary_mix = execute_plan(db_mix, ref, plan_mix, RunLog())
+    check("mixed: summary names all three months", summary_mix.months == ["July", "August", "September"] and "July, August, September" in summary_mix.as_text())
+    report_nofb = validate_file(df_mix, ref, None)                # no fallback: blank rows are errors
+    blank_errs = [r.row_num for r in report_nofb.error_rows if any("no draw month was chosen" in m for m in r.reasons())]
+    check("no fallback: blank-month rows are errors, named rows still import",
+          len(blank_errs) == 11 and report_nofb.month_counts() == {"July": 10, "August": 11}, f"errs {blank_errs} counts {report_nofb.month_counts()}")
+    from importer.core import rows_needing_default
+    check("rows_needing_default counts blanks and typos separately",
+          rows_needing_default(df_mix, ref) == (11, 0) and rows_needing_default(df_m, ref)[1] == 1, f"got {rows_needing_default(df_mix, ref)} / {rows_needing_default(df_m, ref)}")
+
     from importer.core import suggest_month
 
     sm, why = suggest_month("upload.csv", df_m, ref)

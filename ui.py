@@ -300,7 +300,7 @@ def sidebar_html(ref: ReferenceData) -> str:
 """
 
 
-def file_card_html(filename: str, size_bytes: int, month: str) -> str:
+def file_card_html(filename: str, size_bytes: int, month_label: str) -> str:
     ext = "XLSX" if filename.lower().endswith((".xlsx", ".xlsm", ".xls")) else "CSV"
     if size_bytes >= 1024 * 1024:
         size = f"{size_bytes / (1024 * 1024):.1f} MB"
@@ -310,7 +310,7 @@ def file_card_html(filename: str, size_bytes: int, month: str) -> str:
 <div class="file-card">
   <div class="ftype">{ext}</div>
   <div class="fbody"><span class="fname">{filename}</span>
-  <span class="fmeta">{size} · {month} draw</span></div>
+  <span class="fmeta">{size} · {month_label}</span></div>
   <span class="badge-ok"><i></i>Parsed</span>
 </div>
 """
