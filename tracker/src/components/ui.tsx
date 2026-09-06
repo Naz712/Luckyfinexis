@@ -117,12 +117,3 @@ export function Segmented<T extends string>({
     </div>
   );
 }
-
-export function Stub({ title, text }: { title: string; text: string }) {
-  return (
-    <div className="px-4 py-10 text-center">
-      <div className="text-lg font-semibold text-ink">{title}</div>
-      <p className="mt-2 text-sm text-muted">{text}</p>
-    </div>
-  );
-}

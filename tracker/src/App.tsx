@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { advisors, cases as seedCases, DEFAULT_USER_ID, MANAGER_USER_ID, type Case } from "./mock/data";
 import { advisorById, casesForAdvisor } from "./lib/calc";
-import { Stub } from "./components/ui";
 import Calculator from "./screens/Calculator";
 import Home from "./screens/Home";
 import Log from "./screens/Log";
 import Team from "./screens/Team";
+import Draw from "./screens/Draw";
 
 type Tab = "calculator" | "home" | "log" | "team" | "draw";
 
@@ -80,7 +80,7 @@ export default function App() {
         {activeTab === "home" && <Home key={me.id} advisor={me} cases={cases} />}
         {activeTab === "log" && <Log key={me.id} advisor={me} cases={cases} onAdd={addCase} onRemove={removePendingCase} />}
         {activeTab === "team" && isManager && <Team key={me.id} manager={me} cases={cases} />}
-        {activeTab === "draw" && <Stub title="Lucky draw" text="Around The World — pass tracker. Existing module plugs in here." />}
+        {activeTab === "draw" && <Draw />}
       </main>
 
       <nav className="fixed inset-x-0 bottom-0 z-10 mx-auto w-full max-w-[430px] border-t border-line bg-white pb-[env(safe-area-inset-bottom)]" aria-label="Sections">

@@ -31,4 +31,4 @@ the manager-only Team tab can be checked.
 - [x] Home / dashboard
 - [x] Log a case
 - [x] Team (manager only)
-- [ ] Lucky draw placeholder
+- [x] Lucky draw placeholder
