@@ -35,8 +35,15 @@ const CATEGORY_LABEL: Record<Product["category"], string> = {
   ilp: "ILP",
   health: "Health",
   endowment: "Endowment",
-  fund: "Fund",
+  fund: "Investment",
 };
+
+/** What the money field means for this product. */
+function amountLabel(product: Product | undefined): string {
+  if (!product) return "Premium";
+  if (product.category === "fund") return product.premium_type === "single" ? "Amount invested" : "Annual contribution";
+  return product.premium_type === "single" ? "Single premium" : "Annual premium";
+}
 
 let nextKey = 1;
 const blankRow = (): Row => ({ key: nextKey++, insurerId: "", productId: "", gross: "", premium: "", grossTouched: false, showPremium: false });
@@ -171,7 +178,7 @@ export default function Calculator({ advisor, cases, goalSet }: { advisor: Advis
                   <div className="mt-2">
                     <div className="mb-1 flex items-baseline justify-between">
                       <label htmlFor={`premium-${row.key}`} className="text-[12px] text-muted">
-                        {product?.premium_type === "single" ? "Single premium" : "Annual premium"}
+                        {amountLabel(product)}
                       </label>
                       {product && (
                         <span className="text-[11px] text-muted">
@@ -180,7 +187,11 @@ export default function Calculator({ advisor, cases, goalSet }: { advisor: Advis
                       )}
                     </div>
                     <MoneyInput id={`premium-${row.key}`} value={row.premium} onChange={(v) => setPremium(row, v)} />
-                    {estimated && <p className="mt-1 text-[11px] text-muted">Gross revenue filled from this premium. Type over it if you have the real figure.</p>}
+                    {estimated && (
+                      <p className="mt-1 text-[11px] text-muted">
+                        Gross revenue filled from this {product?.category === "fund" ? "amount (upfront charge only, trailer fees not included)" : "premium"}. Type over it if you have the real figure.
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <button

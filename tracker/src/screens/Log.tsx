@@ -172,14 +172,14 @@ export default function Log({
             <div className="grid grid-cols-[1fr_96px] gap-2">
               <div>
                 <label htmlFor="premium" className="mb-1 block text-[12px] text-muted">
-                  {isSingle ? "Single premium" : "Annual premium"}
+                  {product?.category === "fund" ? (isSingle ? "Amount invested" : "Annual contribution") : isSingle ? "Single premium" : "Annual premium"}
                 </label>
                 <MoneyInput id="premium" value={draft.premium} onChange={(v) => set({ premium: v })} />
                 {errors.premium && <p className="mt-1 text-[12px] text-warn">{errors.premium}</p>}
               </div>
               <div>
                 <label htmlFor="term" className="mb-1 block text-[12px] text-muted">
-                  Term (years)
+                  {product?.category === "fund" && !isSingle ? "Years" : "Term (years)"}
                 </label>
                 <input
                   id="term"

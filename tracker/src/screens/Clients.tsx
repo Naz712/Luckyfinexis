@@ -159,7 +159,9 @@ function ClientDetail({ summary, month, onMonth, onBack }: { summary: ClientSumm
                       </div>
                       <div className="tnum shrink-0 text-right">
                         <div className="text-[14px] font-semibold text-body">{sgd(c.premium_amount)}</div>
-                        <div className="text-[11px] text-muted">{p?.premium_type === "single" ? "single premium" : `/yr · ${c.premium_term_years} yrs`}</div>
+                        <div className="text-[11px] text-muted">
+                          {p?.category === "fund" ? (p.premium_type === "single" ? "invested" : `/yr · RSP`) : p?.premium_type === "single" ? "single premium" : `/yr · ${c.premium_term_years} yrs`}
+                        </div>
                       </div>
                     </div>
                     <div className="tnum mt-1 text-[11px] text-muted">

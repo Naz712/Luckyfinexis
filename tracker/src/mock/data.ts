@@ -75,32 +75,45 @@ export interface MetricDefinition {
   period_type: PeriodType;
 }
 
-// PLACEHOLDER — replace with business-supplied values (real insurer names).
+// PLACEHOLDER — confirm with the business. These are providers finexis lists
+// publicly as partners (life insurers) plus the two fund platforms FA firms
+// commonly use; the real panel may be longer (e.g. AIA, Income, China Taiping).
 export const insurers: Insurer[] = [
-  { id: "ins_a", name: "Insurer A" },
-  { id: "ins_b", name: "Insurer B" },
-  { id: "ins_c", name: "Insurer C" },
-  { id: "ins_d", name: "Insurer D" },
-  { id: "ins_e", name: "Insurer E" },
+  { id: "ins_a", name: "Singlife" },
+  { id: "ins_b", name: "Manulife" },
+  { id: "ins_c", name: "HSBC Life" },
+  { id: "ins_d", name: "Tokio Marine Life" },
+  { id: "ins_e", name: "Etiqa" },
+  { id: "ins_h", name: "FWD" },
+  { id: "ins_f", name: "iFAST (unit trusts)" },
+  { id: "ins_g", name: "Navigator (portfolios)" },
 ];
 
-// PLACEHOLDER — replace with business-supplied values (real product list and
-// commission rates). comm_rate is the placeholder that turns premium into an
-// estimated gross revenue; the confirmed figure comes from Merlin.
+// PLACEHOLDER — replace with the business's product list and commission rates.
+// Names are generic descriptors of each provider's product types, not the
+// providers' actual product names. For funds, premium_amount is the amount
+// invested (lump sum) or the annual contribution (RSP), and comm_rate is the
+// upfront charge only; ongoing trailer fees are not modelled.
 export const products: Product[] = [
-  { id: "prd_01", insurer_id: "ins_a", name: "Term Plan X", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
-  { id: "prd_02", insurer_id: "ins_a", name: "Whole Life Y", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
-  { id: "prd_03", insurer_id: "ins_a", name: "Unit Trust", category: "fund", premium_type: "single", mdrt_category: "other", comm_rate: 0.015 },
-  { id: "prd_04", insurer_id: "ins_b", name: "ILP Z", category: "ilp", premium_type: "regular", mdrt_category: "other", comm_rate: 0.7 },
-  { id: "prd_05", insurer_id: "ins_b", name: "Single Premium Endowment", category: "endowment", premium_type: "single", mdrt_category: "other", comm_rate: 0.03 },
-  { id: "prd_06", insurer_id: "ins_b", name: "Hospital Plan H", category: "health", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.6 },
-  { id: "prd_07", insurer_id: "ins_c", name: "Critical Illness Plan C", category: "health", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
-  { id: "prd_08", insurer_id: "ins_c", name: "Regular Endowment E", category: "endowment", premium_type: "regular", mdrt_category: "other", comm_rate: 0.45 },
-  { id: "prd_09", insurer_id: "ins_c", name: "Single Premium ILP S", category: "ilp", premium_type: "single", mdrt_category: "other", comm_rate: 0.04 },
-  { id: "prd_10", insurer_id: "ins_d", name: "Whole Life W", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
-  { id: "prd_11", insurer_id: "ins_d", name: "Term Plan T", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
-  { id: "prd_12", insurer_id: "ins_e", name: "Retirement Income R", category: "endowment", premium_type: "regular", mdrt_category: "other", comm_rate: 0.45 },
-  { id: "prd_13", insurer_id: "ins_e", name: "Managed Fund M", category: "fund", premium_type: "single", mdrt_category: "other", comm_rate: 0.015 },
+  { id: "prd_01", insurer_id: "ins_a", name: "Singlife Term", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
+  { id: "prd_02", insurer_id: "ins_a", name: "Singlife Whole Life (par)", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
+  { id: "prd_03", insurer_id: "ins_f", name: "Unit trust, lump sum", category: "fund", premium_type: "single", mdrt_category: "other", comm_rate: 0.015 },
+  { id: "prd_04", insurer_id: "ins_b", name: "Manulife Regular-Premium ILP", category: "ilp", premium_type: "regular", mdrt_category: "other", comm_rate: 0.7 },
+  { id: "prd_05", insurer_id: "ins_b", name: "Manulife Single-Premium Endowment", category: "endowment", premium_type: "single", mdrt_category: "other", comm_rate: 0.03 },
+  { id: "prd_06", insurer_id: "ins_b", name: "Manulife Hospital Plan", category: "health", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.6 },
+  { id: "prd_07", insurer_id: "ins_c", name: "HSBC Life Critical Illness", category: "health", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
+  { id: "prd_08", insurer_id: "ins_c", name: "HSBC Life Regular Endowment", category: "endowment", premium_type: "regular", mdrt_category: "other", comm_rate: 0.45 },
+  { id: "prd_09", insurer_id: "ins_c", name: "HSBC Life Single-Premium ILP", category: "ilp", premium_type: "single", mdrt_category: "other", comm_rate: 0.04 },
+  { id: "prd_10", insurer_id: "ins_d", name: "Tokio Marine Whole Life (par)", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
+  { id: "prd_11", insurer_id: "ins_d", name: "Tokio Marine Term", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
+  { id: "prd_12", insurer_id: "ins_e", name: "Etiqa Retirement Income", category: "endowment", premium_type: "regular", mdrt_category: "other", comm_rate: 0.45 },
+  { id: "prd_13", insurer_id: "ins_g", name: "Portfolio, lump sum", category: "fund", premium_type: "single", mdrt_category: "other", comm_rate: 0.015 },
+  { id: "prd_14", insurer_id: "ins_h", name: "FWD Term", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
+  { id: "prd_15", insurer_id: "ins_h", name: "FWD Critical Illness", category: "health", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
+  { id: "prd_16", insurer_id: "ins_h", name: "FWD Regular-Premium ILP", category: "ilp", premium_type: "regular", mdrt_category: "other", comm_rate: 0.7 },
+  { id: "prd_17", insurer_id: "ins_e", name: "Etiqa Single-Premium Endowment", category: "endowment", premium_type: "single", mdrt_category: "other", comm_rate: 0.03 },
+  { id: "prd_18", insurer_id: "ins_f", name: "Unit trust RSP (monthly)", category: "fund", premium_type: "regular", mdrt_category: "other", comm_rate: 0.02 },
+  { id: "prd_19", insurer_id: "ins_g", name: "Portfolio RSP (monthly)", category: "fund", premium_type: "regular", mdrt_category: "other", comm_rate: 0.02 },
 ];
 
 // PLACEHOLDER — replace with business-supplied values (actual banding rates).
@@ -158,6 +171,24 @@ export const credit_rates: CreditRate[] = [
   { product_id: "prd_13", metric: "mdrt_premium", rate: 0.06 },
   { product_id: "prd_13", metric: "mdrt_commission", rate: 1.0 },
   { product_id: "prd_13", metric: "wape", rate: 0.0 },
+  { product_id: "prd_14", metric: "mdrt_premium", rate: 1 },
+  { product_id: "prd_14", metric: "mdrt_commission", rate: 1 },
+  { product_id: "prd_14", metric: "wape", rate: 1 },
+  { product_id: "prd_15", metric: "mdrt_premium", rate: 1 },
+  { product_id: "prd_15", metric: "mdrt_commission", rate: 1 },
+  { product_id: "prd_15", metric: "wape", rate: 1 },
+  { product_id: "prd_16", metric: "mdrt_premium", rate: 1 },
+  { product_id: "prd_16", metric: "mdrt_commission", rate: 1 },
+  { product_id: "prd_16", metric: "wape", rate: 1 },
+  { product_id: "prd_17", metric: "mdrt_premium", rate: 0.06 },
+  { product_id: "prd_17", metric: "mdrt_commission", rate: 1 },
+  { product_id: "prd_17", metric: "wape", rate: 0.1 },
+  { product_id: "prd_18", metric: "mdrt_premium", rate: 0.06 },
+  { product_id: "prd_18", metric: "mdrt_commission", rate: 1 },
+  { product_id: "prd_18", metric: "wape", rate: 0 },
+  { product_id: "prd_19", metric: "mdrt_premium", rate: 0.06 },
+  { product_id: "prd_19", metric: "mdrt_commission", rate: 1 },
+  { product_id: "prd_19", metric: "wape", rate: 0 },
 ];
 
 // PLACEHOLDER — replace with business-supplied values.
