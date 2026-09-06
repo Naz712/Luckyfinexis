@@ -75,6 +75,14 @@ export function mdrtTierGoalFor(advisorId: string, year: number, tiers: MdrtTier
   return tiers.find((x) => x.advisor_id === advisorId && x.year === year)?.tier ?? "mdrt";
 }
 
+/** Change only the MDRT tier an advisor is aiming for (pure; returns a new GoalSet). */
+export function withAdvisorTier(set: GoalSet, advisorId: string, year: number, tier: Tier): GoalSet {
+  return {
+    targets: set.targets,
+    mdrtTiers: [...set.mdrtTiers.filter((t) => !(t.advisor_id === advisorId && t.year === year)), { advisor_id: advisorId, year, tier }],
+  };
+}
+
 /** Replace one advisor's goals for a year with a new set (pure; returns a new GoalSet). */
 export function withAdvisorGoals(set: GoalSet, advisorId: string, year: number, targets: Goal[], tier: Tier): GoalSet {
   return {
@@ -518,5 +526,110 @@ export function weekSnapshot(advisorId: string, cases: Case[], today: Date): Wee
     projection,
     onPaceToBeatLastWeek,
     toBeatLastWeek: Math.max(lastWeek.commission - thisWeek.commission, 0),
+  };
+}
+
+// ───────────────────────── Progress over time ─────────────────────────
+
+export type Grain = "week" | "month";
+
+export interface PeriodPoint {
+  period: Period;
+  /** Short axis label: "31 Aug" for a week, "Sep" for a month. */
+  label: string;
+  /** "Week of 31 Aug" / "September 2026". */
+  longLabel: string;
+  /** Commission of cases submitted in the period (confirmed and pending; superseded ignored). */
+  commission: number;
+  gross: number;
+  cases: number;
+}
+
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+export function monthBounds(ref: Date): Period {
+  return { start: new Date(ref.getFullYear(), ref.getMonth(), 1), end: new Date(ref.getFullYear(), ref.getMonth() + 1, 0) };
+}
+
+export function grainBounds(grain: Grain, ref: Date): Period {
+  return grain === "week" ? weekBounds(ref) : monthBounds(ref);
+}
+
+/** The period `n` steps after `p` (negative for earlier). */
+export function shiftPeriod(grain: Grain, p: Period, n: number): Period {
+  if (grain === "week") return weekBounds(new Date(p.start.getFullYear(), p.start.getMonth(), p.start.getDate() + 7 * n));
+  return monthBounds(new Date(p.start.getFullYear(), p.start.getMonth() + n, 1));
+}
+
+function pointFor(grain: Grain, period: Period, cases: Case[]): PeriodPoint {
+  let commission = 0;
+  let gross = 0;
+  let n = 0;
+  for (const c of cases) {
+    if (c.status === "superseded") continue;
+    if (!inPeriod(parseISODate(c.submitted_on), period.start, period.end)) continue;
+    commission += metricsForCase(c).commission;
+    gross += c.gross_revenue;
+    n += 1;
+  }
+  const s = period.start;
+  return {
+    period,
+    label: grain === "week" ? `${s.getDate()} ${MONTH_SHORT[s.getMonth()]}` : MONTH_SHORT[s.getMonth()],
+    longLabel: grain === "week" ? `Week of ${s.getDate()} ${MONTH_SHORT[s.getMonth()]}` : `${MONTH_LONG[s.getMonth()]} ${s.getFullYear()}`,
+    commission,
+    gross,
+    cases: n,
+  };
+}
+
+/** The last `count` periods ending with the one containing `today`, oldest first. */
+export function periodSeries(advisorId: string, cases: Case[], grain: Grain, count: number, today: Date): PeriodPoint[] {
+  const mine = cases.filter((c) => c.advisor_id === advisorId);
+  const current = grainBounds(grain, today);
+  const out: PeriodPoint[] = [];
+  for (let i = count - 1; i >= 0; i--) out.push(pointFor(grain, shiftPeriod(grain, current, -i), mine));
+  return out;
+}
+
+export interface PeriodComparison {
+  grain: Grain;
+  current: PeriodPoint;
+  previous: PeriodPoint;
+  /** 0..1 share of the current period that has elapsed (inclusive of today). */
+  elapsedFraction: number;
+  /** Current commission extrapolated to the full period at today's rate. */
+  projection: number;
+  onPaceToBeatPrevious: boolean;
+  /** How much more is needed to pass the previous period; 0 when already ahead. */
+  toBeatPrevious: number;
+  /** Consecutive periods with at least one case, counting back from now (the current period may still be open). */
+  streak: number;
+}
+
+export function periodComparison(advisorId: string, cases: Case[], grain: Grain, today: Date): PeriodComparison {
+  const series = periodSeries(advisorId, cases, grain, 26, today);
+  const current = series[series.length - 1];
+  const previous = series[series.length - 2];
+  const totalDays = Math.round((current.period.end.getTime() - current.period.start.getTime()) / MS_PER_DAY) + 1;
+  const elapsedDays = Math.round((today.getTime() - current.period.start.getTime()) / MS_PER_DAY) + 1;
+  const elapsedFraction = Math.min(Math.max(elapsedDays / totalDays, 0), 1);
+  const projection = elapsedFraction > 0 ? current.commission / elapsedFraction : 0;
+  let streak = 0;
+  for (let i = series.length - 1; i >= 0; i--) {
+    if (series[i].cases > 0) streak++;
+    else if (i === series.length - 1) continue; // current period still open: don't break the streak yet
+    else break;
+  }
+  return {
+    grain,
+    current,
+    previous,
+    elapsedFraction,
+    projection,
+    onPaceToBeatPrevious: current.commission > previous.commission || projection > previous.commission,
+    toBeatPrevious: Math.max(previous.commission - current.commission, 0),
+    streak,
   };
 }

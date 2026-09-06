@@ -1,169 +1,216 @@
-import { useState } from "react";
-import { metric_definitions, TODAY, type Advisor, type Case, type Goal, type GoalCadence, type MetricCode, type Tier } from "../mock/data";
-import {
-  UNTRACKED_METRICS,
-  aggregate,
-  goalFor,
-  goalPeriod,
-  mdrtSnapshot,
-  mdrtTierGoalFor,
-  thresholdFor,
-  type GoalSet,
-} from "../lib/calc";
-import { CADENCE_PER, count, dateRange, pct, periodLabel, sgd } from "../lib/format";
-import { Card, Label, MoneyInput, Segmented } from "../components/ui";
+import { useEffect, useState } from "react";
+import { metric_definitions, TODAY, type Advisor, type Case, type MetricCode, type MetricUnit, type Tier } from "../mock/data";
+import { UNTRACKED_METRICS, mdrtSnapshot, metricSnapshot, weeksLeftInYear, type GoalSet, type MdrtRoute, type Pace } from "../lib/calc";
+import { CADENCE_LABEL, count, periodLabel, sgd } from "../lib/format";
+import { Card, Segmented, Select } from "../components/ui";
 
 const TIER_LABEL = { mdrt: "MDRT", cot: "COT", tot: "TOT" } as const;
-const CADENCE_OPTIONS: { value: GoalCadence; label: string }[] = [
-  { value: "year", label: "Year" },
-  { value: "half", label: "Half" },
-  { value: "quarter", label: "Quarter" },
-  { value: "month", label: "Month" },
-];
 
-interface Row {
-  cadence: GoalCadence;
-  value: string;
+export type PrimaryGoal = { kind: "tier" } | { kind: "custom"; metric: MetricCode };
+
+function fmt(value: number, unit: MetricUnit): string {
+  return unit === "sgd" ? sgd(value) : count(value);
+}
+
+/** Thick bar on the accent card: white = achieved, translucent = projected, tick = where today falls. */
+function DistanceBar({ achieved, projected, elapsed }: { achieved: number; projected: number; elapsed: number | null }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+  const a = mounted ? achieved : 0;
+  const p = mounted ? projected : 0;
+  return (
+    <div className="relative h-3 w-full overflow-hidden rounded-full bg-white/20" aria-hidden="true">
+      <div className="absolute inset-y-0 left-0 rounded-full bg-white/45 transition-[width] duration-700 ease-out" style={{ width: `${p * 100}%` }} />
+      <div className="absolute inset-y-0 left-0 rounded-full bg-white transition-[width] duration-700 ease-out" style={{ width: `${a * 100}%` }} />
+      {elapsed !== null && elapsed > 0 && elapsed < 1 && <div className="absolute inset-y-0 w-0.5 bg-ink/60" style={{ left: `calc(${elapsed * 100}% - 1px)` }} title="Today" />}
+    </div>
+  );
+}
+
+function paceText(pace: Pace | null, unit: MetricUnit, reached: boolean): string {
+  if (reached) return "Reached";
+  if (!pace) return "";
+  if (pace.onTrack) return `On track · projected ${fmt(pace.runRateProjection, unit)}`;
+  if (pace.requiredPerMonth === null) return `Period ended · short by ${fmt(pace.gap, unit)}`;
+  if (pace.remainingMonths < 1.5 && pace.requiredPerWeek !== null) return `Need ${fmt(pace.requiredPerWeek, unit)}/week`;
+  return `Need ${fmt(pace.requiredPerMonth, unit)}/month`;
+}
+
+function elapsedOf(pace: Pace | null): number | null {
+  return pace ? pace.elapsedMonths / (pace.elapsedMonths + pace.remainingMonths) : null;
+}
+
+function RouteBlock({ route, tier, closer }: { route: MdrtRoute; tier: Tier; closer: boolean }) {
+  const toGo = Math.max(route.goalThreshold - route.achieved, 0);
+  return (
+    <div className={`rounded-xl p-3 ${closer ? "bg-white/15" : ""}`}>
+      <div className="flex items-center justify-between">
+        <div className="text-[12px] font-semibold text-white/90">{route.label} route</div>
+        {closer && <span className="rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">closest</span>}
+      </div>
+      <div className="mt-1 flex items-baseline justify-between gap-2">
+        <div className={`tnum font-semibold leading-none ${closer ? "text-[34px]" : "text-[24px]"}`}>{sgd(route.achieved)}</div>
+        <div className="tnum text-[12px] text-white/75">of {sgd(route.goalThreshold)}</div>
+      </div>
+      <div className="mt-3">
+        <DistanceBar achieved={route.goalProgress} projected={Math.min(route.projected / route.goalThreshold, 1)} elapsed={elapsedOf(route.pace)} />
+      </div>
+      <div className="tnum mt-2 flex items-baseline justify-between gap-2 text-[12px]">
+        <span className="font-medium text-white">{route.goalReached ? `${TIER_LABEL[tier]} reached` : `${sgd(toGo)} to go`}</span>
+        <span className="text-white/85">{paceText(route.pace, "sgd", route.goalReached)}</span>
+      </div>
+    </div>
+  );
 }
 
 export default function Goals({
   advisor,
   cases,
   goalSet,
-  onSave,
-  onCancel,
+  primary,
+  onPrimaryChange,
+  onTierChange,
+  onEdit,
 }: {
   advisor: Advisor;
   cases: Case[];
   goalSet: GoalSet;
-  onSave: (targets: Goal[], tier: Tier) => void;
-  onCancel: () => void;
+  primary: PrimaryGoal;
+  onPrimaryChange: (p: PrimaryGoal) => void;
+  onTierChange: (t: Tier) => void;
+  onEdit: () => void;
 }) {
-  const year = TODAY.getFullYear();
-  const editable = metric_definitions.filter((m) => m.code !== "mdrt_commission" && m.code !== "mdrt_premium");
-
-  const [tier, setTier] = useState<Tier>(mdrtTierGoalFor(advisor.id, year, goalSet.mdrtTiers));
-  const [rows, setRows] = useState<Record<string, Row>>(() => {
-    const init: Record<string, Row> = {};
-    for (const m of editable) {
-      const g = goalFor(advisor.id, m.code, year, goalSet.targets);
-      init[m.code] = { cadence: g?.cadence ?? "year", value: g ? String(g.target_value) : "" };
-    }
-    return init;
-  });
-  const setRow = (code: MetricCode, patch: Partial<Row>) => setRows((r) => ({ ...r, [code]: { ...r[code], ...patch } }));
-
-  // Preview the MDRT card with the tier being chosen, without touching the saved set.
-  const mdrt = mdrtSnapshot(advisor.id, cases, TODAY, {
-    ...goalSet,
-    mdrtTiers: [{ advisor_id: advisor.id, year, tier }],
-  });
-  const confirmed = cases.filter((c) => c.advisor_id === advisor.id && c.status === "confirmed");
-
-  const save = () => {
-    const targets: Goal[] = [];
-    for (const m of editable) {
-      const row = rows[m.code];
-      const value = Number(row.value);
-      if (Number.isFinite(value) && value > 0) {
-        targets.push({ advisor_id: advisor.id, metric: m.code, year, cadence: row.cadence, target_value: value });
-      }
-    }
-    onSave(targets, tier);
-  };
+  const mdrt = mdrtSnapshot(advisor.id, cases, TODAY, goalSet);
+  const weeksLeft = weeksLeftInYear(TODAY);
+  const mode: Tier | "custom" = primary.kind === "tier" ? mdrt.goalTier : "custom";
+  const customMetric = primary.kind === "custom" ? primary.metric : "commission";
+  const customMetrics = metric_definitions.filter((m) => !UNTRACKED_METRICS.has(m.code));
+  const custom = metricSnapshot(advisor.id, cases, customMetric, TODAY, goalSet);
+  const closerRoute = mdrt.routes.find((r) => r.metric === mdrt.closer)!;
+  const otherRoute = mdrt.routes.find((r) => r.metric !== mdrt.closer)!;
 
   return (
-    <div>
-      <div className="sticky top-[61px] z-[5] flex items-center justify-between border-b border-line bg-accent-soft px-4 py-2 text-[12px] text-accent">
-        <button type="button" onClick={onCancel} className="font-semibold">
-          ‹ Cancel
-        </button>
-        <span>
-          Goals for <span className="font-semibold">{year}</span>
-        </span>
-      </div>
+    <div className="space-y-3 px-4 pb-6 pt-3">
+      <Segmented
+        ariaLabel="Goal type"
+        value={mode}
+        onChange={(v) => {
+          if (v === "custom") onPrimaryChange({ kind: "custom", metric: customMetric });
+          else {
+            onTierChange(v);
+            onPrimaryChange({ kind: "tier" });
+          }
+        }}
+        options={[
+          { value: "mdrt", label: "MDRT" },
+          { value: "cot", label: "COT" },
+          { value: "tot", label: "TOT" },
+          { value: "custom", label: "Custom" },
+        ]}
+      />
 
-      <div className="space-y-3 px-4 pb-6 pt-3">
-        <Card>
-          <Label>MDRT aspiration</Label>
-          <p className="mt-1 text-[12px] text-muted">Both routes on Home will pace you toward this tier.</p>
-          <div className="mt-2">
-            <Segmented
-              ariaLabel="MDRT tier"
-              value={tier}
-              onChange={setTier}
-              options={(["mdrt", "cot", "tot"] as const).map((t) => ({ value: t, label: TIER_LABEL[t], hint: sgd(thresholdFor("mdrt_commission", t)) }))}
-            />
-          </div>
-          <ul className="mt-3 divide-y divide-line border-t border-line">
-            {mdrt.routes.map((r) => (
-              <li key={r.metric} className="flex items-baseline justify-between py-2 text-[12px]">
-                <span className="text-muted">
-                  {r.label} route needs <span className="tnum font-medium text-body">{sgd(r.goalThreshold)}</span>
-                </span>
-                <span className={`tnum font-medium ${r.goalReached ? "text-ok" : "text-body"}`}>
-                  {r.goalReached ? "reached" : `${pct(r.goalProgress)} there`}
-                </span>
+      {mode !== "custom" ? (
+        <>
+          <Card tone="accent">
+            <div className="flex items-baseline justify-between">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-white/70">Distance to {TIER_LABEL[mdrt.goalTier]}</div>
+              <div className="tnum text-[11px] text-white/70">
+                {periodLabel(mdrt.period)} · {weeksLeft} weeks left
+              </div>
+            </div>
+            <p className="mt-1 text-[12px] text-white/80">Either route qualifies. You are closest on the {closerRoute.label.toLowerCase()} route.</p>
+            <div className="mt-3 space-y-2">
+              <RouteBlock route={closerRoute} tier={mdrt.goalTier} closer />
+              <RouteBlock route={otherRoute} tier={mdrt.goalTier} closer={false} />
+            </div>
+          </Card>
+          <Card>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">How you get there</div>
+            <ul className="mt-2 space-y-2 text-[13px] text-body">
+              <li className="tnum">
+                At your current rate you finish {periodLabel(mdrt.period)} at <span className="font-semibold text-ink">{sgd(closerRoute.pace.runRateProjection)}</span> on the{" "}
+                {closerRoute.label.toLowerCase()} route.
               </li>
-            ))}
-          </ul>
-        </Card>
-
-        {editable.map((m) => {
-          const row = rows[m.code];
-          const period = goalPeriod(row.cadence, m.period_type, TODAY);
-          const achieved = aggregate(confirmed, m.code, period.start, period.end);
-          const tracked = !UNTRACKED_METRICS.has(m.code);
-          const inputId = `goal-${m.code}`;
-          return (
-            <Card key={m.code}>
-              <div className="flex items-baseline justify-between">
-                <Label>{m.label}</Label>
-                {!tracked && <span className="text-[11px] text-muted">not tracked yet</span>}
-              </div>
-              <div className="mt-2">
-                <Segmented ariaLabel={`${m.label} goal cadence`} value={row.cadence} onChange={(c) => setRow(m.code, { cadence: c })} options={CADENCE_OPTIONS} />
-              </div>
-              <div className="mt-2 flex items-center gap-2">
-                <div className="flex-1">
-                  {m.unit === "sgd" ? (
-                    <MoneyInput id={inputId} value={row.value} onChange={(v) => setRow(m.code, { value: v })} placeholder="No goal" />
-                  ) : (
-                    <input
-                      id={inputId}
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      step={1}
-                      value={row.value}
-                      placeholder="No goal"
-                      onChange={(e) => setRow(m.code, { value: e.target.value })}
-                      className="tnum w-full rounded-xl border border-line bg-white px-3.5 py-3 text-[17px] font-semibold text-ink placeholder:font-normal placeholder:text-muted/60 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
-                    />
-                  )}
-                </div>
-                <label htmlFor={inputId} className="shrink-0 text-[12px] text-muted">
-                  {CADENCE_PER[row.cadence]}
-                </label>
-              </div>
-              <p className="tnum mt-2 text-[11px] text-muted">
-                Current window {periodLabel(period)} ({dateRange(period)})
-                {tracked && (
-                  <>
-                    {" "}
-                    · achieved so far <span className="font-medium text-body">{m.unit === "sgd" ? sgd(achieved) : count(achieved)}</span>
-                  </>
-                )}
-              </p>
+              {closerRoute.projected > closerRoute.achieved && (
+                <li className="tnum">
+                  Pending cases add <span className="font-semibold text-ink">{sgd(closerRoute.projected - closerRoute.achieved)}</span> once Merlin confirms them.
+                </li>
+              )}
+              {!closerRoute.goalReached && closerRoute.pace.requiredPerWeek !== null && (
+                <li className="tnum">
+                  That is <span className="font-semibold text-ink">{sgd(closerRoute.pace.requiredPerWeek)}</span> a week for the remaining {weeksLeft} weeks.
+                </li>
+              )}
+            </ul>
+          </Card>
+        </>
+      ) : (
+        <>
+          <Select
+            aria-label="Custom goal metric"
+            placeholder="Metric"
+            value={customMetric}
+            onChange={(e) => onPrimaryChange({ kind: "custom", metric: e.target.value as MetricCode })}
+            options={customMetrics.map((m) => ({ value: m.code, label: m.label }))}
+          />
+          {custom.target === null ? (
+            <Card>
+              <div className="text-[15px] font-semibold text-ink">No goal set for {custom.definition.label.toLowerCase()} yet.</div>
+              <p className="mt-1 text-[13px] text-muted">Set an amount and how often it resets, and this card will show your distance and pace.</p>
             </Card>
-          );
-        })}
+          ) : (
+            <>
+              <Card tone="accent">
+                <div className="flex items-baseline justify-between">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-white/70">Distance to {fmt(custom.target, custom.definition.unit)}</div>
+                  <div className="tnum text-[11px] text-white/70">
+                    {custom.cadence ? `${CADENCE_LABEL[custom.cadence]} · ` : ""}
+                    {periodLabel(custom.period)}
+                  </div>
+                </div>
+                <div className="mt-2 flex items-baseline justify-between gap-2">
+                  <div className="tnum text-[34px] font-semibold leading-none">{fmt(custom.achieved, custom.definition.unit)}</div>
+                  <div className="tnum text-[12px] text-white/75">{custom.definition.label.toLowerCase()} so far</div>
+                </div>
+                <div className="mt-3">
+                  <DistanceBar
+                    achieved={Math.min(custom.achieved / custom.target, 1)}
+                    projected={Math.min(custom.projected / custom.target, 1)}
+                    elapsed={elapsedOf(custom.pace)}
+                  />
+                </div>
+                <div className="tnum mt-2 flex items-baseline justify-between gap-2 text-[12px]">
+                  <span className="font-medium text-white">{(custom.gap ?? 0) === 0 ? "Goal reached" : `${fmt(custom.gap ?? 0, custom.definition.unit)} to go`}</span>
+                  <span className="text-white/85">{paceText(custom.pace, custom.definition.unit, (custom.gap ?? 0) === 0)}</span>
+                </div>
+              </Card>
+              <Card>
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">How you get there</div>
+                <ul className="mt-2 space-y-2 text-[13px] text-body">
+                  {custom.pace && (
+                    <li className="tnum">
+                      At your current rate you finish {periodLabel(custom.period)} at <span className="font-semibold text-ink">{fmt(custom.pace.runRateProjection, custom.definition.unit)}</span>.
+                    </li>
+                  )}
+                  {custom.projected > custom.achieved && (
+                    <li className="tnum">
+                      Pending cases add <span className="font-semibold text-ink">{fmt(custom.projected - custom.achieved, custom.definition.unit)}</span> once confirmed.
+                    </li>
+                  )}
+                </ul>
+              </Card>
+            </>
+          )}
+        </>
+      )}
 
-        <button type="button" onClick={save} className="w-full rounded-xl bg-accent py-3 text-[15px] font-semibold text-white hover:bg-ink">
-          Save goals
-        </button>
-        <p className="px-1 text-center text-[11px] text-muted">Goals are yours to set. In the mockup they last until you refresh.</p>
-      </div>
+      <button type="button" onClick={onEdit} className="w-full rounded-2xl border border-line bg-white py-3 text-[14px] font-semibold text-accent hover:bg-accent-soft">
+        Edit goals ›
+      </button>
+      <p className="px-1 text-center text-[11px] text-muted">MDRT, COT and TOT use the published thresholds. Custom goals are yours and reset each period.</p>
     </div>
   );
 }

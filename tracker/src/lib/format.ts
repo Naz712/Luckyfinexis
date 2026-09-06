@@ -66,3 +66,11 @@ export function signedPct(ratio: number): string {
 export const CADENCE_LABEL = { year: "Annual", half: "Half-year", quarter: "Quarterly", month: "Monthly" } as const;
 /** "per quarter" etc. for goal amounts. */
 export const CADENCE_PER = { year: "per year", half: "per half-year", quarter: "per quarter", month: "per month" } as const;
+
+/** Axis-style money: "S$0", "S$800", "S$2.5k", "S$12k". */
+export function sgdCompact(value: number): string {
+  const v = Math.round(value);
+  if (Math.abs(v) < 1000) return `S$${v}`;
+  const k = v / 1000;
+  return `S$${k >= 10 ? Math.round(k) : Math.round(k * 10) / 10}k`;
+}

@@ -17,18 +17,38 @@ npm run build      # typecheck + production build into dist/
 | `src/mock/data.ts` | All mock tables. Section 1 holds every `PLACEHOLDER` reference value; Section 2 holds fake advisors, cases and goals. |
 | `src/lib/calc.ts` | Pure calculations: `commissionForCase`, `metricsForCase`, `aggregate`, `pace`, `clientsNeeded`, period helpers, MDRT tiers. |
 | `src/lib/format.ts` | Display formatting only (`S$12,345`, no decimals). |
-| `src/screens/` | One file per bottom tab. Screens read only through `calc.ts` and `data.ts`. |
+| `src/screens/` | One file per bottom tab (Home, Goals + GoalsEditor, Calculator, Log, Team, Draw). Screens read only through `calc.ts` and `data.ts`. |
 | `src/components/ui.tsx` | Small shared pieces (card, select, money input, segmented control). |
+| `src/components/BarChart.tsx` | Dependency-free SVG column chart used by the Home progress card. |
 
 The "dev: FC / manager" pill in the header only renders in `npm run dev`. It
 switches the current user between a financial consultant and their manager so
 the manager-only Team tab can be checked.
 
-## Status
+## Sharing a build
 
-- [x] Data layer and calculations
-- [x] Calculator
-- [x] Home / dashboard
-- [x] Log a case
-- [x] Team (manager only)
-- [x] Lucky draw placeholder
+`npm run share` typechecks, builds with the FC/manager switch enabled, and inlines
+everything into `dist/finexis-tracker.html`, a single file that opens from a
+phone or an email attachment without a server.
+
+## Screens
+
+- **Home** — this period's metrics as tiles (tap one for the cases behind it) and a
+  progress card charting commission per week or per month, with a verdict against
+  the previous period and a streak.
+- **Goals** — switch between MDRT, COT, TOT and a custom goal; a distance card with
+  pace and weeks left; "Edit goals" sets the amount and cadence (year, half,
+  quarter, month) per metric.
+- **Calculator** — gross revenue × banding per product, total per client, clients
+  needed to close the goal. Premium can estimate gross revenue via the product's
+  placeholder rate.
+- **Log** — record a closed case as pending until Merlin confirms it.
+- **Team** (manager only) — each FC's commission, goal, MDRT route and pace, with a
+  read-only drill-down.
+- **Draw** — placeholder for the Around The World pass tracker.
+
+## Placeholders to replace before go-live
+
+All in Section 1 of `src/mock/data.ts`: insurers, products and their `comm_rate`,
+banding rates, credit rates, MDRT thresholds (2026 membership figures; confirm the
+2027 chart), and each metric's period type. `TODAY` is pinned for stable demos.

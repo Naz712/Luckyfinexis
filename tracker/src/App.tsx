@@ -1,17 +1,19 @@
 import { useState } from "react";
 import { advisors, cases as seedCases, DEFAULT_USER_ID, MANAGER_USER_ID, TODAY, type Case, type Goal, type Tier } from "./mock/data";
-import { advisorById, casesForAdvisor, defaultGoalSet, withAdvisorGoals, type GoalSet } from "./lib/calc";
+import { advisorById, casesForAdvisor, defaultGoalSet, withAdvisorGoals, withAdvisorTier, type GoalSet } from "./lib/calc";
 import Calculator from "./screens/Calculator";
 import Home from "./screens/Home";
 import Log from "./screens/Log";
 import Team from "./screens/Team";
 import Draw from "./screens/Draw";
-import Goals from "./screens/Goals";
+import Goals, { type PrimaryGoal } from "./screens/Goals";
+import GoalsEditor from "./screens/GoalsEditor";
 
-type Tab = "calculator" | "home" | "log" | "team" | "draw";
+type Tab = "home" | "goals" | "calculator" | "log" | "team" | "draw";
 
 const TABS: { id: Tab; label: string; managerOnly?: boolean }[] = [
   { id: "home", label: "Home" },
+  { id: "goals", label: "Goals" },
   { id: "calculator", label: "Calculator" },
   { id: "log", label: "Log" },
   { id: "team", label: "Team", managerOnly: true },
@@ -19,6 +21,7 @@ const TABS: { id: Tab; label: string; managerOnly?: boolean }[] = [
 ];
 
 const ICONS: Record<Tab, string> = {
+  goals: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2.5a7.5 7.5 0 1 1 0 15 7.5 7.5 0 0 1 0-15Zm0 3a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Zm0 2.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z",
   calculator: "M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm1 4v3h8V7H8Zm0 6h2v2H8v-2Zm3 0h2v2h-2v-2Zm3 0h2v5h-2v-5Zm-6 3h2v2H8v-2Zm3 0h2v2h-2v-2Z",
   home: "M3 11 12 3l9 8v10a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1V11Z",
   log: "M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm2 8h8v2H8v-2Zm0 4h8v2H8v-2Z",
@@ -39,6 +42,7 @@ export default function App() {
   // Self-set goals, also in memory only. Editing happens on a Goals screen reached from Home.
   const [goalSet, setGoalSet] = useState<GoalSet>(defaultGoalSet);
   const [editingGoals, setEditingGoals] = useState(false);
+  const [primaryGoal, setPrimaryGoal] = useState<PrimaryGoal>({ kind: "tier" });
 
   const me = advisorById(userId)!;
   const isManager = advisors.some((a) => a.manager_id === me.id);
@@ -49,8 +53,10 @@ export default function App() {
     setGoalSet((set) => withAdvisorGoals(set, me.id, TODAY.getFullYear(), targets, tier));
     setEditingGoals(false);
   };
+  const setTier = (tier: Tier) => setGoalSet((set) => withAdvisorTier(set, me.id, TODAY.getFullYear(), tier));
   const switchUser = () => {
     setEditingGoals(false);
+    setPrimaryGoal({ kind: "tier" });
     setUserId(isManager ? DEFAULT_USER_ID : MANAGER_USER_ID);
   };
 
@@ -60,7 +66,7 @@ export default function App() {
         <div className="flex items-center justify-between">
           <div>
             <div className="whitespace-nowrap text-[11px] font-semibold uppercase tracking-wide text-accent">Finexis tracker</div>
-            <div className="text-[17px] font-semibold text-ink">{activeTab === "home" && editingGoals ? "Goals" : TABS.find((t) => t.id === activeTab)?.label}</div>
+            <div className="text-[17px] font-semibold text-ink">{activeTab === "goals" && editingGoals ? "Edit goals" : TABS.find((t) => t.id === activeTab)?.label}</div>
           </div>
           <div className="flex items-center gap-2">
             {SHOW_USER_SWITCH && (
@@ -91,11 +97,21 @@ export default function App() {
       </header>
 
       <main className="flex-1 pb-[calc(64px+env(safe-area-inset-bottom))]">
-        {activeTab === "home" &&
+        {activeTab === "home" && <Home key={me.id} advisor={me} cases={cases} goalSet={goalSet} />}
+        {activeTab === "goals" &&
           (editingGoals ? (
-            <Goals key={me.id} advisor={me} cases={cases} goalSet={goalSet} onSave={saveGoals} onCancel={() => setEditingGoals(false)} />
+            <GoalsEditor key={me.id} advisor={me} cases={cases} goalSet={goalSet} onSave={saveGoals} onCancel={() => setEditingGoals(false)} />
           ) : (
-            <Home key={me.id} advisor={me} cases={cases} goalSet={goalSet} onEditGoals={() => setEditingGoals(true)} />
+            <Goals
+              key={me.id}
+              advisor={me}
+              cases={cases}
+              goalSet={goalSet}
+              primary={primaryGoal}
+              onPrimaryChange={setPrimaryGoal}
+              onTierChange={setTier}
+              onEdit={() => setEditingGoals(true)}
+            />
           ))}
         {activeTab === "calculator" && <Calculator key={me.id} advisor={me} cases={myCases} goalSet={goalSet} />}
         {activeTab === "log" && <Log key={me.id} advisor={me} cases={cases} onAdd={addCase} onRemove={removePendingCase} />}
@@ -116,7 +132,7 @@ export default function App() {
                   className={`flex w-full flex-col items-center gap-1 py-2.5 text-[10px] font-semibold ${active ? "text-accent" : "text-muted"}`}
                 >
                   <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                    <path d={ICONS[t.id]} />
+                    <path d={ICONS[t.id]} fillRule={t.id === "goals" ? "evenodd" : undefined} />
                   </svg>
                   {t.label}
                 </button>
