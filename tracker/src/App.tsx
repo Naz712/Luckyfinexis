@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { advisors, cases as seedCases, DEFAULT_USER_ID, MANAGER_USER_ID, type Case } from "./mock/data";
-import { advisorById, casesForAdvisor } from "./lib/calc";
+import { advisors, cases as seedCases, DEFAULT_USER_ID, MANAGER_USER_ID, TODAY, type Case, type Goal, type Tier } from "./mock/data";
+import { advisorById, casesForAdvisor, defaultGoalSet, withAdvisorGoals, type GoalSet } from "./lib/calc";
 import Calculator from "./screens/Calculator";
 import Home from "./screens/Home";
 import Log from "./screens/Log";
 import Team from "./screens/Team";
 import Draw from "./screens/Draw";
+import Goals from "./screens/Goals";
 
 type Tab = "calculator" | "home" | "log" | "team" | "draw";
 
@@ -35,12 +36,23 @@ export default function App() {
   const [cases, setCases] = useState(seedCases);
   const addCase = (c: Case) => setCases((cs) => [...cs, c]);
   const removePendingCase = (id: string) => setCases((cs) => cs.filter((c) => !(c.id === id && c.status === "pending")));
+  // Self-set goals, also in memory only. Editing happens on a Goals screen reached from Home.
+  const [goalSet, setGoalSet] = useState<GoalSet>(defaultGoalSet);
+  const [editingGoals, setEditingGoals] = useState(false);
 
   const me = advisorById(userId)!;
   const isManager = advisors.some((a) => a.manager_id === me.id);
   const myCases = casesForAdvisor(me.id, cases);
   const visibleTabs = TABS.filter((t) => !t.managerOnly || isManager);
   const activeTab = visibleTabs.some((t) => t.id === tab) ? tab : "home";
+  const saveGoals = (targets: Goal[], tier: Tier) => {
+    setGoalSet((set) => withAdvisorGoals(set, me.id, TODAY.getFullYear(), targets, tier));
+    setEditingGoals(false);
+  };
+  const switchUser = () => {
+    setEditingGoals(false);
+    setUserId(isManager ? DEFAULT_USER_ID : MANAGER_USER_ID);
+  };
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-canvas sm:border-x sm:border-line">
@@ -48,13 +60,13 @@ export default function App() {
         <div className="flex items-center justify-between">
           <div>
             <div className="whitespace-nowrap text-[11px] font-semibold uppercase tracking-wide text-accent">Finexis tracker</div>
-            <div className="text-[17px] font-semibold text-ink">{TABS.find((t) => t.id === activeTab)?.label}</div>
+            <div className="text-[17px] font-semibold text-ink">{activeTab === "home" && editingGoals ? "Goals" : TABS.find((t) => t.id === activeTab)?.label}</div>
           </div>
           <div className="flex items-center gap-2">
             {SHOW_USER_SWITCH && (
               <button
                 type="button"
-                onClick={() => setUserId(isManager ? DEFAULT_USER_ID : MANAGER_USER_ID)}
+                onClick={switchUser}
                 className="whitespace-nowrap rounded-full border border-dashed border-line px-2 py-1 text-[10px] font-medium text-muted hover:border-accent hover:text-accent"
                 title="Mockup only: switch between the FC and manager views"
               >
@@ -79,10 +91,15 @@ export default function App() {
       </header>
 
       <main className="flex-1 pb-[calc(64px+env(safe-area-inset-bottom))]">
-        {activeTab === "calculator" && <Calculator key={me.id} advisor={me} cases={myCases} />}
-        {activeTab === "home" && <Home key={me.id} advisor={me} cases={cases} />}
+        {activeTab === "home" &&
+          (editingGoals ? (
+            <Goals key={me.id} advisor={me} cases={cases} goalSet={goalSet} onSave={saveGoals} onCancel={() => setEditingGoals(false)} />
+          ) : (
+            <Home key={me.id} advisor={me} cases={cases} goalSet={goalSet} onEditGoals={() => setEditingGoals(true)} />
+          ))}
+        {activeTab === "calculator" && <Calculator key={me.id} advisor={me} cases={myCases} goalSet={goalSet} />}
         {activeTab === "log" && <Log key={me.id} advisor={me} cases={cases} onAdd={addCase} onRemove={removePendingCase} />}
-        {activeTab === "team" && isManager && <Team key={me.id} manager={me} cases={cases} />}
+        {activeTab === "team" && isManager && <Team key={me.id} manager={me} cases={cases} goalSet={goalSet} />}
         {activeTab === "draw" && <Draw />}
       </main>
 

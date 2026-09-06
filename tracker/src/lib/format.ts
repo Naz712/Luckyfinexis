@@ -26,11 +26,15 @@ export function longDate(d: Date): string {
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/** "Jan–Dec 2026" or "Apr 2026–Mar 2027". */
+/** "Jan–Dec 2026", "Apr 2026–Mar 2027", "Q3 2026" or "Sep 2026". */
 export function periodLabel(p: { start: Date; end: Date }): string {
   const sy = p.start.getFullYear();
   const ey = p.end.getFullYear();
-  if (sy === ey) return `${MONTHS[p.start.getMonth()]}–${MONTHS[p.end.getMonth()]} ${sy}`;
+  const sm = p.start.getMonth();
+  const em = p.end.getMonth();
+  if (sy === ey && sm === em) return `${MONTHS[sm]} ${sy}`;
+  if (sy === ey && sm % 3 === 0 && em === sm + 2) return `Q${sm / 3 + 1} ${sy}`;
+  if (sy === ey) return `${MONTHS[sm]}–${MONTHS[em]} ${sy}`;
   return `${MONTHS[p.start.getMonth()]} ${sy}–${MONTHS[p.end.getMonth()]} ${ey}`;
 }
 
@@ -58,3 +62,7 @@ export function signedPct(ratio: number): string {
   const sign = ratio >= 0 ? "+" : "-";
   return `${sign}${Math.round(Math.abs(ratio) * 100)}%`;
 }
+
+export const CADENCE_LABEL = { year: "Annual", half: "Half-year", quarter: "Quarterly", month: "Monthly" } as const;
+/** "per quarter" etc. for goal amounts. */
+export const CADENCE_PER = { year: "per year", half: "per half-year", quarter: "per quarter", month: "per month" } as const;

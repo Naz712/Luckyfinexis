@@ -8,6 +8,7 @@ import {
   cases as allCases,
   credit_rates,
   goals,
+  mdrt_tier_goals,
   metric_definitions,
   metric_thresholds,
   products,
@@ -15,6 +16,9 @@ import {
   type BandingCode,
   type Case,
   type CreditMetric,
+  type Goal,
+  type GoalCadence,
+  type MdrtTierGoal,
   type MetricCode,
   type MetricDefinition,
   type PeriodType,
@@ -53,9 +57,31 @@ export function metricDefinition(code: MetricCode): MetricDefinition {
   return d;
 }
 
-export function goalFor(advisorId: string, metric: MetricCode, year: number): number | null {
-  const g = goals.find((x) => x.advisor_id === advisorId && x.metric === metric && x.year === year);
-  return g ? g.target_value : null;
+/**
+ * Editable goals live in memory while the mockup runs. Screens pass the
+ * current set down; the defaults come from the mock tables.
+ */
+export interface GoalSet {
+  targets: Goal[];
+  mdrtTiers: MdrtTierGoal[];
+}
+
+export const defaultGoalSet: GoalSet = { targets: goals, mdrtTiers: mdrt_tier_goals };
+
+export function goalFor(advisorId: string, metric: MetricCode, year: number, targets: Goal[] = goals): Goal | null {
+  return targets.find((x) => x.advisor_id === advisorId && x.metric === metric && x.year === year) ?? null;
+}
+
+export function mdrtTierGoalFor(advisorId: string, year: number, tiers: MdrtTierGoal[] = mdrt_tier_goals): Tier {
+  return tiers.find((x) => x.advisor_id === advisorId && x.year === year)?.tier ?? "mdrt";
+}
+
+/** Replace one advisor's goals for a year with a new set (pure; returns a new GoalSet). */
+export function withAdvisorGoals(set: GoalSet, advisorId: string, year: number, targets: Goal[], tier: Tier): GoalSet {
+  return {
+    targets: [...set.targets.filter((g) => !(g.advisor_id === advisorId && g.year === year)), ...targets],
+    mdrtTiers: [...set.mdrtTiers.filter((t) => !(t.advisor_id === advisorId && t.year === year)), { advisor_id: advisorId, year, tier }],
+  };
 }
 
 /** Cases belonging to one advisor (from the mock table). */
@@ -154,6 +180,29 @@ export function periodBounds(type: PeriodType, ref: Date): Period {
   return { start, end };
 }
 
+/**
+ * The window a goal of the given cadence is measured over, containing `ref`.
+ * "year" follows the metric's own period type; the others are calendar-aligned.
+ */
+export function goalPeriod(cadence: GoalCadence, metricPeriod: PeriodType, ref: Date): Period {
+  const y = ref.getFullYear();
+  const m = ref.getMonth();
+  switch (cadence) {
+    case "year":
+      return periodBounds(metricPeriod, ref);
+    case "half": {
+      const startMonth = m < 6 ? 0 : 6;
+      return { start: new Date(y, startMonth, 1), end: new Date(y, startMonth + 6, 0) };
+    }
+    case "quarter": {
+      const startMonth = Math.floor(m / 3) * 3;
+      return { start: new Date(y, startMonth, 1), end: new Date(y, startMonth + 3, 0) };
+    }
+    case "month":
+      return { start: new Date(y, m, 1), end: new Date(y, m + 1, 0) };
+  }
+}
+
 export function samePeriodLastYear(p: Period): Period {
   return {
     start: new Date(p.start.getFullYear() - 1, p.start.getMonth(), p.start.getDate()),
@@ -222,6 +271,8 @@ export interface Pace {
   runRateProjection: number;
   /** What must be added each remaining month to hit the target; 0 when reached; null when the period is over. */
   requiredPerMonth: number | null;
+  /** The same figure per remaining week, for short windows. */
+  requiredPerWeek: number | null;
   onTrack: boolean;
   gap: number;
   elapsedMonths: number;
@@ -242,8 +293,9 @@ export function pace(achieved: number, target: number, periodStart: Date, period
   else if (remainingMonths > 0) requiredPerMonth = gap / remainingMonths;
   else requiredPerMonth = null;
 
+  const requiredPerWeek = requiredPerMonth === null ? null : requiredPerMonth / (52 / 12);
   const onTrack = achieved >= target || (elapsedMonths > 0 && runRateProjection >= target);
-  return { runRateProjection, requiredPerMonth, onTrack, gap, elapsedMonths, remainingMonths };
+  return { runRateProjection, requiredPerMonth, requiredPerWeek, onTrack, gap, elapsedMonths, remainingMonths };
 }
 
 /** Whole clients needed to close a gap; 0 when there is no gap; null when the average is not positive. */
@@ -298,7 +350,9 @@ export function comparablePeriodLastYear(p: Period, today: Date): Period {
 
 export interface MetricSnapshot {
   definition: MetricDefinition;
+  /** The window shown on the card: the goal's cadence window if a goal exists, else the metric's own period. */
   period: Period;
+  cadence: GoalCadence | null;
   achieved: number; // confirmed only
   projected: number; // confirmed + pending
   target: number | null;
@@ -309,15 +363,22 @@ export interface MetricSnapshot {
   contributing: Case[];
 }
 
-export function metricSnapshot(advisorId: string, cases: Case[], metric: MetricCode, today: Date): MetricSnapshot {
+export function metricSnapshot(
+  advisorId: string,
+  cases: Case[],
+  metric: MetricCode,
+  today: Date,
+  goalSet: GoalSet = defaultGoalSet,
+): MetricSnapshot {
   const definition = metricDefinition(metric);
-  const period = periodBounds(definition.period_type, today);
+  const goal = goalFor(advisorId, metric, today.getFullYear(), goalSet.targets);
+  const period = goal ? goalPeriod(goal.cadence, definition.period_type, today) : periodBounds(definition.period_type, today);
   const mine = cases.filter((c) => c.advisor_id === advisorId && c.status !== "superseded");
   const confirmed = mine.filter((c) => c.status === "confirmed");
 
   const achieved = aggregate(confirmed, metric, period.start, period.end);
   const projected = aggregate(mine, metric, period.start, period.end);
-  const target = goalFor(advisorId, metric, period.start.getFullYear());
+  const target = goal ? goal.target_value : null;
   const gap = target === null ? null : Math.max(target - achieved, 0);
   const tracked = !UNTRACKED_METRICS.has(metric);
   const paceResult = target === null || !tracked ? null : pace(achieved, target, period.start, period.end, today);
@@ -329,6 +390,7 @@ export function metricSnapshot(advisorId: string, cases: Case[], metric: MetricC
   return {
     definition,
     period,
+    cadence: goal ? goal.cadence : null,
     achieved,
     projected,
     target,
@@ -348,42 +410,48 @@ export interface MdrtRoute {
   achieved: number;
   projected: number;
   tiers: TierProgress;
-  /** Threshold of the next tier not yet reached (null once TOT is reached). */
-  nextThreshold: number | null;
-  pace: Pace | null;
+  /** Threshold of the tier the FC is aiming for on this route. */
+  goalThreshold: number;
+  /** 0..1 progress toward the aimed-for tier. */
+  goalProgress: number;
+  goalReached: boolean;
+  pace: Pace;
 }
 
 export interface MdrtSnapshot {
   period: Period;
+  /** The tier the FC set as their aspiration this year. */
+  goalTier: Tier;
   routes: MdrtRoute[];
-  /** The route that is furthest along toward its next tier. */
+  /** The route that is furthest along toward the aimed-for tier. */
   closer: MdrtRouteMetric;
   contributing: Case[];
 }
 
-export function mdrtSnapshot(advisorId: string, cases: Case[], today: Date): MdrtSnapshot {
+export function mdrtSnapshot(advisorId: string, cases: Case[], today: Date, goalSet: GoalSet = defaultGoalSet): MdrtSnapshot {
   const period = periodBounds(metricDefinition("mdrt_commission").period_type, today);
+  const goalTier = mdrtTierGoalFor(advisorId, today.getFullYear(), goalSet.mdrtTiers);
   const mine = cases.filter((c) => c.advisor_id === advisorId && c.status !== "superseded");
   const confirmed = mine.filter((c) => c.status === "confirmed");
 
   const routes: MdrtRoute[] = (["mdrt_commission", "mdrt_premium"] as const).map((metric) => {
     const achieved = aggregate(confirmed, metric, period.start, period.end);
     const projected = aggregate(mine, metric, period.start, period.end);
-    const tiers = tierProgress(metric, achieved);
-    const nextThreshold = tiers.next ? thresholdFor(metric, tiers.next) : null;
+    const goalThreshold = thresholdFor(metric, goalTier);
     return {
       metric,
       label: metric === "mdrt_commission" ? "Commission" : "Premium",
       achieved,
       projected,
-      tiers,
-      nextThreshold,
-      pace: nextThreshold === null ? null : pace(achieved, nextThreshold, period.start, period.end, today),
+      tiers: tierProgress(metric, achieved),
+      goalThreshold,
+      goalProgress: Math.min(achieved / goalThreshold, 1),
+      goalReached: achieved >= goalThreshold,
+      pace: pace(achieved, goalThreshold, period.start, period.end, today),
     };
   });
 
-  const rank = (r: MdrtRoute) => (r.tiers.reached ? TIER_ORDER.indexOf(r.tiers.reached) + 1 : 0) + r.tiers.progress;
-  const closer = routes.reduce((best, r) => (rank(r) > rank(best) ? r : best), routes[0]).metric;
+  const closer = routes.reduce((best, r) => (r.goalProgress > best.goalProgress ? r : best), routes[0]).metric;
 
-  return { period, routes, closer, contributing: contributingCases(mine, period.start, period.end) };
+  return { period, goalTier, routes, closer, contributing: contributingCases(mine, period.start, period.end) };
 }

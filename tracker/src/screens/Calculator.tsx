@@ -7,12 +7,14 @@ import {
   commissionForCase,
   estimateGrossRevenue,
   goalFor,
+  goalPeriod,
   metricDefinition,
   periodBounds,
+  type GoalSet,
   productById,
   productsForInsurer,
 } from "../lib/calc";
-import { sgd, pct } from "../lib/format";
+import { sgd, pct, periodLabel } from "../lib/format";
 import { Card, Label, MoneyInput, Segmented, Select } from "../components/ui";
 
 interface Row {
@@ -38,18 +40,20 @@ function parseMoney(s: string): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-export default function Calculator({ advisor, cases }: { advisor: Advisor; cases: Case[] }) {
+export default function Calculator({ advisor, cases, goalSet }: { advisor: Advisor; cases: Case[]; goalSet: GoalSet }) {
   const [banding, setBanding] = useState<BandingCode>(advisor.banding_code);
   const [rows, setRows] = useState<Row[]>([blankRow()]);
 
-  // Goal: pre-filled from the FC's self-set commission goal for the current year.
+  // Goal: pre-filled from the FC's self-set commission goal, over that goal's own window.
   const year = TODAY.getFullYear();
-  const savedGoal = goalFor(advisor.id, "commission", year);
+  const savedGoalRow = goalFor(advisor.id, "commission", year, goalSet.targets);
+  const savedGoal = savedGoalRow ? savedGoalRow.target_value : null;
   const [goalText, setGoalText] = useState(savedGoal === null ? "" : String(savedGoal));
   const goal = parseMoney(goalText);
 
-  // Achieved so far = confirmed commission in the commission metric's period.
-  const period = periodBounds(metricDefinition("commission").period_type, TODAY);
+  // Achieved so far = confirmed commission in the goal's window (or the metric's period if no goal).
+  const commissionDef = metricDefinition("commission");
+  const period = savedGoalRow ? goalPeriod(savedGoalRow.cadence, commissionDef.period_type, TODAY) : periodBounds(commissionDef.period_type, TODAY);
   const achieved = aggregate(
     cases.filter((c) => c.status === "confirmed"),
     "commission",
@@ -177,7 +181,7 @@ export default function Calculator({ advisor, cases }: { advisor: Advisor; cases
 
       <Card>
         <div className="flex items-baseline justify-between">
-          <Label>{year} commission goal</Label>
+          <Label>Commission goal · {periodLabel(period)}</Label>
           {savedGoal !== null && goal !== savedGoal && (
             <button type="button" onClick={() => setGoalText(String(savedGoal))} className="text-[11px] font-medium text-accent">
               Reset to saved goal

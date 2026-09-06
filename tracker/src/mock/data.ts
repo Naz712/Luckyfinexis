@@ -219,11 +219,24 @@ export interface Case {
   confirmed_on: string | null;
 }
 
+/** How often a self-set goal resets. "year" follows the metric's own period_type (e.g. Apr–Mar for WAPE). */
+export type GoalCadence = "year" | "half" | "quarter" | "month";
+
 export interface Goal {
   advisor_id: string;
   metric: MetricCode;
+  /** The calendar year the goal applies to. */
   year: number;
+  cadence: GoalCadence;
+  /** The target for one period of the cadence (e.g. per quarter when cadence is "quarter"). */
   target_value: number;
+}
+
+/** Which MDRT tier the FC is aiming for this year. Both routes pace toward this tier. */
+export interface MdrtTierGoal {
+  advisor_id: string;
+  year: number;
+  tier: Tier;
 }
 
 export const advisors: Advisor[] = [
@@ -293,40 +306,38 @@ export const cases: Case[] = [
   { id: "case_048", advisor_id: "adv_01", client_name: "Uma Shankar", product_id: "prd_09", premium_amount: 50000, premium_term_years: 1, gross_revenue: 1763, banding_code_at_time: "B3", status: "pending", source: "manual", submitted_on: "2026-09-02", confirmed_on: null },
 ];
 
-/** Self-set targets for 2026. */
+/** Self-set targets for 2026. Amounts are per period of the cadence. */
 export const goals: Goal[] = [
-  { advisor_id: "adv_01", metric: "commission", year: 2026, target_value: 45000 },
-  { advisor_id: "adv_01", metric: "gross_revenue", year: 2026, target_value: 90000 },
-  { advisor_id: "adv_01", metric: "mdrt_commission", year: 2026, target_value: 72400 },
-  { advisor_id: "adv_01", metric: "mdrt_premium", year: 2026, target_value: 217200 },
-  { advisor_id: "adv_01", metric: "wape", year: 2026, target_value: 150000 },
-  { advisor_id: "adv_01", metric: "elite", year: 2026, target_value: 1 },
-  { advisor_id: "adv_01", metric: "new_clients", year: 2026, target_value: 24 },
-  { advisor_id: "adv_01", metric: "referrals", year: 2026, target_value: 12 },
-  { advisor_id: "adv_01", metric: "testimonials", year: 2026, target_value: 6 },
-  { advisor_id: "adv_02", metric: "commission", year: 2026, target_value: 15000 },
-  { advisor_id: "adv_02", metric: "mdrt_commission", year: 2026, target_value: 72400 },
-  { advisor_id: "adv_02", metric: "mdrt_premium", year: 2026, target_value: 120000 },
-  { advisor_id: "adv_02", metric: "wape", year: 2026, target_value: 80000 },
-  { advisor_id: "adv_02", metric: "new_clients", year: 2026, target_value: 15 },
-  { advisor_id: "adv_03", metric: "commission", year: 2026, target_value: 35000 },
-  { advisor_id: "adv_03", metric: "mdrt_commission", year: 2026, target_value: 72400 },
-  { advisor_id: "adv_03", metric: "mdrt_premium", year: 2026, target_value: 300000 },
-  { advisor_id: "adv_03", metric: "wape", year: 2026, target_value: 200000 },
-  { advisor_id: "adv_03", metric: "new_clients", year: 2026, target_value: 30 },
-  { advisor_id: "adv_04", metric: "commission", year: 2026, target_value: 5000 },
-  { advisor_id: "adv_04", metric: "mdrt_commission", year: 2026, target_value: 72400 },
-  { advisor_id: "adv_04", metric: "mdrt_premium", year: 2026, target_value: 90000 },
-  { advisor_id: "adv_04", metric: "wape", year: 2026, target_value: 60000 },
-  { advisor_id: "adv_04", metric: "new_clients", year: 2026, target_value: 12 },
-  { advisor_id: "adv_05", metric: "commission", year: 2026, target_value: 12000 },
-  { advisor_id: "adv_05", metric: "mdrt_commission", year: 2026, target_value: 72400 },
-  { advisor_id: "adv_05", metric: "mdrt_premium", year: 2026, target_value: 180000 },
-  { advisor_id: "adv_05", metric: "wape", year: 2026, target_value: 120000 },
-  { advisor_id: "adv_05", metric: "new_clients", year: 2026, target_value: 20 },
-  { advisor_id: "adv_mgr", metric: "commission", year: 2026, target_value: 15000 },
-  { advisor_id: "adv_mgr", metric: "mdrt_commission", year: 2026, target_value: 72400 },
-  { advisor_id: "adv_mgr", metric: "mdrt_premium", year: 2026, target_value: 400000 },
-  { advisor_id: "adv_mgr", metric: "wape", year: 2026, target_value: 250000 },
-  { advisor_id: "adv_mgr", metric: "new_clients", year: 2026, target_value: 20 },
+  { advisor_id: "adv_01", metric: "commission", year: 2026, cadence: "year", target_value: 45000 },
+  { advisor_id: "adv_01", metric: "gross_revenue", year: 2026, cadence: "year", target_value: 90000 },
+  { advisor_id: "adv_01", metric: "wape", year: 2026, cadence: "year", target_value: 150000 },
+  { advisor_id: "adv_01", metric: "elite", year: 2026, cadence: "year", target_value: 1 },
+  { advisor_id: "adv_01", metric: "new_clients", year: 2026, cadence: "year", target_value: 24 },
+  { advisor_id: "adv_01", metric: "referrals", year: 2026, cadence: "year", target_value: 12 },
+  { advisor_id: "adv_01", metric: "testimonials", year: 2026, cadence: "year", target_value: 6 },
+  { advisor_id: "adv_02", metric: "commission", year: 2026, cadence: "year", target_value: 15000 },
+  { advisor_id: "adv_02", metric: "wape", year: 2026, cadence: "year", target_value: 80000 },
+  { advisor_id: "adv_02", metric: "new_clients", year: 2026, cadence: "year", target_value: 15 },
+  { advisor_id: "adv_03", metric: "commission", year: 2026, cadence: "year", target_value: 35000 },
+  { advisor_id: "adv_03", metric: "wape", year: 2026, cadence: "year", target_value: 200000 },
+  { advisor_id: "adv_03", metric: "new_clients", year: 2026, cadence: "year", target_value: 30 },
+  { advisor_id: "adv_04", metric: "commission", year: 2026, cadence: "year", target_value: 5000 },
+  { advisor_id: "adv_04", metric: "wape", year: 2026, cadence: "year", target_value: 60000 },
+  { advisor_id: "adv_04", metric: "new_clients", year: 2026, cadence: "year", target_value: 12 },
+  { advisor_id: "adv_05", metric: "commission", year: 2026, cadence: "year", target_value: 12000 },
+  { advisor_id: "adv_05", metric: "wape", year: 2026, cadence: "year", target_value: 120000 },
+  { advisor_id: "adv_05", metric: "new_clients", year: 2026, cadence: "year", target_value: 20 },
+  { advisor_id: "adv_mgr", metric: "commission", year: 2026, cadence: "year", target_value: 15000 },
+  { advisor_id: "adv_mgr", metric: "wape", year: 2026, cadence: "year", target_value: 250000 },
+  { advisor_id: "adv_mgr", metric: "new_clients", year: 2026, cadence: "year", target_value: 20 },
+];
+
+/** Self-set MDRT aspiration for 2026. Defaults to MDRT; an FC can raise it to COT or TOT. */
+export const mdrt_tier_goals: MdrtTierGoal[] = [
+  { advisor_id: "adv_01", year: 2026, tier: "mdrt" },
+  { advisor_id: "adv_02", year: 2026, tier: "mdrt" },
+  { advisor_id: "adv_03", year: 2026, tier: "cot" },
+  { advisor_id: "adv_04", year: 2026, tier: "mdrt" },
+  { advisor_id: "adv_05", year: 2026, tier: "mdrt" },
+  { advisor_id: "adv_mgr", year: 2026, tier: "mdrt" },
 ];

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { advisors, TODAY, type Advisor, type Case } from "../mock/data";
-import { mdrtSnapshot, metricSnapshot, type MdrtSnapshot, type MetricSnapshot } from "../lib/calc";
-import { periodLabel, pct, sgd } from "../lib/format";
+import { mdrtSnapshot, metricSnapshot, type GoalSet, type MdrtSnapshot, type MetricSnapshot } from "../lib/calc";
+import { CADENCE_PER, periodLabel, pct, sgd } from "../lib/format";
 import { Card, Label } from "../components/ui";
 import Home from "./Home";
 
@@ -24,21 +24,22 @@ function OnTrackFlag({ snapshot }: { snapshot: MetricSnapshot }) {
   );
 }
 
-export default function Team({ manager, cases }: { manager: Advisor; cases: Case[] }) {
+export default function Team({ manager, cases, goalSet }: { manager: Advisor; cases: Case[]; goalSet: GoalSet }) {
   const [viewing, setViewing] = useState<Advisor | null>(null);
 
   const rows: Row[] = advisors
     .filter((a) => a.manager_id === manager.id)
     .map((advisor) => ({
       advisor,
-      commission: metricSnapshot(advisor.id, cases, "commission", TODAY),
-      mdrt: mdrtSnapshot(advisor.id, cases, TODAY),
+      commission: metricSnapshot(advisor.id, cases, "commission", TODAY, goalSet),
+      mdrt: mdrtSnapshot(advisor.id, cases, TODAY, goalSet),
     }))
     .sort((a, b) => b.commission.achieved - a.commission.achieved);
 
   const teamCommission = rows.reduce((s, r) => s + r.commission.achieved, 0);
   const onTrack = rows.filter((r) => r.commission.pace?.onTrack).length;
   const qualified = rows.filter((r) => r.mdrt.routes.some((x) => x.tiers.reached !== null)).length;
+  const periodOf = (r: Row) => periodLabel(r.commission.period);
   const period = rows[0]?.commission.period;
 
   if (viewing) {
@@ -52,7 +53,7 @@ export default function Team({ manager, cases }: { manager: Advisor; cases: Case
             Viewing <span className="font-semibold">{viewing.name}</span> · read-only
           </span>
         </div>
-        <Home advisor={viewing} cases={cases} />
+        <Home advisor={viewing} cases={cases} goalSet={goalSet} />
       </div>
     );
   }
@@ -113,22 +114,26 @@ export default function Team({ manager, cases }: { manager: Advisor; cases: Case
                   </div>
                   <dl className="mt-2 grid grid-cols-2 gap-3">
                     <div>
-                      <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted">Commission YTD</dt>
+                      <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted">Commission · {periodOf({ advisor, commission, mdrt })}</dt>
                       <dd className="tnum mt-0.5 text-[16px] font-semibold leading-none text-ink">{sgd(commission.achieved)}</dd>
-                      <dd className="tnum mt-1 text-[11px] text-muted">{commission.target === null ? "no goal" : `of ${sgd(commission.target)}`}</dd>
+                      <dd className="tnum mt-1 text-[11px] text-muted">
+                        {commission.target === null
+                          ? "no goal"
+                          : `of ${sgd(commission.target)}${commission.cadence && commission.cadence !== "year" ? ` ${CADENCE_PER[commission.cadence]}` : ""}`}
+                      </dd>
                     </div>
                     <div>
                       <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted">
-                        MDRT · {route.label.toLowerCase()}
+                        {TIER_LABEL[mdrt.goalTier]} goal · {route.label.toLowerCase()}
                         {route.tiers.reached && (
                           <span className="ml-1 rounded bg-accent px-1 py-px text-[9px] font-semibold text-white">{TIER_LABEL[route.tiers.reached]}</span>
                         )}
                       </dt>
                       <dd className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-canvas" aria-hidden="true">
-                        <div className="h-full rounded-full bg-accent" style={{ width: `${route.tiers.progress * 100}%` }} />
+                        <div className="h-full rounded-full bg-accent" style={{ width: `${route.goalProgress * 100}%` }} />
                       </dd>
                       <dd className="tnum mt-1 text-[11px] text-muted">
-                        {route.tiers.next ? `${pct(route.tiers.progress)} to ${TIER_LABEL[route.tiers.next]} · ${sgd(route.achieved)}` : "TOT reached"}
+                        {route.goalReached ? `${TIER_LABEL[mdrt.goalTier]} reached` : `${pct(route.goalProgress)} there · ${sgd(route.achieved)}`}
                       </dd>
                     </div>
                   </dl>

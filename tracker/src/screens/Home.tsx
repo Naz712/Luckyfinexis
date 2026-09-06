@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { metric_definitions, TODAY, type Advisor, type Case, type MetricUnit } from "../mock/data";
+import { metric_definitions, TODAY, type Advisor, type Case, type MetricUnit, type Tier } from "../mock/data";
 import {
   mdrtSnapshot,
   metricSnapshot,
@@ -7,11 +7,12 @@ import {
   productById,
   effectiveDate,
   weeksLeftInYear,
+  type GoalSet,
   type MetricSnapshot,
   type MdrtRoute,
   type Pace,
 } from "../lib/calc";
-import { count, dateRange, longDate, periodLabel, sgd, shortDate, signed, signedPct } from "../lib/format";
+import { CADENCE_LABEL, count, dateRange, longDate, periodLabel, sgd, shortDate, signed, signedPct } from "../lib/format";
 import { Card, Label } from "../components/ui";
 
 const TIER_LABEL = { mdrt: "MDRT", cot: "COT", tot: "TOT" } as const;
@@ -59,7 +60,11 @@ function PaceLine({ pace, unit, tracked, hasTarget }: { pace: Pace | null; unit:
   return (
     <div className="flex items-center gap-1.5 text-[12px] font-medium text-warn">
       <span className="h-1.5 w-1.5 rounded-full bg-warn" aria-hidden="true" />
-      {pace.requiredPerMonth === null ? `Period ended · short by ${fmt(pace.gap, unit)}` : `Need ${fmt(pace.requiredPerMonth, unit)}/month`}
+      {pace.requiredPerMonth === null
+        ? `Period ended · short by ${fmt(pace.gap, unit)}`
+        : pace.remainingMonths < 1.5 && pace.requiredPerWeek !== null
+          ? `Need ${fmt(pace.requiredPerWeek, unit)}/week`
+          : `Need ${fmt(pace.requiredPerMonth, unit)}/month`}
     </div>
   );
 }
@@ -132,7 +137,7 @@ function ExpandableCard({
 }
 
 function MetricCard({ snapshot, compare, expanded, onToggle }: { snapshot: MetricSnapshot; compare: boolean; expanded: boolean; onToggle: () => void }) {
-  const { definition: def, achieved, projected, target, gap, pace, tracked, period } = snapshot;
+  const { definition: def, achieved, projected, target, gap, pace, tracked, period, cadence } = snapshot;
   const unit = def.unit;
   const metricValue = (c: Case) => {
     if (def.code === "new_clients") return "1 client";
@@ -147,7 +152,10 @@ function MetricCard({ snapshot, compare, expanded, onToggle }: { snapshot: Metri
         <>
           <div className="flex items-baseline justify-between">
             <Label>{def.label}</Label>
-            <span className="text-[11px] text-muted">{periodLabel(period)}</span>
+            <span className="text-[11px] text-muted">
+              {cadence && cadence !== "year" && <span className="mr-1 rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">{CADENCE_LABEL[cadence]}</span>}
+              {periodLabel(period)}
+            </span>
           </div>
           {tracked ? (
             <>
@@ -190,18 +198,19 @@ function MetricCard({ snapshot, compare, expanded, onToggle }: { snapshot: Metri
   );
 }
 
-function TierChips({ route }: { route: MdrtRoute }) {
+function TierChips({ route, goalTier }: { route: MdrtRoute; goalTier: Tier }) {
   const reachedIdx = route.tiers.reached ? ["mdrt", "cot", "tot"].indexOf(route.tiers.reached) : -1;
   return (
     <div className="flex gap-1">
       {(["mdrt", "cot", "tot"] as const).map((t, i) => {
         const reached = i <= reachedIdx;
-        const next = t === route.tiers.next;
+        const isGoal = t === goalTier;
         return (
           <span
             key={t}
+            title={isGoal ? "Your goal" : undefined}
             className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${
-              reached ? "bg-accent text-white" : next ? "border border-accent/40 text-accent" : "border border-line text-muted"
+              reached ? "bg-accent text-white" : isGoal ? "border border-accent text-accent" : "border border-line text-muted"
             }`}
           >
             {TIER_LABEL[t]}
@@ -212,20 +221,22 @@ function TierChips({ route }: { route: MdrtRoute }) {
   );
 }
 
-function MdrtRouteBlock({ route, highlight }: { route: MdrtRoute; highlight: boolean }) {
-  const target = route.nextThreshold;
-  const elapsed = route.pace ? route.pace.elapsedMonths / (route.pace.elapsedMonths + route.pace.remainingMonths) : null;
+function MdrtRouteBlock({ route, goalTier, highlight }: { route: MdrtRoute; goalTier: Tier; highlight: boolean }) {
+  const target = route.goalThreshold;
+  const elapsed = route.pace.elapsedMonths / (route.pace.elapsedMonths + route.pace.remainingMonths);
   return (
     <div className={`rounded-xl p-3 ${highlight ? "bg-accent-soft/70 ring-1 ring-accent/30" : "bg-canvas"}`}>
       <div className="flex items-center justify-between gap-2">
         <div className={`text-[12px] font-semibold ${highlight ? "text-accent" : "text-body"}`}>{route.label} route</div>
         <div className="shrink-0">
-          <TierChips route={route} />
+          <TierChips route={route} goalTier={goalTier} />
         </div>
       </div>
       <div className="mt-1.5 flex items-baseline justify-between">
         <div className="tnum text-[22px] font-semibold leading-none text-ink">{sgd(route.achieved)}</div>
-        <div className="tnum text-[12px] text-muted">{target === null ? "TOT reached" : `${TIER_LABEL[route.tiers.next!]} at ${sgd(target)}`}</div>
+        <div className={`tnum text-[12px] ${route.goalReached ? "font-medium text-ok" : "text-muted"}`}>
+          {route.goalReached ? `${TIER_LABEL[goalTier]} reached` : `${TIER_LABEL[goalTier]} at ${sgd(target)}`}
+        </div>
       </div>
       <div className="mt-2">
         <ProgressBar achieved={ratio(route.achieved, target)} projected={ratio(route.projected, target)} elapsed={elapsed} />
@@ -235,25 +246,36 @@ function MdrtRouteBlock({ route, highlight }: { route: MdrtRoute; highlight: boo
           Projected <span className="font-medium text-body">{sgd(route.projected)}</span>
         </span>
         <span>
-          Gap <span className="font-medium text-body">{target === null ? "—" : sgd(Math.max(target - route.achieved, 0))}</span>
+          Gap <span className="font-medium text-body">{sgd(Math.max(target - route.achieved, 0))}</span>
         </span>
       </div>
       <div className="mt-1.5">
-        <PaceLine pace={route.pace} unit="sgd" tracked hasTarget={target !== null} />
+        <PaceLine pace={route.pace} unit="sgd" tracked hasTarget />
       </div>
     </div>
   );
 }
 
-export default function Home({ advisor, cases }: { advisor: Advisor; cases: Case[] }) {
+export default function Home({
+  advisor,
+  cases,
+  goalSet,
+  onEditGoals,
+}: {
+  advisor: Advisor;
+  cases: Case[];
+  goalSet: GoalSet;
+  /** Omit for a read-only view (e.g. a manager looking at an FC). */
+  onEditGoals?: () => void;
+}) {
   const [compare, setCompare] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const toggle = (key: string) => setExpanded((k) => (k === key ? null : key));
 
-  const mdrt = mdrtSnapshot(advisor.id, cases, TODAY);
+  const mdrt = mdrtSnapshot(advisor.id, cases, TODAY, goalSet);
   const snapshots = metric_definitions
     .filter((m) => m.code !== "mdrt_commission" && m.code !== "mdrt_premium") // both routes live in the MDRT card
-    .map((m) => metricSnapshot(advisor.id, cases, m.code, TODAY));
+    .map((m) => metricSnapshot(advisor.id, cases, m.code, TODAY, goalSet));
   const weeksLeft = weeksLeftInYear(TODAY);
 
   return (
@@ -269,7 +291,14 @@ export default function Home({ advisor, cases }: { advisor: Advisor; cases: Case
           <div className="rounded-lg bg-white/15 px-2 py-1 text-[12px] font-semibold">{advisor.banding_code}</div>
         </div>
         <div className="mt-4 flex items-end justify-between">
-          <div className="text-[12px] text-white/75">{longDate(TODAY)}</div>
+          <div>
+            <div className="text-[12px] text-white/75">{longDate(TODAY)}</div>
+            {onEditGoals && (
+              <button type="button" onClick={onEditGoals} className="mt-2 rounded-lg bg-white/15 px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-white/25">
+                Edit goals ›
+              </button>
+            )}
+          </div>
           <div className="text-right">
             <div className="tnum text-[28px] font-semibold leading-none">{weeksLeft}</div>
             <div className="text-[11px] text-white/75">weeks left in {TODAY.getFullYear()}</div>
@@ -296,12 +325,12 @@ export default function Home({ advisor, cases }: { advisor: Advisor; cases: Case
               <span className="text-[11px] text-muted">{periodLabel(mdrt.period)}</span>
             </div>
             <p className="mt-1 text-[12px] text-muted">
-              Two routes qualify. You are closest on the{" "}
+              Aiming for <span className="font-medium text-accent">{TIER_LABEL[mdrt.goalTier]}</span>. Either route qualifies; you are closest on the{" "}
               <span className="font-medium text-accent">{mdrt.routes.find((r) => r.metric === mdrt.closer)?.label.toLowerCase()} route</span>.
             </p>
             <div className="mt-3 space-y-2">
               {mdrt.routes.map((r) => (
-                <MdrtRouteBlock key={r.metric} route={r} highlight={r.metric === mdrt.closer} />
+                <MdrtRouteBlock key={r.metric} route={r} goalTier={mdrt.goalTier} highlight={r.metric === mdrt.closer} />
               ))}
             </div>
           </>
