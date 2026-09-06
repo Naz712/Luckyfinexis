@@ -27,7 +27,16 @@ import streamlit as st
 
 import ui
 from datetime import date
-from importer.core import RunLog, build_plan, execute_plan, suggest_month, validate_file, rows_needing_default
+from importer.core import (
+    RunLog,
+    build_plan,
+    execute_plan,
+    problem_rows_csv,
+    rows_needing_default,
+    rows_needing_month,
+    suggest_month,
+    validate_file,
+)
 from importer.models import SEV_ERROR, ImporterError
 from importer.parsing import read_upload
 
@@ -363,8 +372,10 @@ if parse_error:
 
 # ---- draw month: each row names its own; a file-level fallback is asked for
 # only when some rows leave Monthly Draw blank or misspell it ---------------
+_needing_rows = rows_needing_month(df, ref)
 _blank_m, _unknown_m = rows_needing_default(df, ref)
 _needing = _blank_m + _unknown_m
+_file_stem = re.sub(r"\.[^.]+$", "", uploaded.name)
 default_month = None
 if _needing:
     if st.session_state.get("month") is None:
@@ -403,6 +414,13 @@ if _needing:
         + (f"Pre-selected because {_suggestion_note} — change it if that's wrong." if _suggestion_note else "")
         + "</span>",
         unsafe_allow_html=True,
+    )
+    st.download_button(
+        f"Download the {_needing} row{'s' if _needing != 1 else ''} without a draw month (CSV)",
+        data=problem_rows_csv(df, _needing_rows),
+        file_name=f"{_file_stem}_rows_without_month.csv",
+        mime="text/csv",
+        help="The same columns as the sheet, plus Row and Problem — fill in Monthly Draw and merge it back.",
     )
 else:
     st.markdown(
@@ -496,6 +514,13 @@ if problem_records:
                 "only the prize is skipped."
             )
         st.dataframe(pd.DataFrame(problem_records), hide_index=True, use_container_width=True)
+        st.download_button(
+            f"Download the {flagged_rows} flagged row{'s' if flagged_rows != 1 else ''} (CSV)",
+            data=problem_rows_csv(df, [(r.row_num, issue.message) for r in report.rows for issue in r.issues]),
+            file_name=f"{_file_stem}_flagged_rows.csv",
+            mime="text/csv",
+            help="Every warning and error row in the sheet's own columns, plus Row and Problem.",
+        )
 else:
     st.success("No problems found — every row is clean.")
 

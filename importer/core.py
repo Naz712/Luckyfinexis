@@ -134,24 +134,60 @@ def normalize_mobile(v) -> tuple[str, list[str]]:
 # Validation (read-only — writes nothing)
 # ---------------------------------------------------------------------------
 
+def rows_needing_month(df: pd.DataFrame, ref: ReferenceData) -> list[tuple[int, str]]:
+    """Rows that cannot name their own draw month, as (spreadsheet row, problem).
+
+    A blank Monthly Draw cell and an unrecognised one ("Augst") are reported
+    separately so the sheet owner knows whether to fill or to fix.
+    """
+    headers = {str(c).replace("\ufeff", "").strip(): c for c in df.columns}
+    col = headers.get("Monthly Draw")
+    out: list[tuple[int, str]] = []
+    for idx in df.index:
+        row_num = int(idx) + 2
+        if col is None:
+            out.append((row_num, "Monthly Draw column missing"))
+            continue
+        t = text(df.at[idx, col])
+        if t == "":
+            out.append((row_num, "Monthly Draw is blank"))
+        elif ref.match_month(t) is None:
+            out.append((row_num, f"Monthly Draw '{t}' matches no draw"))
+    return out
+
+
 def rows_needing_default(df: pd.DataFrame, ref: ReferenceData) -> tuple[int, int]:
     """How many rows cannot name their own draw month: (blank, unrecognised).
 
     The app shows the month picker only when this is non-zero; a sheet whose
     every row carries a known month needs no human choice at all.
     """
-    headers = {str(c).replace("\ufeff", "").strip(): c for c in df.columns}
-    col = headers.get("Monthly Draw")
-    if col is None:
-        return len(df.index), 0
-    blank = unknown = 0
-    for v in df[col]:
-        t = text(v)
-        if t == "":
-            blank += 1
-        elif ref.match_month(t) is None:
-            unknown += 1
-    return blank, unknown
+    needing = rows_needing_month(df, ref)
+    blank = sum(1 for _, why in needing if why == "Monthly Draw is blank")
+    return blank, len(needing) - blank
+
+
+def problem_rows_csv(df: pd.DataFrame, problems: list[tuple[int, str]]) -> bytes:
+    """A CSV of just the given rows, in the sheet's own columns, with a leading
+    'Row' (spreadsheet row number, header = row 1) and a trailing 'Problem'
+    column — meant to be fixed and re-uploaded, or merged back into the sheet.
+    """
+    headers = [str(c).replace("\ufeff", "").strip() for c in df.columns]
+    by_row: dict[int, list[str]] = {}
+    for row_num, why in problems:
+        by_row.setdefault(row_num, []).append(why)
+    records = []
+    for row_num in sorted(by_row):
+        idx = row_num - 2
+        if idx not in df.index:
+            continue
+        rec = {"Row": row_num}
+        for h, c in zip(headers, df.columns):
+            rec[h] = text(df.at[idx, c])
+        rec["Problem"] = " | ".join(by_row[row_num])
+        records.append(rec)
+    out = pd.DataFrame(records, columns=["Row", *headers, "Problem"])
+    return out.to_csv(index=False).encode("utf-8-sig")
 
 
 def validate_file(df: pd.DataFrame, ref: ReferenceData, default_month: str | None) -> FileReport:

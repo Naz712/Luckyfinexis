@@ -269,7 +269,17 @@ def main() -> int:
     blank_errs = [r.row_num for r in report_nofb.error_rows if any("no draw month was chosen" in m for m in r.reasons())]
     check("no fallback: blank-month rows are errors, named rows still import",
           len(blank_errs) == 11 and report_nofb.month_counts() == {"July": 10, "August": 11}, f"errs {blank_errs} counts {report_nofb.month_counts()}")
-    from importer.core import rows_needing_default
+    from importer.core import rows_needing_default, rows_needing_month, problem_rows_csv
+    needing = rows_needing_month(df_m, ref)
+    csv_bytes = problem_rows_csv(df_m, needing)
+    csv_lines = csv_bytes.decode("utf-8-sig").splitlines()
+    check("problem CSV: header is Row + sheet columns + Problem",
+          csv_lines[0].startswith("Row,FC Email,") and csv_lines[0].endswith(",Problem"), csv_lines[0])
+    check("problem CSV: one line per row needing a month, typo row 20 named",
+          len(csv_lines) - 1 == len(needing) and any(l.startswith("20,") and "Augst" in l and "matches no draw" in l for l in csv_lines), f"{len(csv_lines)-1} vs {len(needing)}")
+    flagged_csv = problem_rows_csv(df_m, [(r.row_num, i.message) for r in report_m.rows for i in r.issues]).decode("utf-8-sig").splitlines()
+    check("flagged CSV: one line per flagged row with problems joined",
+          len(flagged_csv) - 1 == len(report_m.warning_rows) + len(report_m.error_rows) and any(l.startswith("2,") and "not found in advisors" in l for l in flagged_csv), f"{len(flagged_csv)-1}")
     check("rows_needing_default counts blanks and typos separately",
           rows_needing_default(df_mix, ref) == (11, 0) and rows_needing_default(df_m, ref)[1] == 1, f"got {rows_needing_default(df_mix, ref)} / {rows_needing_default(df_m, ref)}")
 
