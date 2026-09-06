@@ -2,7 +2,6 @@
 // Screens must get every number from here (or from src/mock/data.ts).
 
 import {
-  GROSS_REVENUE_PLACEHOLDER_RATE,
   advisors,
   bandings,
   cases as allCases,
@@ -96,11 +95,12 @@ export function commissionForCase(grossRevenue: number, bandingCode: BandingCode
 }
 
 /**
- * PLACEHOLDER estimate used by the Calculator until the real revenue rules
- * per product are supplied: gross revenue = premium × GROSS_REVENUE_PLACEHOLDER_RATE.
+ * Estimated gross revenue from premium using the product's placeholder
+ * commission rate. The confirmed figure always comes from Merlin; this is
+ * only for the Calculator and for pending cases.
  */
-export function estimateGrossRevenue(premium: number): number {
-  return premium * GROSS_REVENUE_PLACEHOLDER_RATE;
+export function estimateGrossRevenue(premium: number, product: Product): number {
+  return premium * product.comm_rate;
 }
 
 /** WAPE weighting: regular premium × min(term / 10, 1); single premium × 1 (the 0.10 comes from credit_rates). */
@@ -454,4 +454,69 @@ export function mdrtSnapshot(advisorId: string, cases: Case[], today: Date, goal
   const closer = routes.reduce((best, r) => (r.goalProgress > best.goalProgress ? r : best), routes[0]).metric;
 
   return { period, goalTier, routes, closer, contributing: contributingCases(mine, period.start, period.end) };
+}
+
+// ───────────────────────── This week ─────────────────────────
+
+export interface WeekTotals {
+  period: Period;
+  /** Commission of cases submitted in the week (confirmed and pending; superseded ignored). */
+  commission: number;
+  cases: number;
+}
+
+export interface WeekSnapshot {
+  thisWeek: WeekTotals;
+  lastWeek: WeekTotals;
+  /** 1..7, Monday = 1. */
+  dayOfWeek: number;
+  /** This week's commission extrapolated to a full week at the current daily rate. */
+  projection: number;
+  /** True when the projection beats last week (or this week already has). */
+  onPaceToBeatLastWeek: boolean;
+  /** How much more is needed to pass last week's figure; 0 when already ahead. */
+  toBeatLastWeek: number;
+}
+
+/** Monday–Sunday week containing `ref`. */
+export function weekBounds(ref: Date): Period {
+  const dow = (ref.getDay() + 6) % 7; // Monday = 0
+  const start = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() - dow);
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+  return { start, end };
+}
+
+function weekTotals(cases: Case[], period: Period): WeekTotals {
+  let commission = 0;
+  let n = 0;
+  for (const c of cases) {
+    if (c.status === "superseded") continue;
+    if (!inPeriod(parseISODate(c.submitted_on), period.start, period.end)) continue;
+    commission += metricsForCase(c).commission;
+    n += 1;
+  }
+  return { period, commission, cases: n };
+}
+
+/**
+ * The FC's activity this week against last week, by submission date, so a
+ * case counts the day it is closed rather than when Merlin confirms it.
+ */
+export function weekSnapshot(advisorId: string, cases: Case[], today: Date): WeekSnapshot {
+  const mine = cases.filter((c) => c.advisor_id === advisorId);
+  const thisPeriod = weekBounds(today);
+  const lastPeriod = weekBounds(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 7));
+  const thisWeek = weekTotals(mine, thisPeriod);
+  const lastWeek = weekTotals(mine, lastPeriod);
+  const dayOfWeek = ((today.getDay() + 6) % 7) + 1;
+  const projection = (thisWeek.commission * 7) / dayOfWeek;
+  const onPaceToBeatLastWeek = thisWeek.commission > lastWeek.commission || projection > lastWeek.commission;
+  return {
+    thisWeek,
+    lastWeek,
+    dayOfWeek,
+    projection,
+    onPaceToBeatLastWeek,
+    toBeatLastWeek: Math.max(lastWeek.commission - thisWeek.commission, 0),
+  };
 }

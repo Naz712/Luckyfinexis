@@ -41,6 +41,13 @@ export interface Product {
   category: ProductCategory;
   premium_type: PremiumType;
   mdrt_category: MdrtCategory;
+  /**
+   * PLACEHOLDER — the insurer's commission rate for this product, as gross
+   * revenue per dollar of premium (annual premium for regular products, lump
+   * sum for single premium). Some product suites use a different formula
+   * altogether; model those as a rule when the business supplies them.
+   */
+  comm_rate: number;
 }
 
 export interface Banding {
@@ -68,11 +75,6 @@ export interface MetricDefinition {
   period_type: PeriodType;
 }
 
-// PLACEHOLDER — replace with business-supplied values.
-// The Calculator estimates gross revenue as premium × this rate until the
-// real per-product revenue rules are supplied.
-export const GROSS_REVENUE_PLACEHOLDER_RATE = 0.9;
-
 // PLACEHOLDER — replace with business-supplied values (real insurer names).
 export const insurers: Insurer[] = [
   { id: "ins_a", name: "Insurer A" },
@@ -82,21 +84,23 @@ export const insurers: Insurer[] = [
   { id: "ins_e", name: "Insurer E" },
 ];
 
-// PLACEHOLDER — replace with business-supplied values (real product list).
+// PLACEHOLDER — replace with business-supplied values (real product list and
+// commission rates). comm_rate is the placeholder that turns premium into an
+// estimated gross revenue; the confirmed figure comes from Merlin.
 export const products: Product[] = [
-  { id: "prd_01", insurer_id: "ins_a", name: "Term Plan X", category: "life", premium_type: "regular", mdrt_category: "risk_protection" },
-  { id: "prd_02", insurer_id: "ins_a", name: "Whole Life Y", category: "life", premium_type: "regular", mdrt_category: "risk_protection" },
-  { id: "prd_03", insurer_id: "ins_a", name: "Unit Trust", category: "fund", premium_type: "single", mdrt_category: "other" },
-  { id: "prd_04", insurer_id: "ins_b", name: "ILP Z", category: "ilp", premium_type: "regular", mdrt_category: "other" },
-  { id: "prd_05", insurer_id: "ins_b", name: "Single Premium Endowment", category: "endowment", premium_type: "single", mdrt_category: "other" },
-  { id: "prd_06", insurer_id: "ins_b", name: "Hospital Plan H", category: "health", premium_type: "regular", mdrt_category: "risk_protection" },
-  { id: "prd_07", insurer_id: "ins_c", name: "Critical Illness Plan C", category: "health", premium_type: "regular", mdrt_category: "risk_protection" },
-  { id: "prd_08", insurer_id: "ins_c", name: "Regular Endowment E", category: "endowment", premium_type: "regular", mdrt_category: "other" },
-  { id: "prd_09", insurer_id: "ins_c", name: "Single Premium ILP S", category: "ilp", premium_type: "single", mdrt_category: "other" },
-  { id: "prd_10", insurer_id: "ins_d", name: "Whole Life W", category: "life", premium_type: "regular", mdrt_category: "risk_protection" },
-  { id: "prd_11", insurer_id: "ins_d", name: "Term Plan T", category: "life", premium_type: "regular", mdrt_category: "risk_protection" },
-  { id: "prd_12", insurer_id: "ins_e", name: "Retirement Income R", category: "endowment", premium_type: "regular", mdrt_category: "other" },
-  { id: "prd_13", insurer_id: "ins_e", name: "Managed Fund M", category: "fund", premium_type: "single", mdrt_category: "other" },
+  { id: "prd_01", insurer_id: "ins_a", name: "Term Plan X", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
+  { id: "prd_02", insurer_id: "ins_a", name: "Whole Life Y", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
+  { id: "prd_03", insurer_id: "ins_a", name: "Unit Trust", category: "fund", premium_type: "single", mdrt_category: "other", comm_rate: 0.015 },
+  { id: "prd_04", insurer_id: "ins_b", name: "ILP Z", category: "ilp", premium_type: "regular", mdrt_category: "other", comm_rate: 0.7 },
+  { id: "prd_05", insurer_id: "ins_b", name: "Single Premium Endowment", category: "endowment", premium_type: "single", mdrt_category: "other", comm_rate: 0.03 },
+  { id: "prd_06", insurer_id: "ins_b", name: "Hospital Plan H", category: "health", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.6 },
+  { id: "prd_07", insurer_id: "ins_c", name: "Critical Illness Plan C", category: "health", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
+  { id: "prd_08", insurer_id: "ins_c", name: "Regular Endowment E", category: "endowment", premium_type: "regular", mdrt_category: "other", comm_rate: 0.45 },
+  { id: "prd_09", insurer_id: "ins_c", name: "Single Premium ILP S", category: "ilp", premium_type: "single", mdrt_category: "other", comm_rate: 0.04 },
+  { id: "prd_10", insurer_id: "ins_d", name: "Whole Life W", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
+  { id: "prd_11", insurer_id: "ins_d", name: "Term Plan T", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
+  { id: "prd_12", insurer_id: "ins_e", name: "Retirement Income R", category: "endowment", premium_type: "regular", mdrt_category: "other", comm_rate: 0.45 },
+  { id: "prd_13", insurer_id: "ins_e", name: "Managed Fund M", category: "fund", premium_type: "single", mdrt_category: "other", comm_rate: 0.015 },
 ];
 
 // PLACEHOLDER — replace with business-supplied values (actual banding rates).

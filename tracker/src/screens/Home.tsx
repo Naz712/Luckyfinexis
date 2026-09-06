@@ -7,6 +7,7 @@ import {
   productById,
   effectiveDate,
   weeksLeftInYear,
+  weekSnapshot,
   type GoalSet,
   type MetricSnapshot,
   type MdrtRoute,
@@ -46,14 +47,16 @@ function ProgressBar({ achieved, projected, elapsed }: { achieved: number; proje
   );
 }
 
-function PaceLine({ pace, unit, tracked, hasTarget }: { pace: Pace | null; unit: MetricUnit; tracked: boolean; hasTarget: boolean }) {
+function PaceLine({ pace, unit, tracked, hasTarget, compact = false }: { pace: Pace | null; unit: MetricUnit; tracked: boolean; hasTarget: boolean; compact?: boolean }) {
+  const mo = compact ? "/mo" : "/month";
+  const wk = compact ? "/wk" : "/week";
   if (!tracked) return <div className="text-[12px] text-muted">Not tracked yet · no data source</div>;
   if (!hasTarget || !pace) return <div className="text-[12px] text-muted">No goal set</div>;
   if (pace.onTrack) {
     return (
       <div className="flex items-center gap-1.5 text-[12px] font-medium text-ok">
         <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-hidden="true" />
-        On track · projected {fmt(pace.runRateProjection, unit)}
+        On track{compact ? "" : ` · projected ${fmt(pace.runRateProjection, unit)}`}
       </div>
     );
   }
@@ -63,8 +66,8 @@ function PaceLine({ pace, unit, tracked, hasTarget }: { pace: Pace | null; unit:
       {pace.requiredPerMonth === null
         ? `Period ended · short by ${fmt(pace.gap, unit)}`
         : pace.remainingMonths < 1.5 && pace.requiredPerWeek !== null
-          ? `Need ${fmt(pace.requiredPerWeek, unit)}/week`
-          : `Need ${fmt(pace.requiredPerMonth, unit)}/month`}
+          ? `Need ${fmt(pace.requiredPerWeek, unit)}${wk}`
+          : `Need ${fmt(pace.requiredPerMonth, unit)}${mo}`}
     </div>
   );
 }
@@ -136,8 +139,42 @@ function ExpandableCard({
   );
 }
 
-function MetricCard({ snapshot, compare, expanded, onToggle }: { snapshot: MetricSnapshot; compare: boolean; expanded: boolean; onToggle: () => void }) {
-  const { definition: def, achieved, projected, target, gap, pace, tracked, period, cadence } = snapshot;
+function MetricTile({ snapshot, compare, selected, onSelect }: { snapshot: MetricSnapshot; compare: boolean; selected: boolean; onSelect: () => void }) {
+  const { definition: def, achieved, projected, target, pace, period, cadence } = snapshot;
+  const unit = def.unit;
+  const { delta, deltaRatio } = snapshot.lastYear;
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      className={`rounded-2xl border bg-white p-3 text-left transition-shadow ${selected ? "border-accent ring-2 ring-accent/20" : "border-line"}`}
+    >
+      <div className="flex items-baseline justify-between gap-1">
+        <Label>{def.label}</Label>
+        {cadence && cadence !== "year" && <span className="rounded bg-accent-soft px-1 py-px text-[9px] font-semibold uppercase text-accent">{CADENCE_LABEL[cadence]}</span>}
+      </div>
+      <div className="mt-0.5 text-[10px] text-muted">{periodLabel(period)}</div>
+      <div className="tnum mt-1.5 text-[22px] font-semibold leading-none text-ink">{fmt(achieved, unit)}</div>
+      <div className="tnum mt-0.5 text-[11px] text-muted">{target === null ? "no goal" : `of ${fmt(target, unit)}`}</div>
+      <div className="mt-2">
+        <ProgressBar achieved={ratio(achieved, target)} projected={ratio(projected, target)} elapsed={pace ? pace.elapsedMonths / (pace.elapsedMonths + pace.remainingMonths) : null} />
+      </div>
+      <div className="mt-2">
+        <PaceLine pace={pace} unit={unit} tracked hasTarget={target !== null} compact />
+      </div>
+      {compare && (
+        <div className={`tnum mt-1 text-[11px] font-medium ${delta >= 0 ? "text-ok" : "text-warn"}`}>
+          {signed(delta, unit)}
+          {deltaRatio !== null && ` (${signedPct(deltaRatio)})`} vs last yr
+        </div>
+      )}
+    </button>
+  );
+}
+
+function MetricDetail({ snapshot, compare }: { snapshot: MetricSnapshot; compare: boolean }) {
+  const { definition: def, projected, gap, period } = snapshot;
   const unit = def.unit;
   const metricValue = (c: Case) => {
     if (def.code === "new_clients") return "1 client";
@@ -145,79 +182,45 @@ function MetricCard({ snapshot, compare, expanded, onToggle }: { snapshot: Metri
     return "";
   };
   return (
-    <ExpandableCard
-      expanded={expanded}
-      onToggle={onToggle}
-      summary={
-        <>
-          <div className="flex items-baseline justify-between">
-            <Label>{def.label}</Label>
-            <span className="text-[11px] text-muted">
-              {cadence && cadence !== "year" && <span className="mr-1 rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">{CADENCE_LABEL[cadence]}</span>}
-              {periodLabel(period)}
-            </span>
-          </div>
-          {tracked ? (
-            <>
-              <div className="mt-1 flex items-baseline justify-between gap-2">
-                <div className="tnum text-[28px] font-semibold leading-none text-ink">{fmt(achieved, unit)}</div>
-                <div className="tnum text-[12px] text-muted">{target === null ? "no goal" : `of ${fmt(target, unit)}`}</div>
-              </div>
-              <div className="mt-3">
-                <ProgressBar achieved={ratio(achieved, target)} projected={ratio(projected, target)} elapsed={pace ? pace.elapsedMonths / (pace.elapsedMonths + pace.remainingMonths) : null} />
-              </div>
-              <div className="tnum mt-2 flex flex-wrap justify-between gap-x-3 text-[12px] text-muted">
-                <span>
-                  Projected <span className="font-medium text-body">{fmt(projected, unit)}</span>
-                </span>
-                <span>
-                  Gap <span className="font-medium text-body">{gap === null ? "—" : fmt(gap, unit)}</span>
-                </span>
-              </div>
-              <div className="mt-2">
-                <PaceLine pace={pace} unit={unit} tracked hasTarget={target !== null} />
-              </div>
-              {compare && <CompareLine snapshot={snapshot} />}
-            </>
-          ) : (
-            <div className="mt-1 flex items-baseline justify-between gap-2">
-              <div className="text-[13px] text-muted">Not tracked yet · no data source</div>
-              <div className="tnum text-[12px] text-muted">{target === null ? "no goal" : `goal ${fmt(target, unit)}`}</div>
-            </div>
-          )}
-        </>
-      }
-      detail={
-        tracked ? (
-          <CaseList cases={snapshot.contributing} value={metricValue} empty="No cases in this period yet." />
-        ) : (
-          <p className="text-[13px] text-muted">Nothing to list: this metric has no data source in the mockup.</p>
-        )
-      }
-    />
+    <Card>
+      <div className="flex items-baseline justify-between">
+        <Label>{def.label} · detail</Label>
+        <span className="text-[11px] text-muted">{periodLabel(period)}</span>
+      </div>
+      <dl className="tnum mt-2 grid grid-cols-2 gap-2">
+        <div className="rounded-xl bg-canvas px-3 py-2">
+          <dt className="text-[11px] text-muted">Projected (incl. pending)</dt>
+          <dd className="text-[16px] font-semibold text-ink">{fmt(projected, unit)}</dd>
+        </div>
+        <div className="rounded-xl bg-canvas px-3 py-2">
+          <dt className="text-[11px] text-muted">Gap to goal</dt>
+          <dd className="text-[16px] font-semibold text-ink">{gap === null ? "—" : fmt(gap, unit)}</dd>
+        </div>
+      </dl>
+      {compare && <CompareLine snapshot={snapshot} />}
+      <CaseList cases={snapshot.contributing} value={metricValue} empty="No cases in this period yet." />
+    </Card>
   );
 }
 
-function TierChips({ route, goalTier }: { route: MdrtRoute; goalTier: Tier }) {
-  const reachedIdx = route.tiers.reached ? ["mdrt", "cot", "tot"].indexOf(route.tiers.reached) : -1;
+function UntrackedCard({ snapshots }: { snapshots: MetricSnapshot[] }) {
+  if (snapshots.length === 0) return null;
   return (
-    <div className="flex gap-1">
-      {(["mdrt", "cot", "tot"] as const).map((t, i) => {
-        const reached = i <= reachedIdx;
-        const isGoal = t === goalTier;
-        return (
-          <span
-            key={t}
-            title={isGoal ? "Your goal" : undefined}
-            className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${
-              reached ? "bg-accent text-white" : isGoal ? "border border-accent text-accent" : "border border-line text-muted"
-            }`}
-          >
-            {TIER_LABEL[t]}
-          </span>
-        );
-      })}
-    </div>
+    <Card className="p-3">
+      <div className="flex items-baseline justify-between">
+        <Label>Not tracked yet</Label>
+        <span className="text-[11px] text-muted">no data source in the mockup</span>
+      </div>
+      <ul className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[12px]">
+        {snapshots.map((s) => (
+          <li key={s.definition.code} className="tnum text-muted">
+            <span className="font-medium text-body">{s.definition.label}</span>
+            {s.target !== null && ` · goal ${fmt(s.target, s.definition.unit)}`}
+            {s.cadence && s.cadence !== "year" && ` ${CADENCE_LABEL[s.cadence].toLowerCase()}`}
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }
 
@@ -228,9 +231,14 @@ function MdrtRouteBlock({ route, goalTier, highlight }: { route: MdrtRoute; goal
     <div className={`rounded-xl p-3 ${highlight ? "bg-accent-soft/70 ring-1 ring-accent/30" : "bg-canvas"}`}>
       <div className="flex items-center justify-between gap-2">
         <div className={`text-[12px] font-semibold ${highlight ? "text-accent" : "text-body"}`}>{route.label} route</div>
-        <div className="shrink-0">
-          <TierChips route={route} goalTier={goalTier} />
-        </div>
+        <span
+          className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${
+            route.goalReached ? "bg-accent text-white" : "border border-accent text-accent"
+          }`}
+        >
+          {TIER_LABEL[goalTier]}
+          {route.goalReached ? " ✓" : ""}
+        </span>
       </div>
       <div className="mt-1.5 flex items-baseline justify-between">
         <div className="tnum text-[22px] font-semibold leading-none text-ink">{sgd(route.achieved)}</div>
@@ -256,6 +264,52 @@ function MdrtRouteBlock({ route, goalTier, highlight }: { route: MdrtRoute; goal
   );
 }
 
+function WeekCard({ advisorId, cases }: { advisorId: string; cases: Case[] }) {
+  const w = weekSnapshot(advisorId, cases, TODAY);
+  const ahead = w.onPaceToBeatLastWeek;
+  const max = Math.max(w.thisWeek.commission, w.lastWeek.commission, 1);
+  return (
+    <Card>
+      <div className="flex items-baseline justify-between">
+        <Label>This week</Label>
+        <span className="text-[11px] text-muted">
+          {dateRange(w.thisWeek.period)} · day {w.dayOfWeek} of 7
+        </span>
+      </div>
+      <div className="mt-1 flex items-baseline justify-between gap-2">
+        <div className="tnum text-[28px] font-semibold leading-none text-ink">{sgd(w.thisWeek.commission)}</div>
+        <div className="tnum text-[12px] text-muted">
+          {w.thisWeek.cases} {w.thisWeek.cases === 1 ? "case" : "cases"} closed
+        </div>
+      </div>
+      <dl className="mt-3 space-y-1.5">
+        {[
+          { label: "This week", value: w.thisWeek.commission, strong: true },
+          { label: "Last week", value: w.lastWeek.commission, strong: false },
+        ].map((r) => (
+          <div key={r.label} className="grid grid-cols-[64px_1fr_72px] items-center gap-2 text-[12px]">
+            <dt className="text-muted">{r.label}</dt>
+            <dd className="h-2 overflow-hidden rounded-full bg-canvas" aria-hidden="true">
+              <div className={`h-full rounded-full ${r.strong ? "bg-accent" : "bg-accent/30"}`} style={{ width: `${(r.value / max) * 100}%` }} />
+            </dd>
+            <dd className={`tnum text-right ${r.strong ? "font-semibold text-ink" : "text-muted"}`}>{sgd(r.value)}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className={`mt-3 flex items-center gap-1.5 text-[12px] font-medium ${ahead ? "text-ok" : "text-warn"}`}>
+        <span className={`h-1.5 w-1.5 rounded-full ${ahead ? "bg-ok" : "bg-warn"}`} aria-hidden="true" />
+        {w.lastWeek.commission === 0 && w.thisWeek.commission === 0
+          ? "Nothing closed yet. One case puts you ahead of last week."
+          : ahead
+            ? w.thisWeek.commission > w.lastWeek.commission
+              ? "Ahead of last week already."
+              : `On pace to beat last week (projected ${sgd(w.projection)}).`
+            : `${sgd(w.toBeatLastWeek)} more to beat last week.`}
+      </div>
+    </Card>
+  );
+}
+
 export default function Home({
   advisor,
   cases,
@@ -276,6 +330,9 @@ export default function Home({
   const snapshots = metric_definitions
     .filter((m) => m.code !== "mdrt_commission" && m.code !== "mdrt_premium") // both routes live in the MDRT card
     .map((m) => metricSnapshot(advisor.id, cases, m.code, TODAY, goalSet));
+  const tracked = snapshots.filter((s) => s.tracked);
+  const untracked = snapshots.filter((s) => !s.tracked);
+  const selectedDetail = tracked.find((s) => s.definition.code === expanded) ?? null;
   const weeksLeft = weeksLeftInYear(TODAY);
 
   return (
@@ -315,6 +372,8 @@ export default function Home({
         </span>
       </label>
 
+      <WeekCard advisorId={advisor.id} cases={cases} />
+
       <ExpandableCard
         expanded={expanded === "mdrt"}
         onToggle={() => toggle("mdrt")}
@@ -352,11 +411,16 @@ export default function Home({
         }
       />
 
-      {snapshots.map((s) => (
-        <MetricCard key={s.definition.code} snapshot={s} compare={compare} expanded={expanded === s.definition.code} onToggle={() => toggle(s.definition.code)} />
-      ))}
+      <div className="grid grid-cols-2 gap-3">
+        {tracked.map((s) => (
+          <MetricTile key={s.definition.code} snapshot={s} compare={compare} selected={expanded === s.definition.code} onSelect={() => toggle(s.definition.code)} />
+        ))}
+      </div>
+      {selectedDetail && <MetricDetail snapshot={selectedDetail} compare={compare} />}
 
-      <p className="px-1 text-center text-[11px] text-muted">Tap a card to see the cases behind it. Confirmed cases count as achieved; pending ones only as projected.</p>
+      <UntrackedCard snapshots={untracked} />
+
+      <p className="px-1 text-center text-[11px] text-muted">Tap a metric to see the cases behind it. Confirmed cases count as achieved; pending ones only as projected.</p>
     </div>
   );
 }

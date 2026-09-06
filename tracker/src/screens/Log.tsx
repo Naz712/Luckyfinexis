@@ -80,8 +80,8 @@ export default function Log({
       product_id: draft.productId,
       premium_amount: premium,
       premium_term_years: isSingle ? 1 : Number(draft.term) || 0,
-      // PLACEHOLDER estimate until Merlin supplies the real figure on confirmation.
-      gross_revenue: estimateGrossRevenue(premium),
+      // Placeholder estimate from the product's comm_rate until Merlin supplies the real figure on confirmation.
+      gross_revenue: product ? estimateGrossRevenue(premium, product) : 0,
       banding_code_at_time: advisor.banding_code,
       status: "pending",
       source: "manual",

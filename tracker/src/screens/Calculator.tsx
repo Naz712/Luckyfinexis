@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { bandings, insurers, GROSS_REVENUE_PLACEHOLDER_RATE, TODAY, type Advisor, type BandingCode, type Case, type Product } from "../mock/data";
+import { bandings, insurers, TODAY, type Advisor, type BandingCode, type Case, type Product } from "../mock/data";
 import {
   aggregate,
   bandingRate,
@@ -21,7 +21,13 @@ interface Row {
   key: number;
   insurerId: string;
   productId: string;
-  premium: string; // raw input text; parsed when used
+  /** Gross revenue typed by the FC (the primary input). */
+  gross: string;
+  /** Optional premium, used only to estimate gross revenue. */
+  premium: string;
+  /** True once the FC has typed gross revenue themselves; the estimate then stops overwriting it. */
+  grossTouched: boolean;
+  showPremium: boolean;
 }
 
 const CATEGORY_LABEL: Record<Product["category"], string> = {
@@ -33,7 +39,7 @@ const CATEGORY_LABEL: Record<Product["category"], string> = {
 };
 
 let nextKey = 1;
-const blankRow = (): Row => ({ key: nextKey++, insurerId: "", productId: "", premium: "" });
+const blankRow = (): Row => ({ key: nextKey++, insurerId: "", productId: "", gross: "", premium: "", grossTouched: false, showPremium: false });
 
 function parseMoney(s: string): number {
   const n = Number(s);
@@ -63,13 +69,12 @@ export default function Calculator({ advisor, cases, goalSet }: { advisor: Advis
 
   const rate = bandingRate(banding);
   const computed = rows.map((r) => {
-    const premium = parseMoney(r.premium);
-    const gross = r.productId ? estimateGrossRevenue(premium) : 0;
-    return { row: r, premium, gross, commission: commissionForCase(gross, banding) };
+    const gross = r.productId ? parseMoney(r.gross) : 0;
+    return { row: r, gross, commission: commissionForCase(gross, banding) };
   });
   const totalGross = computed.reduce((s, c) => s + c.gross, 0);
   const totalCommission = computed.reduce((s, c) => s + c.commission, 0);
-  const filledRows = computed.filter((c) => c.row.productId && c.premium > 0).length;
+  const filledRows = computed.filter((c) => c.gross > 0).length;
 
   const gap = Math.max(goal - achieved, 0);
   const needed = clientsNeeded(gap, totalCommission);
@@ -77,6 +82,17 @@ export default function Calculator({ advisor, cases, goalSet }: { advisor: Advis
   const update = (key: number, patch: Partial<Row>) =>
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const remove = (key: number) => setRows((rs) => rs.filter((r) => r.key !== key));
+
+  /** Premium typed → gross revenue estimated from the product's rate, unless the FC has set gross revenue by hand. */
+  const setPremium = (row: Row, premium: string) => {
+    const product = row.productId ? productById(row.productId) : undefined;
+    const patch: Partial<Row> = { premium };
+    if (product && !row.grossTouched) {
+      const est = estimateGrossRevenue(parseMoney(premium), product);
+      patch.gross = est > 0 ? String(Math.round(est)) : "";
+    }
+    update(row.key, patch);
+  };
 
   return (
     <div className="space-y-3 px-4 pb-6 pt-3">
@@ -97,9 +113,10 @@ export default function Calculator({ advisor, cases, goalSet }: { advisor: Advis
         </div>
       </Card>
 
-      {computed.map(({ row, premium, gross, commission }, i) => {
+      {computed.map(({ row, gross, commission }, i) => {
         const product = row.productId ? productById(row.productId) : undefined;
         const productOptions = row.insurerId ? productsForInsurer(row.insurerId) : [];
+        const estimated = product && row.showPremium && !row.grossTouched && parseMoney(row.premium) > 0;
         return (
           <Card key={row.key}>
             <div className="mb-2 flex items-center justify-between">
@@ -120,7 +137,7 @@ export default function Calculator({ advisor, cases, goalSet }: { advisor: Advis
                 aria-label={`Insurer for product ${i + 1}`}
                 placeholder="Insurer"
                 value={row.insurerId}
-                onChange={(e) => update(row.key, { insurerId: e.target.value, productId: "" })}
+                onChange={(e) => update(row.key, { insurerId: e.target.value, productId: "", gross: row.grossTouched ? row.gross : "", premium: "" })}
                 options={insurers.map((x) => ({ value: x.id, label: x.name }))}
               />
               <Select
@@ -128,35 +145,62 @@ export default function Calculator({ advisor, cases, goalSet }: { advisor: Advis
                 placeholder={row.insurerId ? "Product" : "Choose an insurer first"}
                 disabled={!row.insurerId}
                 value={row.productId}
-                onChange={(e) => update(row.key, { productId: e.target.value })}
+                onChange={(e) => {
+                  const next = productById(e.target.value);
+                  const patch: Partial<Row> = { productId: e.target.value };
+                  // Re-estimate for the new product if the FC is working from premium.
+                  if (next && !row.grossTouched && parseMoney(row.premium) > 0) patch.gross = String(Math.round(estimateGrossRevenue(parseMoney(row.premium), next)));
+                  update(row.key, patch);
+                }}
                 options={productOptions.map((p) => ({ value: p.id, label: p.name }))}
               />
               <div>
                 <div className="mb-1 flex items-baseline justify-between">
-                  <label htmlFor={`premium-${row.key}`} className="text-[12px] text-muted">
-                    {product?.premium_type === "single" ? "Single premium" : "Annual premium"}
+                  <label htmlFor={`gross-${row.key}`} className="text-[12px] text-muted">
+                    Gross revenue
                   </label>
                   {product && <span className="text-[11px] text-muted">{CATEGORY_LABEL[product.category]}</span>}
                 </div>
-                <MoneyInput id={`premium-${row.key}`} value={row.premium} onChange={(v) => update(row.key, { premium: v })} />
+                <MoneyInput
+                  id={`gross-${row.key}`}
+                  value={row.gross}
+                  onChange={(v) => update(row.key, { gross: v, grossTouched: v !== "" })}
+                  placeholder={product ? "From the insurer's illustration" : "0"}
+                />
+                {row.showPremium ? (
+                  <div className="mt-2">
+                    <div className="mb-1 flex items-baseline justify-between">
+                      <label htmlFor={`premium-${row.key}`} className="text-[12px] text-muted">
+                        {product?.premium_type === "single" ? "Single premium" : "Annual premium"}
+                      </label>
+                      {product && (
+                        <span className="text-[11px] text-muted">
+                          est. × {product.comm_rate} <span className="rounded bg-canvas px-1 py-px text-[10px] uppercase tracking-wide">placeholder rate</span>
+                        </span>
+                      )}
+                    </div>
+                    <MoneyInput id={`premium-${row.key}`} value={row.premium} onChange={(v) => setPremium(row, v)} />
+                    {estimated && <p className="mt-1 text-[11px] text-muted">Gross revenue filled from this premium. Type over it if you have the real figure.</p>}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => update(row.key, { showPremium: true })}
+                    disabled={!product}
+                    className="mt-1.5 text-[12px] font-medium text-accent disabled:text-muted"
+                  >
+                    Don't know it? Estimate from premium
+                  </button>
+                )}
               </div>
             </div>
 
-            <dl className="mt-3 divide-y divide-line border-t border-line">
-              <div className="flex items-baseline justify-between py-2">
-                <dt className="text-[13px] text-muted">
-                  Gross revenue{" "}
-                  <span className="rounded bg-canvas px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
-                    placeholder ×{GROSS_REVENUE_PLACEHOLDER_RATE}
-                  </span>
-                </dt>
-                <dd className="tnum text-[15px] font-medium text-body">{premium > 0 && product ? sgd(gross) : "—"}</dd>
-              </div>
+            <dl className="mt-3 border-t border-line">
               <div className="flex items-baseline justify-between py-2">
                 <dt className="text-[13px] text-muted">
                   Commission <span className="tnum">@ {banding} · {pct(rate)}</span>
                 </dt>
-                <dd className="tnum text-[20px] font-semibold text-ink">{premium > 0 && product ? sgd(commission) : "—"}</dd>
+                <dd className="tnum text-[20px] font-semibold text-ink">{gross > 0 ? sgd(commission) : "—"}</dd>
               </div>
             </dl>
           </Card>
@@ -219,7 +263,7 @@ export default function Calculator({ advisor, cases, goalSet }: { advisor: Advis
         </p>
       </Card>
 
-      <p className="px-1 text-center text-[11px] text-muted">Nothing here is saved. Figures use placeholder rates.</p>
+      <p className="px-1 text-center text-[11px] text-muted">Nothing here is saved. Banding rates are placeholders.</p>
     </div>
   );
 }
