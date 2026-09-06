@@ -119,52 +119,49 @@ function ProgressCard({ advisorId, cases }: { advisorId: string; cases: Case[] }
   );
 }
 
-function MetricTile({ snapshot, selected, onSelect }: { snapshot: MetricSnapshot; selected: boolean; onSelect: () => void }) {
-  const { definition: def, achieved, projected, period, cadence } = snapshot;
-  const pending = projected - achieved;
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-pressed={selected}
-      className={`rounded-2xl border bg-white p-3 text-left transition-shadow ${selected ? "border-accent ring-2 ring-accent/20" : "border-line"}`}
-    >
-      <div className="flex items-baseline justify-between gap-1">
-        <Label>{def.label}</Label>
-        {cadence && cadence !== "year" && <span className="rounded bg-accent-soft px-1 py-px text-[9px] font-semibold uppercase text-accent">{CADENCE_LABEL[cadence]}</span>}
-      </div>
-      <div className="mt-0.5 text-[10px] text-muted">{periodLabel(period)}</div>
-      <div className="tnum mt-1.5 text-[22px] font-semibold leading-none text-ink">{fmt(achieved, def.unit)}</div>
-      <div className="tnum mt-1 text-[11px] text-muted">{pending > 0 ? `+${fmt(pending, def.unit)} pending` : "all confirmed"}</div>
-    </button>
-  );
-}
-
-function MetricDetail({ snapshot }: { snapshot: MetricSnapshot }) {
-  const { definition: def, projected, target, gap, period } = snapshot;
+/** Full-width metric row. Tap to expand the same card with projected, gap and the cases behind it. */
+function MetricRow({ snapshot, expanded, onToggle }: { snapshot: MetricSnapshot; expanded: boolean; onToggle: () => void }) {
+  const { definition: def, achieved, projected, target, gap, period, cadence } = snapshot;
   const unit = def.unit;
+  const pending = projected - achieved;
   const metricValue = (c: Case) => {
     if (def.code === "new_clients") return "1 client";
     if (def.code === "elite" || def.code === "referrals" || def.code === "testimonials") return "";
     return sgd(metricsForCase(c)[def.code]);
   };
   return (
-    <Card>
-      <div className="flex items-baseline justify-between">
-        <Label>{def.label} · detail</Label>
-        <span className="text-[11px] text-muted">{periodLabel(period)}</span>
-      </div>
-      <dl className="tnum mt-2 grid grid-cols-2 gap-2">
-        <div className="rounded-xl bg-canvas px-3 py-2">
-          <dt className="text-[11px] text-muted">Projected (incl. pending)</dt>
-          <dd className="text-[16px] font-semibold text-ink">{fmt(projected, unit)}</dd>
+    <Card className={`p-0 transition-shadow ${expanded ? "border-accent ring-2 ring-accent/20" : ""}`}>
+      <button type="button" onClick={onToggle} aria-expanded={expanded} className="flex w-full items-center gap-3 rounded-2xl p-4 text-left">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <Label>{def.label}</Label>
+            {cadence && cadence !== "year" && <span className="rounded bg-accent-soft px-1 py-px text-[9px] font-semibold uppercase text-accent">{CADENCE_LABEL[cadence]}</span>}
+          </div>
+          <div className="mt-0.5 text-[11px] text-muted">{periodLabel(period)}</div>
         </div>
-        <div className="rounded-xl bg-canvas px-3 py-2">
-          <dt className="text-[11px] text-muted">{target === null ? "Goal" : "Gap to goal"}</dt>
-          <dd className="text-[16px] font-semibold text-ink">{target === null ? "not set" : fmt(gap ?? 0, unit)}</dd>
+        <div className="shrink-0 text-right">
+          <div className="tnum text-[24px] font-semibold leading-none text-ink">{fmt(achieved, unit)}</div>
+          <div className="tnum mt-1 text-[11px] text-muted">{pending > 0 ? `+${fmt(pending, unit)} pending` : "all confirmed"}</div>
         </div>
-      </dl>
-      <CaseList cases={snapshot.contributing} value={metricValue} empty="No cases in this period yet." />
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" className={`shrink-0 text-muted transition-transform ${expanded ? "rotate-180" : ""}`}>
+          <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {expanded && (
+        <div className="border-t border-line px-4 pb-4 pt-3">
+          <dl className="tnum grid grid-cols-2 gap-2">
+            <div className="rounded-xl bg-canvas px-3 py-2">
+              <dt className="text-[11px] text-muted">Projected (incl. pending)</dt>
+              <dd className="text-[16px] font-semibold text-ink">{fmt(projected, unit)}</dd>
+            </div>
+            <div className="rounded-xl bg-canvas px-3 py-2">
+              <dt className="text-[11px] text-muted">{target === null ? "Goal" : "Gap to goal"}</dt>
+              <dd className="text-[16px] font-semibold text-ink">{target === null ? "not set" : fmt(gap ?? 0, unit)}</dd>
+            </div>
+          </dl>
+          <CaseList cases={snapshot.contributing} value={metricValue} empty="No cases in this period yet." />
+        </div>
+      )}
     </Card>
   );
 }
@@ -193,10 +190,11 @@ export default function Home({ advisor, cases, goalSet }: { advisor: Advisor; ca
   const [expanded, setExpanded] = useState<string | null>(null);
   const toggle = (key: string) => setExpanded((k) => (k === key ? null : key));
 
-  const snapshots = metric_definitions.map((m) => metricSnapshot(advisor.id, cases, m.code, TODAY, goalSet));
+  const snapshots = metric_definitions
+    .filter((m) => m.code !== "mdrt_commission") // identical to commission while every credit rate is 1.0
+    .map((m) => metricSnapshot(advisor.id, cases, m.code, TODAY, goalSet));
   const tracked = snapshots.filter((s) => s.tracked);
   const untracked = snapshots.filter((s) => !s.tracked);
-  const selectedDetail = tracked.find((s) => s.definition.code === expanded) ?? null;
   const weeksLeft = weeksLeftInYear(TODAY);
 
   return (
@@ -218,12 +216,9 @@ export default function Home({ advisor, cases, goalSet }: { advisor: Advisor; ca
 
       <ProgressCard advisorId={advisor.id} cases={cases} />
 
-      <div className="grid grid-cols-2 gap-3">
-        {tracked.map((s) => (
-          <MetricTile key={s.definition.code} snapshot={s} selected={expanded === s.definition.code} onSelect={() => toggle(s.definition.code)} />
-        ))}
-      </div>
-      {selectedDetail && <MetricDetail snapshot={selectedDetail} />}
+      {tracked.map((s) => (
+        <MetricRow key={s.definition.code} snapshot={s} expanded={expanded === s.definition.code} onToggle={() => toggle(s.definition.code)} />
+      ))}
 
       <UntrackedCard snapshots={untracked} />
 
