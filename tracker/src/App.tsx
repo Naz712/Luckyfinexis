@@ -25,6 +25,9 @@ const ICONS: Record<Tab, string> = {
   draw: "M12 2l2.4 5.2 5.6.6-4.2 3.9 1.2 5.6L12 14.5 7 17.3l1.2-5.6L4 7.8l5.6-.6L12 2Z",
 };
 
+/** The user switch is dev-only, unless a shared build opts in with VITE_USER_SWITCH=1. */
+const SHOW_USER_SWITCH = import.meta.env.DEV || import.meta.env.VITE_USER_SWITCH === "1";
+
 export default function App() {
   const [userId, setUserId] = useState(DEFAULT_USER_ID);
   const [tab, setTab] = useState<Tab>("home");
@@ -48,14 +51,14 @@ export default function App() {
             <div className="text-[17px] font-semibold text-ink">{TABS.find((t) => t.id === activeTab)?.label}</div>
           </div>
           <div className="flex items-center gap-2">
-            {import.meta.env.DEV && (
+            {SHOW_USER_SWITCH && (
               <button
                 type="button"
                 onClick={() => setUserId(isManager ? DEFAULT_USER_ID : MANAGER_USER_ID)}
-                className="whitespace-nowrap rounded-full border border-dashed border-line px-2 py-1 text-[10px] font-medium text-muted"
-                title="Dev only: switch between FC and manager"
+                className="whitespace-nowrap rounded-full border border-dashed border-line px-2 py-1 text-[10px] font-medium text-muted hover:border-accent hover:text-accent"
+                title="Mockup only: switch between the FC and manager views"
               >
-                dev: {isManager ? "manager" : "FC"}
+                {isManager ? "View as FC" : "View as manager"}
               </button>
             )}
             <div className="text-right">

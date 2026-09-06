@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "share": "tsc --noEmit && VITE_USER_SWITCH=1 vite build && node scripts/single-file.mjs"
   },
   "dependencies": {
     "react": "^19.2.0",
