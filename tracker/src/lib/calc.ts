@@ -633,3 +633,90 @@ export function periodComparison(advisorId: string, cases: Case[], grain: Grain,
     streak,
   };
 }
+
+// ───────────────────────── Around The World lucky draw ─────────────────────────
+
+import { challenge_types, clients as allClients, draws, pass_ledger, prizes_won, type Client, type DrawRound, type PassAward, type PassType, type PrizeWon } from "../mock/data";
+
+export function challengeByCode(code: string) {
+  return challenge_types.find((c) => c.code === code);
+}
+
+export function clientsForAdvisor(advisorId: string, source: Client[] = allClients): Client[] {
+  return source.filter((c) => c.advisor_id === advisorId);
+}
+
+/** Cases link to clients by name in the mock (the real table carries client_id). Superseded cases are ignored. */
+export function casesForClient(client: Client, cases: Case[]): Case[] {
+  return cases
+    .filter((c) => c.advisor_id === client.advisor_id && c.client_name === client.name && c.status !== "superseded")
+    .sort((a, b) => (a.submitted_on < b.submitted_on ? 1 : -1));
+}
+
+/** Draw months in campaign order, with whether each has been drawn. */
+export function drawMonths(source: DrawRound[] = draws): { monthly_draw: string; draw_date: string; is_drawn: boolean }[] {
+  const seen = new Map<string, { monthly_draw: string; draw_date: string; is_drawn: boolean }>();
+  for (const d of source) {
+    const cur = seen.get(d.monthly_draw);
+    if (!cur) seen.set(d.monthly_draw, { monthly_draw: d.monthly_draw, draw_date: d.draw_date, is_drawn: d.is_drawn });
+    else cur.is_drawn = cur.is_drawn && d.is_drawn;
+  }
+  return [...seen.values()].sort((a, b) => (a.draw_date < b.draw_date ? -1 : 1));
+}
+
+/** The next draw that has not been held yet, else the last one. */
+export function currentDrawMonth(source: DrawRound[] = draws): string {
+  const months = drawMonths(source);
+  return (months.find((m) => !m.is_drawn) ?? months[months.length - 1]).monthly_draw;
+}
+
+export interface PassTotals {
+  gold: number;
+  blue: number;
+}
+
+export function passTotals(rows: PassAward[]): PassTotals {
+  let gold = 0;
+  let blue = 0;
+  for (const r of rows) {
+    if (r.pass_type === "gold") gold += r.passes;
+    else blue += r.passes;
+  }
+  return { gold, blue };
+}
+
+export function passesForClient(clientId: string, month: string | null, ledger: PassAward[] = pass_ledger): PassAward[] {
+  return ledger
+    .filter((r) => r.client_id === clientId && (month === null || r.monthly_draw === month))
+    .sort((a, b) => (challengeByCode(a.challenge_code)?.sort_order ?? 99) - (challengeByCode(b.challenge_code)?.sort_order ?? 99));
+}
+
+export function passesForAdvisor(advisorId: string, month: string | null, ledger: PassAward[] = pass_ledger): PassAward[] {
+  return ledger.filter((r) => r.advisor_id === advisorId && (month === null || r.monthly_draw === month));
+}
+
+export function prizesForClient(clientId: string, source: PrizeWon[] = prizes_won): PrizeWon[] {
+  return source.filter((p) => p.client_id === clientId);
+}
+
+export interface ClientSummary {
+  client: Client;
+  plans: Case[];
+  /** Passes in the selected draw month. */
+  month: PassTotals;
+  /** Passes across the whole campaign. */
+  allTime: PassTotals;
+  prizes: PrizeWon[];
+}
+
+export function clientSummary(client: Client, cases: Case[], month: string, ledger: PassAward[] = pass_ledger): ClientSummary {
+  return {
+    client,
+    plans: casesForClient(client, cases),
+    month: passTotals(passesForClient(client.id, month, ledger)),
+    allTime: passTotals(passesForClient(client.id, null, ledger)),
+    prizes: prizesForClient(client.id),
+  };
+}
+
+export const PASS_LABEL: Record<PassType, string> = { gold: "Gold", blue: "Blue" };

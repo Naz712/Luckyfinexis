@@ -351,3 +351,174 @@ export const mdrt_tier_goals: MdrtTierGoal[] = [
   { advisor_id: "adv_05", year: 2026, tier: "mdrt" },
   { advisor_id: "adv_mgr", year: 2026, tier: "mdrt" },
 ];
+
+// ─────────────────────────────────────────────────────────────────────────
+// SECTION 3 — AROUND THE WORLD LUCKY DRAW
+// Mirrors the campaign tables the mastersheet importer already writes to
+// (challenge_types, draws, clients, pass_ledger, prizes_won). Codes and
+// pass rates are the campaign's own; names and awards are fake.
+// ─────────────────────────────────────────────────────────────────────────
+
+export type PassType = "gold" | "blue";
+
+export interface ChallengeType {
+  code: string;
+  label: string;
+  pass_type: PassType;
+  passes_per_unit: number;
+  unit_noun: string;
+  sort_order: number;
+}
+
+export interface DrawRound {
+  id: string;
+  /** "July", "August", … as the campaign labels them. */
+  monthly_draw: string;
+  draw_date: string;
+  pass_type: PassType;
+  is_drawn: boolean;
+}
+
+export interface Client {
+  id: string;
+  advisor_id: string;
+  name: string;
+  email: string;
+  mobile: string;
+  /** First case or first activity, ISO date. */
+  since: string;
+}
+
+export interface PassAward {
+  id: string;
+  advisor_id: string;
+  client_id: string;
+  challenge_code: string;
+  monthly_draw: string;
+  units: number;
+  passes: number;
+  pass_type: PassType;
+  awarded_on: string;
+  external_ref: string;
+}
+
+export interface PrizeWon {
+  client_id: string;
+  monthly_draw: string;
+  pass_type: PassType;
+  prize_won: string;
+}
+
+export const challenge_types: ChallengeType[] = [
+  { code: "PURCHASE_PRODUCT", label: "Purchase Qualifying Product", pass_type: "gold", passes_per_unit: 1, unit_noun: "product", sort_order: 1 },
+  { code: "REFERRAL_PURCHASE", label: "Successful Referral Purchase", pass_type: "gold", passes_per_unit: 2, unit_noun: "purchase", sort_order: 2 },
+  { code: "SUBMIT_REFERRAL", label: "Submit Referrals", pass_type: "blue", passes_per_unit: 1, unit_noun: "referral", sort_order: 3 },
+  { code: "ATTEND_EVENT", label: "Attend Client Events", pass_type: "blue", passes_per_unit: 5, unit_noun: "event", sort_order: 4 },
+  { code: "BRING_GUEST", label: "Bring Guests For Events", pass_type: "blue", passes_per_unit: 2, unit_noun: "guest", sort_order: 5 },
+  { code: "TESTIMONIAL", label: "Submit Testimonial", pass_type: "blue", passes_per_unit: 3, unit_noun: "testimonial", sort_order: 6 },
+  { code: "DOWNLOAD_APP", label: "Download finConnect", pass_type: "blue", passes_per_unit: 1, unit_noun: "download", sort_order: 7 },
+];
+
+export const draws: DrawRound[] = [
+  { id: "draw_july_gold", monthly_draw: "July", draw_date: "2026-07-31", pass_type: "gold", is_drawn: true },
+  { id: "draw_july_blue", monthly_draw: "July", draw_date: "2026-07-31", pass_type: "blue", is_drawn: true },
+  { id: "draw_august_gold", monthly_draw: "August", draw_date: "2026-08-31", pass_type: "gold", is_drawn: true },
+  { id: "draw_august_blue", monthly_draw: "August", draw_date: "2026-08-31", pass_type: "blue", is_drawn: true },
+  { id: "draw_september_gold", monthly_draw: "September", draw_date: "2026-09-30", pass_type: "gold", is_drawn: false },
+  { id: "draw_september_blue", monthly_draw: "September", draw_date: "2026-09-30", pass_type: "blue", is_drawn: false },
+];
+
+/** Cases link to clients by advisor + client_name in the mock; the real table carries a client_id. */
+export const clients: Client[] = [
+  { id: "cli_001", advisor_id: "adv_01", name: "Ivan Lim", email: "ivan.lim@example.com", mobile: "91588139", since: "2025-01-14" },
+  { id: "cli_002", advisor_id: "adv_01", name: "Hui Ling Ong", email: "hui.ling.ong@example.com", mobile: "99869879", since: "2025-02-20" },
+  { id: "cli_003", advisor_id: "adv_01", name: "Owen Lim", email: "owen.lim@example.com", mobile: "97309114", since: "2025-04-03" },
+  { id: "cli_004", advisor_id: "adv_01", name: "Mei Fong Heng", email: "mei.fong.heng@example.com", mobile: "91707536", since: "2025-06-11" },
+  { id: "cli_005", advisor_id: "adv_01", name: "Elaine Ng", email: "elaine.ng@example.com", mobile: "94556815", since: "2025-08-22" },
+  { id: "cli_006", advisor_id: "adv_01", name: "Natalie Koh", email: "natalie.koh@example.com", mobile: "91884472", since: "2025-11-05" },
+  { id: "cli_007", advisor_id: "adv_01", name: "Amanda Soh", email: "amanda.soh@example.com", mobile: "99405576", since: "2026-01-09" },
+  { id: "cli_008", advisor_id: "adv_01", name: "Esther Quek", email: "esther.quek@example.com", mobile: "91698716", since: "2026-02-17" },
+  { id: "cli_009", advisor_id: "adv_01", name: "Xin Yi Lim", email: "xin.yi.lim@example.com", mobile: "98976846", since: "2026-03-26" },
+  { id: "cli_010", advisor_id: "adv_01", name: "Karen Sim", email: "karen.sim@example.com", mobile: "99788093", since: "2026-04-15" },
+  { id: "cli_011", advisor_id: "adv_01", name: "Xavier Chia", email: "xavier.chia@example.com", mobile: "92081967", since: "2026-05-08" },
+  { id: "cli_012", advisor_id: "adv_01", name: "Lydia Chng", email: "lydia.chng@example.com", mobile: "92731778", since: "2026-05-27" },
+  { id: "cli_013", advisor_id: "adv_01", name: "Yasmin Abdullah", email: "yasmin.abdullah@example.com", mobile: "94864887", since: "2026-06-19" },
+  { id: "cli_014", advisor_id: "adv_01", name: "Serene Wee", email: "serene.wee@example.com", mobile: "96634400", since: "2026-07-02" },
+  { id: "cli_015", advisor_id: "adv_01", name: "Ravi Nathan", email: "ravi.nathan@example.com", mobile: "92978753", since: "2026-07-28" },
+  { id: "cli_016", advisor_id: "adv_01", name: "Hannah Tay", email: "hannah.tay@example.com", mobile: "94778768", since: "2026-08-05" },
+  { id: "cli_017", advisor_id: "adv_01", name: "Vanessa Loh", email: "vanessa.loh@example.com", mobile: "90457178", since: "2026-08-20" },
+  { id: "cli_018", advisor_id: "adv_01", name: "Marcus Lee", email: "marcus.lee@example.com", mobile: "94726714", since: "2026-08-21" },
+  { id: "cli_019", advisor_id: "adv_01", name: "Oliver Yeo", email: "oliver.yeo@example.com", mobile: "97513627", since: "2026-08-28" },
+  { id: "cli_020", advisor_id: "adv_01", name: "Uma Shankar", email: "uma.shankar@example.com", mobile: "90107981", since: "2026-09-02" },
+  { id: "cli_021", advisor_id: "adv_02", name: "Yusri Hamid", email: "yusri.hamid@example.com", mobile: "99331908", since: "2025-03-04" },
+  { id: "cli_022", advisor_id: "adv_02", name: "Grace Tan", email: "grace.tan@example.com", mobile: "94520599", since: "2025-07-15" },
+  { id: "cli_023", advisor_id: "adv_02", name: "Cheryl Goh", email: "cheryl.goh@example.com", mobile: "97283792", since: "2025-10-09" },
+  { id: "cli_024", advisor_id: "adv_02", name: "Kevin Yap", email: "kevin.yap@example.com", mobile: "99841622", since: "2026-02-03" },
+  { id: "cli_025", advisor_id: "adv_02", name: "Valerie Kwek", email: "valerie.kwek@example.com", mobile: "99486628", since: "2026-05-21" },
+  { id: "cli_026", advisor_id: "adv_02", name: "Jason Lee", email: "jason.lee@example.com", mobile: "93601610", since: "2026-08-11" },
+  { id: "cli_027", advisor_id: "adv_03", name: "Terence Ho", email: "terence.ho@example.com", mobile: "95500875", since: "2025-01-22" },
+  { id: "cli_028", advisor_id: "adv_03", name: "Qiu Ming", email: "qiu.ming@example.com", mobile: "94751779", since: "2025-04-17" },
+  { id: "cli_029", advisor_id: "adv_03", name: "Priya Menon", email: "priya.menon@example.com", mobile: "99229836", since: "2025-09-03" },
+  { id: "cli_030", advisor_id: "adv_03", name: "Hafiz Osman", email: "hafiz.osman@example.com", mobile: "99579318", since: "2025-12-10" },
+  { id: "cli_031", advisor_id: "adv_03", name: "Liyana Yusof", email: "liyana.yusof@example.com", mobile: "96032080", since: "2026-01-27" },
+  { id: "cli_032", advisor_id: "adv_03", name: "Gwen Low", email: "gwen.low@example.com", mobile: "97370283", since: "2026-04-14" },
+  { id: "cli_033", advisor_id: "adv_03", name: "Adrian Foo", email: "adrian.foo@example.com", mobile: "98222646", since: "2026-06-30" },
+  { id: "cli_034", advisor_id: "adv_03", name: "Zoe Ang", email: "zoe.ang@example.com", mobile: "98616425", since: "2026-08-05" },
+  { id: "cli_035", advisor_id: "adv_03", name: "Thomas Goh", email: "thomas.goh@example.com", mobile: "92477647", since: "2026-09-01" },
+  { id: "cli_036", advisor_id: "adv_04", name: "Benjamin Chua", email: "benjamin.chua@example.com", mobile: "92587718", since: "2025-05-13" },
+  { id: "cli_037", advisor_id: "adv_04", name: "Dinesh Kumar", email: "dinesh.kumar@example.com", mobile: "98413301", since: "2025-09-25" },
+  { id: "cli_038", advisor_id: "adv_04", name: "Wesley Tay", email: "wesley.tay@example.com", mobile: "97568205", since: "2026-03-10" },
+  { id: "cli_039", advisor_id: "adv_04", name: "Irene Lau", email: "irene.lau@example.com", mobile: "92589831", since: "2026-07-16" },
+  { id: "cli_040", advisor_id: "adv_05", name: "Alicia Teo", email: "alicia.teo@example.com", mobile: "99489394", since: "2025-02-06" },
+  { id: "cli_041", advisor_id: "adv_05", name: "Wan Ling Tan", email: "wan.ling.tan@example.com", mobile: "99482141", since: "2025-06-24" },
+  { id: "cli_042", advisor_id: "adv_05", name: "Jasmine Poh", email: "jasmine.poh@example.com", mobile: "96210521", since: "2025-11-18" },
+  { id: "cli_043", advisor_id: "adv_05", name: "Rohan Pillai", email: "rohan.pillai@example.com", mobile: "98549145", since: "2026-02-25" },
+  { id: "cli_044", advisor_id: "adv_05", name: "Clement Ang", email: "clement.ang@example.com", mobile: "92441064", since: "2026-05-05" },
+  { id: "cli_045", advisor_id: "adv_05", name: "Brandon Lau", email: "brandon.lau@example.com", mobile: "96001304", since: "2026-08-19" },
+  { id: "cli_046", advisor_id: "adv_mgr", name: "Patricia Neo", email: "patricia.neo@example.com", mobile: "91189557", since: "2025-03-19" },
+  { id: "cli_047", advisor_id: "adv_mgr", name: "Daniel Wong", email: "daniel.wong@example.com", mobile: "99906593", since: "2025-08-07" },
+  { id: "cli_048", advisor_id: "adv_mgr", name: "Melvin Toh", email: "melvin.toh@example.com", mobile: "99761584", since: "2026-01-15" },
+  { id: "cli_049", advisor_id: "adv_mgr", name: "Bella Seah", email: "bella.seah@example.com", mobile: "96450604", since: "2026-06-09" },
+];
+
+export const pass_ledger: PassAward[] = [
+  { id: "pass_001", advisor_id: "adv_01", client_id: "cli_014", challenge_code: "PURCHASE_PRODUCT", monthly_draw: "July", units: 1, passes: 1, pass_type: "gold", awarded_on: "2026-07-02", external_ref: "July:cli_014:PURCHASE_PRODUCT" },
+  { id: "pass_002", advisor_id: "adv_01", client_id: "cli_014", challenge_code: "DOWNLOAD_APP", monthly_draw: "July", units: 1, passes: 1, pass_type: "blue", awarded_on: "2026-07-02", external_ref: "July:cli_014:DOWNLOAD_APP" },
+  { id: "pass_003", advisor_id: "adv_01", client_id: "cli_019", challenge_code: "DOWNLOAD_APP", monthly_draw: "July", units: 1, passes: 1, pass_type: "blue", awarded_on: "2026-07-14", external_ref: "July:cli_019:DOWNLOAD_APP" },
+  { id: "pass_004", advisor_id: "adv_04", client_id: "cli_039", challenge_code: "PURCHASE_PRODUCT", monthly_draw: "July", units: 1, passes: 1, pass_type: "gold", awarded_on: "2026-07-16", external_ref: "July:cli_039:PURCHASE_PRODUCT" },
+  { id: "pass_005", advisor_id: "adv_01", client_id: "cli_015", challenge_code: "ATTEND_EVENT", monthly_draw: "July", units: 1, passes: 5, pass_type: "blue", awarded_on: "2026-07-18", external_ref: "July:cli_015:ATTEND_EVENT" },
+  { id: "pass_006", advisor_id: "adv_01", client_id: "cli_013", challenge_code: "ATTEND_EVENT", monthly_draw: "July", units: 1, passes: 5, pass_type: "blue", awarded_on: "2026-07-18", external_ref: "July:cli_013:ATTEND_EVENT" },
+  { id: "pass_007", advisor_id: "adv_01", client_id: "cli_010", challenge_code: "ATTEND_EVENT", monthly_draw: "July", units: 1, passes: 5, pass_type: "blue", awarded_on: "2026-07-18", external_ref: "July:cli_010:ATTEND_EVENT" },
+  { id: "pass_008", advisor_id: "adv_01", client_id: "cli_010", challenge_code: "BRING_GUEST", monthly_draw: "July", units: 1, passes: 2, pass_type: "blue", awarded_on: "2026-07-18", external_ref: "July:cli_010:BRING_GUEST" },
+  { id: "pass_009", advisor_id: "adv_01", client_id: "cli_015", challenge_code: "PURCHASE_PRODUCT", monthly_draw: "July", units: 1, passes: 1, pass_type: "gold", awarded_on: "2026-07-28", external_ref: "July:cli_015:PURCHASE_PRODUCT" },
+  { id: "pass_010", advisor_id: "adv_01", client_id: "cli_015", challenge_code: "SUBMIT_REFERRAL", monthly_draw: "July", units: 3, passes: 3, pass_type: "blue", awarded_on: "2026-07-28", external_ref: "July:cli_015:SUBMIT_REFERRAL" },
+  { id: "pass_011", advisor_id: "adv_03", client_id: "cli_034", challenge_code: "PURCHASE_PRODUCT", monthly_draw: "August", units: 1, passes: 1, pass_type: "gold", awarded_on: "2026-08-05", external_ref: "August:cli_034:PURCHASE_PRODUCT" },
+  { id: "pass_012", advisor_id: "adv_01", client_id: "cli_016", challenge_code: "SUBMIT_REFERRAL", monthly_draw: "August", units: 2, passes: 2, pass_type: "blue", awarded_on: "2026-08-05", external_ref: "August:cli_016:SUBMIT_REFERRAL" },
+  { id: "pass_013", advisor_id: "adv_01", client_id: "cli_016", challenge_code: "DOWNLOAD_APP", monthly_draw: "August", units: 1, passes: 1, pass_type: "blue", awarded_on: "2026-08-05", external_ref: "August:cli_016:DOWNLOAD_APP" },
+  { id: "pass_014", advisor_id: "adv_01", client_id: "cli_003", challenge_code: "SUBMIT_REFERRAL", monthly_draw: "August", units: 1, passes: 1, pass_type: "blue", awarded_on: "2026-08-09", external_ref: "August:cli_003:SUBMIT_REFERRAL" },
+  { id: "pass_015", advisor_id: "adv_02", client_id: "cli_026", challenge_code: "PURCHASE_PRODUCT", monthly_draw: "August", units: 1, passes: 1, pass_type: "gold", awarded_on: "2026-08-11", external_ref: "August:cli_026:PURCHASE_PRODUCT" },
+  { id: "pass_016", advisor_id: "adv_01", client_id: "cli_014", challenge_code: "SUBMIT_REFERRAL", monthly_draw: "August", units: 1, passes: 1, pass_type: "blue", awarded_on: "2026-08-12", external_ref: "August:cli_014:SUBMIT_REFERRAL" },
+  { id: "pass_017", advisor_id: "adv_01", client_id: "cli_007", challenge_code: "SUBMIT_REFERRAL", monthly_draw: "August", units: 2, passes: 2, pass_type: "blue", awarded_on: "2026-08-15", external_ref: "August:cli_007:SUBMIT_REFERRAL" },
+  { id: "pass_018", advisor_id: "adv_01", client_id: "cli_007", challenge_code: "DOWNLOAD_APP", monthly_draw: "August", units: 1, passes: 1, pass_type: "blue", awarded_on: "2026-08-15", external_ref: "August:cli_007:DOWNLOAD_APP" },
+  { id: "pass_019", advisor_id: "adv_05", client_id: "cli_045", challenge_code: "PURCHASE_PRODUCT", monthly_draw: "August", units: 1, passes: 1, pass_type: "gold", awarded_on: "2026-08-19", external_ref: "August:cli_045:PURCHASE_PRODUCT" },
+  { id: "pass_020", advisor_id: "adv_01", client_id: "cli_017", challenge_code: "PURCHASE_PRODUCT", monthly_draw: "August", units: 1, passes: 1, pass_type: "gold", awarded_on: "2026-08-20", external_ref: "August:cli_017:PURCHASE_PRODUCT" },
+  { id: "pass_021", advisor_id: "adv_01", client_id: "cli_017", challenge_code: "DOWNLOAD_APP", monthly_draw: "August", units: 1, passes: 1, pass_type: "blue", awarded_on: "2026-08-20", external_ref: "August:cli_017:DOWNLOAD_APP" },
+  { id: "pass_022", advisor_id: "adv_01", client_id: "cli_018", challenge_code: "SUBMIT_REFERRAL", monthly_draw: "August", units: 1, passes: 1, pass_type: "blue", awarded_on: "2026-08-21", external_ref: "August:cli_018:SUBMIT_REFERRAL" },
+  { id: "pass_023", advisor_id: "adv_01", client_id: "cli_017", challenge_code: "TESTIMONIAL", monthly_draw: "August", units: 1, passes: 3, pass_type: "blue", awarded_on: "2026-08-26", external_ref: "August:cli_017:TESTIMONIAL" },
+  { id: "pass_024", advisor_id: "adv_01", client_id: "cli_019", challenge_code: "PURCHASE_PRODUCT", monthly_draw: "August", units: 1, passes: 1, pass_type: "gold", awarded_on: "2026-08-28", external_ref: "August:cli_019:PURCHASE_PRODUCT" },
+  { id: "pass_025", advisor_id: "adv_01", client_id: "cli_019", challenge_code: "REFERRAL_PURCHASE", monthly_draw: "August", units: 1, passes: 2, pass_type: "gold", awarded_on: "2026-08-28", external_ref: "August:cli_019:REFERRAL_PURCHASE" },
+  { id: "pass_026", advisor_id: "adv_03", client_id: "cli_035", challenge_code: "PURCHASE_PRODUCT", monthly_draw: "September", units: 1, passes: 1, pass_type: "gold", awarded_on: "2026-09-01", external_ref: "September:cli_035:PURCHASE_PRODUCT" },
+  { id: "pass_027", advisor_id: "adv_01", client_id: "cli_015", challenge_code: "TESTIMONIAL", monthly_draw: "September", units: 1, passes: 3, pass_type: "blue", awarded_on: "2026-09-01", external_ref: "September:cli_015:TESTIMONIAL" },
+  { id: "pass_028", advisor_id: "adv_01", client_id: "cli_020", challenge_code: "PURCHASE_PRODUCT", monthly_draw: "September", units: 1, passes: 1, pass_type: "gold", awarded_on: "2026-09-02", external_ref: "September:cli_020:PURCHASE_PRODUCT" },
+  { id: "pass_029", advisor_id: "adv_01", client_id: "cli_020", challenge_code: "SUBMIT_REFERRAL", monthly_draw: "September", units: 1, passes: 1, pass_type: "blue", awarded_on: "2026-09-02", external_ref: "September:cli_020:SUBMIT_REFERRAL" },
+  { id: "pass_030", advisor_id: "adv_01", client_id: "cli_020", challenge_code: "DOWNLOAD_APP", monthly_draw: "September", units: 1, passes: 1, pass_type: "blue", awarded_on: "2026-09-02", external_ref: "September:cli_020:DOWNLOAD_APP" },
+  { id: "pass_031", advisor_id: "adv_01", client_id: "cli_016", challenge_code: "ATTEND_EVENT", monthly_draw: "September", units: 1, passes: 5, pass_type: "blue", awarded_on: "2026-09-03", external_ref: "September:cli_016:ATTEND_EVENT" },
+  { id: "pass_032", advisor_id: "adv_01", client_id: "cli_018", challenge_code: "ATTEND_EVENT", monthly_draw: "September", units: 1, passes: 5, pass_type: "blue", awarded_on: "2026-09-03", external_ref: "September:cli_018:ATTEND_EVENT" },
+  { id: "pass_033", advisor_id: "adv_01", client_id: "cli_018", challenge_code: "BRING_GUEST", monthly_draw: "September", units: 2, passes: 4, pass_type: "blue", awarded_on: "2026-09-03", external_ref: "September:cli_018:BRING_GUEST" },
+  { id: "pass_034", advisor_id: "adv_01", client_id: "cli_019", challenge_code: "ATTEND_EVENT", monthly_draw: "September", units: 1, passes: 5, pass_type: "blue", awarded_on: "2026-09-03", external_ref: "September:cli_019:ATTEND_EVENT" },
+];
+
+export const prizes_won: PrizeWon[] = [
+  { client_id: "cli_015", monthly_draw: "July", pass_type: "blue", prize_won: "Around The World travel voucher (S$200)" },
+  { client_id: "cli_014", monthly_draw: "August", pass_type: "gold", prize_won: "Weekend staycation for two" },
+];

@@ -14,7 +14,7 @@ npm run build      # typecheck + production build into dist/
 
 | Path | What |
 | --- | --- |
-| `src/mock/data.ts` | All mock tables. Section 1 holds every `PLACEHOLDER` reference value; Section 2 holds fake advisors, cases and goals. |
+| `src/mock/data.ts` | All mock tables. Section 1 holds every `PLACEHOLDER` reference value; Section 2 holds fake advisors, cases and goals; Section 3 mirrors the lucky-draw tables the importer writes (challenge types, draws, clients, pass ledger, prizes). |
 | `src/lib/calc.ts` | Pure calculations: `commissionForCase`, `metricsForCase`, `aggregate`, `pace`, `clientsNeeded`, period helpers, MDRT tiers. |
 | `src/lib/format.ts` | Display formatting only (`S$12,345`, no decimals). |
 | `src/screens/` | One file per bottom tab (Home, Goals + GoalsEditor, Calculator, Log, Team, Draw). Screens read only through `calc.ts` and `data.ts`. |
@@ -45,7 +45,9 @@ phone or an email attachment without a server.
 - **Log** — record a closed case as pending until Merlin confirms it.
 - **Team** (manager only) — each FC's commission, goal, MDRT route and pace, with a
   read-only drill-down.
-- **Draw** — placeholder for the Around The World pass tracker.
+- **Clients** — every client with their plans and Around The World passes for the
+  selected draw month (gold and blue, broken down by how they were earned), with a
+  prominent "passes as of" cut-off and prize wins.
 
 ## Placeholders to replace before go-live
 

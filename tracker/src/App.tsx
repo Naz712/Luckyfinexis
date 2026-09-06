@@ -5,11 +5,11 @@ import Calculator from "./screens/Calculator";
 import Home from "./screens/Home";
 import Log from "./screens/Log";
 import Team from "./screens/Team";
-import Draw from "./screens/Draw";
+import Clients from "./screens/Clients";
 import Goals, { type PrimaryGoal } from "./screens/Goals";
 import GoalsEditor from "./screens/GoalsEditor";
 
-type Tab = "home" | "goals" | "calculator" | "log" | "team" | "draw";
+type Tab = "home" | "goals" | "calculator" | "log" | "team" | "clients";
 
 const TABS: { id: Tab; label: string; managerOnly?: boolean }[] = [
   { id: "home", label: "Home" },
@@ -17,7 +17,7 @@ const TABS: { id: Tab; label: string; managerOnly?: boolean }[] = [
   { id: "calculator", label: "Calculator" },
   { id: "log", label: "Log" },
   { id: "team", label: "Team", managerOnly: true },
-  { id: "draw", label: "Draw" },
+  { id: "clients", label: "Clients" },
 ];
 
 const ICONS: Record<Tab, string> = {
@@ -26,7 +26,7 @@ const ICONS: Record<Tab, string> = {
   home: "M3 11 12 3l9 8v10a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1V11Z",
   log: "M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm2 8h8v2H8v-2Zm0 4h8v2H8v-2Z",
   team: "M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm8 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 19a6 6 0 0 1 12 0v1H2v-1Zm12.5-4.8A6 6 0 0 1 22 19v1h-6v-1a7.9 7.9 0 0 0-1.5-4.8Z",
-  draw: "M12 2l2.4 5.2 5.6.6-4.2 3.9 1.2 5.6L12 14.5 7 17.3l1.2-5.6L4 7.8l5.6-.6L12 2Z",
+  clients: "M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Zm-8 8.5A8 8 0 0 1 20 20.5V22H4v-1.5Z",
 };
 
 /** The user switch is dev-only, unless a shared build opts in with VITE_USER_SWITCH=1. */
@@ -116,7 +116,7 @@ export default function App() {
         {activeTab === "calculator" && <Calculator key={me.id} advisor={me} cases={myCases} goalSet={goalSet} />}
         {activeTab === "log" && <Log key={me.id} advisor={me} cases={cases} onAdd={addCase} onRemove={removePendingCase} />}
         {activeTab === "team" && isManager && <Team key={me.id} manager={me} cases={cases} goalSet={goalSet} />}
-        {activeTab === "draw" && <Draw />}
+        {activeTab === "clients" && <Clients key={me.id} advisor={me} cases={cases} />}
       </main>
 
       <nav className="fixed inset-x-0 bottom-0 z-10 mx-auto w-full max-w-[430px] border-t border-line bg-white pb-[env(safe-area-inset-bottom)]" aria-label="Sections">
