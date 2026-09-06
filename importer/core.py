@@ -134,8 +134,71 @@ def normalize_mobile(v) -> tuple[str, list[str]]:
 # Validation (read-only — writes nothing)
 # ---------------------------------------------------------------------------
 
-def validate_file(df: pd.DataFrame, ref: ReferenceData, selected_month: str) -> FileReport:
-    report = FileReport(selected_month=selected_month)
+def rows_needing_month(df: pd.DataFrame, ref: ReferenceData) -> list[tuple[int, str]]:
+    """Rows that cannot name their own draw month, as (spreadsheet row, problem).
+
+    A blank Monthly Draw cell and an unrecognised one ("Augst") are reported
+    separately so the sheet owner knows whether to fill or to fix.
+    """
+    headers = {str(c).replace("\ufeff", "").strip(): c for c in df.columns}
+    col = headers.get("Monthly Draw")
+    out: list[tuple[int, str]] = []
+    for idx in df.index:
+        row_num = int(idx) + 2
+        if col is None:
+            out.append((row_num, "Monthly Draw column missing"))
+            continue
+        t = text(df.at[idx, col])
+        if t == "":
+            out.append((row_num, "Monthly Draw is blank"))
+        elif ref.match_month(t) is None:
+            out.append((row_num, f"Monthly Draw '{t}' matches no draw"))
+    return out
+
+
+def rows_needing_default(df: pd.DataFrame, ref: ReferenceData) -> tuple[int, int]:
+    """How many rows cannot name their own draw month: (blank, unrecognised).
+
+    The app shows the month picker only when this is non-zero; a sheet whose
+    every row carries a known month needs no human choice at all.
+    """
+    needing = rows_needing_month(df, ref)
+    blank = sum(1 for _, why in needing if why == "Monthly Draw is blank")
+    return blank, len(needing) - blank
+
+
+def problem_rows_csv(df: pd.DataFrame, problems: list[tuple[int, str]]) -> bytes:
+    """A CSV of just the given rows, in the sheet's own columns, with a leading
+    'Row' (spreadsheet row number, header = row 1) and a trailing 'Problem'
+    column — meant to be fixed and re-uploaded, or merged back into the sheet.
+    """
+    headers = [str(c).replace("\ufeff", "").strip() for c in df.columns]
+    by_row: dict[int, list[str]] = {}
+    for row_num, why in problems:
+        by_row.setdefault(row_num, []).append(why)
+    records = []
+    for row_num in sorted(by_row):
+        idx = row_num - 2
+        if idx not in df.index:
+            continue
+        rec = {"Row": row_num}
+        for h, c in zip(headers, df.columns):
+            rec[h] = text(df.at[idx, c])
+        rec["Problem"] = " | ".join(by_row[row_num])
+        records.append(rec)
+    out = pd.DataFrame(records, columns=["Row", *headers, "Problem"])
+    return out.to_csv(index=False).encode("utf-8-sig")
+
+
+def validate_file(df: pd.DataFrame, ref: ReferenceData, default_month: str | None) -> FileReport:
+    """Validate every row read-only.
+
+    Each row's passes go to the draw month named in its own Monthly Draw
+    cell. Rows that leave it blank (or misspell it) fall back to
+    default_month, the file-level choice made in the app; with no default
+    such rows are errors. Nothing is fuzzy-matched.
+    """
+    report = FileReport(default_month=default_month)
 
     headers = [str(c).replace("\ufeff", "").strip() for c in df.columns]
     df = df.copy()
@@ -246,13 +309,31 @@ def validate_file(df: pd.DataFrame, ref: ReferenceData, selected_month: str) -> 
                         f"{col}: sheet says {sheet_val}, computed {computed} (units × rate)"
                     )
 
-        # --- selected month must have the draws we need --------------------
-        for pt, types in ((PASS_GOLD, gold_types), (PASS_BLUE, blue_types)):
-            if any(rep.units.get(ct.code, 0) > 0 for ct in types):
-                if ref.draw_for(selected_month, pt) is None:
-                    rep.add_error(
-                        f"No {pt} draw exists for {selected_month} — cannot award {pt} passes"
-                    )
+        # --- which draw month this row belongs to ---------------------------
+        # The row's own Monthly Draw wins when it names a known draw. A blank
+        # or unrecognised value falls back to the file-level month chosen in
+        # the app; without one the row cannot be placed and is an error.
+        md_raw = text(r["Monthly Draw"])
+        md_matched = ref.match_month(md_raw) if md_raw else None
+        if md_matched is not None:
+            rep.month, rep.month_source = md_matched, "row"
+        elif default_month is not None:
+            rep.month, rep.month_source = default_month, "file"
+            if md_raw:
+                rep.add_warning(
+                    f"Monthly Draw '{md_raw}' matches no draw — passes go to the file's month {default_month}"
+                )
+        elif md_raw:
+            rep.add_error(f"Monthly Draw '{md_raw}' matches no draw and no draw month was chosen for the file")
+        else:
+            rep.add_error("Monthly Draw is empty and no draw month was chosen for the file")
+
+        # --- that month must have the draws we need -------------------------
+        if rep.month is not None:
+            for pt, types in ((PASS_GOLD, gold_types), (PASS_BLUE, blue_types)):
+                if any(rep.units.get(ct.code, 0) > 0 for ct in types):
+                    if ref.draw_for(rep.month, pt) is None:
+                        rep.add_error(f"No {pt} draw exists for {rep.month} — cannot award {pt} passes")
 
         # --- date updated --------------------------------------------------
         rep.date_updated, derr = parse_date_cell(r["Date Updated"])
@@ -264,12 +345,11 @@ def validate_file(df: pd.DataFrame, ref: ReferenceData, selected_month: str) -> 
         elif derr == "empty":
             rep.add_warning("Date Updated is empty — the draw date will be used instead")
 
-        # --- prize / month conflict handling -------------------------------
-        # Two sources state the month: the draw selected in the app, and the
-        # Monthly Draw column. On prize rows a disagreement REJECTS the prize
-        # (never guessed, never fuzzy-matched) but the row's passes still import.
+        # --- prize -----------------------------------------------------------
+        # A prize is only ever recorded against the month the row itself
+        # names: never guessed from the file default, never fuzzy-matched.
+        # A rejected prize skips only the prize; the row's passes still import.
         prize_raw = text(r["Prize Won"])
-        md_raw = text(r["Monthly Draw"])
         pt_raw = text(r["Pass Type"]).lower()
         if prize_raw:
             if md_raw == "":
@@ -279,39 +359,19 @@ def validate_file(df: pd.DataFrame, ref: ReferenceData, selected_month: str) -> 
                     f"Pass Type '{text(r['Pass Type'])}' must be gold or blue on a prize row",
                     scope=SCOPE_PRIZE,
                 )
+            elif md_matched is None:
+                rep.add_error(f"Monthly Draw '{md_raw}' matches no draw", scope=SCOPE_PRIZE)
             else:
-                matched = ref.match_month(md_raw)
-                if matched is None:
-                    rep.add_error(f"Monthly Draw '{md_raw}' matches no draw", scope=SCOPE_PRIZE)
-                elif matched != selected_month:
-                    rep.add_error(
-                        f"Monthly Draw says {matched} but file imported as {selected_month}",
-                        scope=SCOPE_PRIZE,
-                    )
+                draw = ref.draw_for(md_matched, pt_raw)
+                if draw is None:
+                    rep.add_error(f"No {pt_raw} draw exists for {md_matched}", scope=SCOPE_PRIZE)
                 else:
-                    draw = ref.draw_for(matched, pt_raw)
-                    if draw is None:
-                        rep.add_error(
-                            f"No {pt_raw} draw exists for {matched}", scope=SCOPE_PRIZE
-                        )
-                    else:
-                        rep.prize = PrizeAward(
-                            monthly_draw=matched,
-                            pass_type=pt_raw,
-                            prize_won=prize_raw,
-                            draw_id=draw.id,
-                        )
-        elif md_raw:
-            matched = ref.match_month(md_raw)
-            if matched is None:
-                rep.add_warning(
-                    f"Monthly Draw '{md_raw}' matches no draw (no prize on this row — nothing skipped)"
-                )
-            elif matched != selected_month:
-                rep.add_warning(
-                    f"Monthly Draw says {matched} but file imported as {selected_month} "
-                    "(no prize on this row)"
-                )
+                    rep.prize = PrizeAward(
+                        monthly_draw=md_matched,
+                        pass_type=pt_raw,
+                        prize_won=prize_raw,
+                        draw_id=draw.id,
+                    )
 
         report.rows.append(rep)
 
@@ -321,8 +381,8 @@ def validate_file(df: pd.DataFrame, ref: ReferenceData, selected_month: str) -> 
 def suggest_month(filename: str, df: pd.DataFrame | None, ref: ReferenceData) -> tuple[str | None, str | None]:
     """Best-effort guess of which draw month a mastersheet is for.
 
-    Used only to PRE-SELECT the month in the UI — the human still confirms,
-    and validation still rejects prize rows that contradict the selection.
+    Used only to PRE-SELECT the file-level fallback month in the UI, for
+    rows whose own Monthly Draw cell is blank. Rows that name a month keep it.
     Sources, in order of trust:
       1. the file's Monthly Draw column, when every filled value maps to the
          same known draw month (typos like 'Augst' simply don't match);
@@ -418,8 +478,9 @@ def unpivot_row(row: RowReport, ref: ReferenceData, month: str) -> list[LedgerEn
 def build_plan(report: FileReport, ref: ReferenceData, db) -> ImportPlan:
     if ref.campaign is None:
         raise ImporterError("No active campaign — cannot plan an import.")
-    month = report.selected_month
     rows = report.importable()
+    order = {m: i for i, m in enumerate(ref.months())}
+    months = sorted({r.month for r in rows if r.month}, key=lambda m: order.get(m, 99))
 
     # clients (deduped on the upsert key)
     payload_by_key: dict[tuple[str, str], dict] = {}
@@ -438,7 +499,8 @@ def build_plan(report: FileReport, ref: ReferenceData, db) -> ImportPlan:
     # ledger rows via the unpivot
     entries: list[LedgerEntry] = []
     for r in rows:
-        entries.extend(unpivot_row(r, ref, month))
+        assert r.month is not None  # importable rows always resolved a month
+        entries.extend(unpivot_row(r, ref, r.month))
     refs = [e.external_ref for e in entries]
     existing_refs = db.existing_external_refs(refs)
     new_refs = set(refs) - existing_refs
@@ -471,7 +533,7 @@ def build_plan(report: FileReport, ref: ReferenceData, db) -> ImportPlan:
     ]
 
     return ImportPlan(
-        month=month,
+        months=months,
         campaign_id=ref.campaign.id,
         campaign_name=ref.campaign.name,
         rows_total=len(report.rows),
@@ -526,7 +588,8 @@ def execute_plan(db, ref: ReferenceData, plan: ImportPlan, log: RunLog, progress
             progress(step, total_steps, label)
 
     log.add(
-        f"Import started — campaign '{plan.campaign_name}', draw month {plan.month}: "
+        f"Import started — campaign '{plan.campaign_name}', "
+        f"draw month{'s' if len(plan.months) != 1 else ''} {', '.join(plan.months) or '—'}: "
         f"{plan.rows_importable} of {plan.rows_total} rows importable"
     )
     for row_num, msgs in plan.skipped_rows:
@@ -594,7 +657,7 @@ def execute_plan(db, ref: ReferenceData, plan: ImportPlan, log: RunLog, progress
     )
 
     summary = ImportSummary(
-        month=plan.month,
+        months=plan.months,
         campaign_name=plan.campaign_name,
         rows_total=plan.rows_total,
         rows_imported=plan.rows_importable,
