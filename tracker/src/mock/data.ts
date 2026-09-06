@@ -156,7 +156,13 @@ export const credit_rates: CreditRate[] = [
   { product_id: "prd_13", metric: "wape", rate: 0.0 },
 ];
 
-// PLACEHOLDER — replace with business-supplied values (current-year MDRT table).
+// PLACEHOLDER — replace with business-supplied values.
+// These are the published MDRT Singapore requirements for 2026 membership
+// (i.e. 2025 production): MDRT / COT / TOT at 1x / 3x / 6x. Production in
+// 2026 counts toward 2027 membership, whose Singapore chart must be confirmed
+// once the firm has it (MDRT's USD base, 87,000 commission / 174,000 premium,
+// carried over unchanged into the 2027 requirements; the SGD conversion may not).
+// Verified 6 Sep 2026.
 export const metric_thresholds: MetricThreshold[] = [
   { metric: "mdrt_commission", tier: "mdrt", value: 72400 },
   { metric: "mdrt_commission", tier: "cot", value: 217200 },
@@ -252,8 +258,8 @@ export const advisors: Advisor[] = [
 export const DEFAULT_USER_ID = "adv_01";
 export const MANAGER_USER_ID = "adv_mgr";
 
-/** "Today" for the mockup, so pace and week counts are stable in screenshots. */
-export const TODAY = new Date("2026-09-05T00:00:00");
+/** "Today" for the mockup, pinned so pace and week counts stay stable in screenshots. Last set 6 Sep 2026. */
+export const TODAY = new Date("2026-09-06T00:00:00");
 
 export const cases: Case[] = [
   { id: "case_001", advisor_id: "adv_01", client_name: "Ivan Lim", product_id: "prd_01", premium_amount: 3600, premium_term_years: 15, gross_revenue: 3268, banding_code_at_time: "B2", status: "confirmed", source: "merlin", submitted_on: "2025-01-14", confirmed_on: "2025-02-03" },
