@@ -201,6 +201,15 @@ class FileReport:
                 counts[r.month] = counts.get(r.month, 0) + 1
         return counts
 
+    def fallback_counts(self) -> dict[str, int]:
+        """Importable rows per draw month that took the file-level default
+        (blank or unrecognised Monthly Draw), in first-seen order."""
+        counts: dict[str, int] = {}
+        for r in self.importable():
+            if r.month and r.month_source == "file":
+                counts[r.month] = counts.get(r.month, 0) + 1
+        return counts
+
 
 @dataclass(frozen=True)
 class LedgerEntry:

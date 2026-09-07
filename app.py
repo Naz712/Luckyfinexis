@@ -452,10 +452,21 @@ _month_label = (
     " + ".join(_month_counts) + (" draws" if len(_month_counts) > 1 else " draw") if _month_counts else "no importable rows"
 )
 st.markdown(ui.file_card_html(uploaded.name, len(file_bytes), _month_label), unsafe_allow_html=True)
+_fallback_counts = report.fallback_counts()
+
+
+def _month_summary(m: str, n: int) -> str:
+    part = f"<b>{m}</b> {n} row{'s' if n != 1 else ''}"
+    took = _fallback_counts.get(m, 0)
+    if took:
+        part += f" ({took} took the month you picked above)"
+    return part
+
+
 if _month_counts:
     st.markdown(
         '<span class="muted-note">Draw months in this file: '
-        + " · ".join(f"<b>{m}</b> {n} row{'s' if n != 1 else ''}" for m, n in _month_counts.items())
+        + " · ".join(_month_summary(m, n) for m, n in _month_counts.items())
         + "</span>",
         unsafe_allow_html=True,
     )
@@ -521,6 +532,12 @@ if problem_records:
             mime="text/csv",
             help="Every warning and error row in the sheet's own columns, plus Row and Problem.",
         )
+elif _fallback_counts:
+    _took = ", ".join(
+        f"{n} row{'s' if n != 1 else ''} had no Monthly Draw and will go to {m}"
+        for m, n in _fallback_counts.items()
+    )
+    st.success(f"No problems found. {_took}.")
 else:
     st.success("No problems found — every row is clean.")
 
