@@ -26,7 +26,6 @@ import pandas as pd
 import streamlit as st
 
 import ui
-from datetime import date
 from importer.core import (
     RunLog,
     build_plan,
@@ -37,7 +36,7 @@ from importer.core import (
     suggest_month,
     validate_file,
 )
-from importer.models import SEV_ERROR, ImporterError
+from importer.models import SEV_ERROR, STATUS_OK, ImporterError
 from importer.parsing import read_upload
 
 st.set_page_config(page_title="Lucky Draw Sheet Importer", page_icon="🎟️", layout="wide")
@@ -378,43 +377,36 @@ _needing = _blank_m + _unknown_m
 _file_stem = re.sub(r"\.[^.]+$", "", uploaded.name)
 default_month = None
 if _needing:
-    if st.session_state.get("month") is None:
-        st.session_state["month"] = next(
-            (m for m in months if ref.month_date(m) and ref.month_date(m) >= date.today()),
-            months[0],
-        )
+    # A new file starts with nothing chosen, so placing those rows is a
+    # deliberate click: red statement of the gap, the months to pick from,
+    # then a green line saying where the rows went.
     _sig = hashlib.sha256(file_bytes).hexdigest()[:12]
     if st.session_state.get("suggested_for") != _sig:
         st.session_state["suggested_for"] = _sig
-        _sm, _swhy = suggest_month(uploaded.name, df, ref)
-        if _sm:
-            st.session_state["month"] = _sm
-            st.session_state["suggestion"] = (_sig, _sm, _swhy)
-    _s = st.session_state.get("suggestion")
-    _suggestion_note = _s[2] if (_s and _s[0] == _sig and st.session_state.get("month") == _s[1]) else None
+        st.session_state["month"] = None
+        st.session_state["suggestion"] = suggest_month(uploaded.name, df, ref)
+    _sm, _swhy = st.session_state.get("suggestion") or (None, None)
     _what = " and ".join(
         part
         for part in (
-            f"{_blank_m} row{'s leave' if _blank_m != 1 else ' leaves'} Monthly Draw blank" if _blank_m else "",
+            f"{_blank_m} row{'s have' if _blank_m != 1 else ' has'} no Monthly Draw" if _blank_m else "",
             f"{_unknown_m} row{'s have' if _unknown_m != 1 else ' has'} an unrecognised month" if _unknown_m else "",
         )
         if part
     )
+    _those = "those rows" if _needing != 1 else "that row"
+    _ask = f"Pick the draw {_those} belong{'' if _needing != 1 else 's'} to below. " if st.session_state.get("month") is None else ""
+    st.error(f"**{_what}.** {_ask}Rows that name their own month keep it.")
     default_month = st.pills(
-        f"{_what} — which draw should those rows go to?",
+        "Draw month for the rows without one",
         months,
         selection_mode="single",
         key="month",
+        label_visibility="collapsed",
     )
-    if default_month is None:
-        st.info("Pick a draw month for those rows to continue.")
-        st.stop()
-    st.markdown(
-        '<span class="muted-note">Rows that name their own month keep it. '
-        + (f"Pre-selected because {_suggestion_note} — change it if that's wrong." if _suggestion_note else "")
-        + "</span>",
-        unsafe_allow_html=True,
-    )
+    _placed = st.empty()  # filled after validation: "8 rows → August · all clean"
+    if default_month is None and _sm:
+        _placed.caption(f"Likely **{_sm}** — {_swhy}.")
     st.download_button(
         f"Download the {_needing} row{'s' if _needing != 1 else ''} without a draw month (CSV)",
         data=problem_rows_csv(df, _needing_rows),
@@ -422,6 +414,8 @@ if _needing:
         mime="text/csv",
         help="The same columns as the sheet, plus Row and Problem — fill in Monthly Draw and merge it back.",
     )
+    if default_month is None:
+        st.stop()
 else:
     st.markdown(
         '<span class="muted-note">Every row names its own draw month — nothing to choose.</span>',
@@ -437,6 +431,11 @@ if report.fatal:
     st.stop()
 if report.unexpected_columns:
     st.warning("Ignoring unexpected column(s): " + ", ".join(report.unexpected_columns))
+if _needing:
+    _took = [r for r in report.rows if r.month_source == "file"]
+    _clean = sum(1 for r in _took if r.status == STATUS_OK)
+    _verdict = "all clean" if _clean == len(_took) else f"{_clean} clean, {len(_took) - _clean} flagged below"
+    _placed.success(f"**{len(_took)} row{'s' if len(_took) != 1 else ''} → {default_month}** · {_verdict}")
 
 try:
     plan = build_plan(report, ref, db)
