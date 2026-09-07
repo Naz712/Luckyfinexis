@@ -395,8 +395,8 @@ if _needing:
     _what = " and ".join(
         part
         for part in (
-            f"{_blank_m} row{'s' if _blank_m != 1 else ''} leave Monthly Draw blank" if _blank_m else "",
-            f"{_unknown_m} row{'s' if _unknown_m != 1 else ''} have an unrecognised month" if _unknown_m else "",
+            f"{_blank_m} row{'s leave' if _blank_m != 1 else ' leaves'} Monthly Draw blank" if _blank_m else "",
+            f"{_unknown_m} row{'s have' if _unknown_m != 1 else ' has'} an unrecognised month" if _unknown_m else "",
         )
         if part
     )

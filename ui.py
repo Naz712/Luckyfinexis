@@ -31,6 +31,11 @@ GLOBAL_CSS = """
      inside it, and hiding it strands a collapsed sidebar. */
   [data-testid="stDecoration"], [data-testid="stAppDeployButton"],
   [data-testid="stMainMenu"] { display: none; }
+  /* Streamlit's fixed header spans the full main width and sits above our
+     topbar, so it swallowed clicks on "Log out". Let clicks pass through it,
+     except on the sidebar expand button that lives inside it. */
+  [data-testid="stHeader"], [data-testid="stToolbar"] { pointer-events: none; }
+  [data-testid="stExpandSidebarButton"], [data-testid="stExpandSidebarButton"] * { pointer-events: auto; }
   [data-testid="stExpandSidebarButton"],
   [data-testid="stSidebarCollapsedControl"] {
     position: fixed; top: 10px; left: 10px; z-index: 1000;
