@@ -259,6 +259,11 @@ def main() -> int:
     check("mixed: rows resolve to their own months, blanks to the fallback",
           counts.get("July") == 10 and counts.get("August") == 11 and counts.get("September") == 8, f"got {counts}")  # 3 blank rows are the siti errors
     check("mixed: plan lists every month touched in campaign order", plan_mix.months == ["July", "August", "September"], f"got {plan_mix.months}")
+    fb = report_mix.fallback_counts()
+    check("mixed: fallback_counts reports only rows that took the picked month",
+          fb == {"September": 8}, f"got {fb}")
+    check("no fallback: fallback_counts is empty when no default was chosen",
+          validate_file(df_mix, ref, None).fallback_counts() == {})
     check("mixed: ledger keys carry each row's own month",
           any(e.external_ref.startswith("July:") for e in plan_mix.ledger_entries)
           and any(e.external_ref.startswith("August:") for e in plan_mix.ledger_entries)
