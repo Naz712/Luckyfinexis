@@ -59,7 +59,11 @@ configured (or the placeholder still in place) the app refuses to run.
 
 A row's passes go to the month in its own `Monthly Draw` cell. A blank or
 unrecognised value ("Augst") falls back to the file-level month chosen in the
-app, with a warning; with no fallback chosen, such rows are errors. Because
+app, with a warning; with no fallback chosen, such rows are errors. When a
+sheet has such rows the app shows, in order: a red block stating how many
+rows have no month, the draw months to pick from (nothing pre-selected; the
+likely month is suggested underneath), and once one is clicked a green line
+saying where those rows went and whether they are clean. Because
 the ledger key includes the month, one running mastersheet can be re-uploaded
 whenever it changes: rows already imported update in place, new rows are
 added, nothing double-awards.
