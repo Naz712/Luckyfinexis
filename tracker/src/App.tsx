@@ -63,12 +63,12 @@ export default function App() {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-canvas sm:border-x sm:border-line">
       <header className="sticky top-0 z-10 border-b border-line bg-white/95 px-4 pb-3 pt-[max(12px,env(safe-area-inset-top))] backdrop-blur">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="whitespace-nowrap text-[11px] font-semibold uppercase tracking-wide text-accent">Finexis tracker</div>
-            <div className="text-[17px] font-semibold text-ink">{activeTab === "goals" && editingGoals ? "Edit goals" : TABS.find((t) => t.id === activeTab)?.label}</div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <div className="truncate text-[11px] font-semibold uppercase tracking-wide text-accent">Finexis tracker</div>
+            <div className="truncate text-[17px] font-semibold text-ink">{activeTab === "goals" && editingGoals ? "Edit goals" : TABS.find((t) => t.id === activeTab)?.label}</div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 shrink items-center gap-2">
             {SHOW_USER_SWITCH && (
               <button
                 type="button"
@@ -76,16 +76,16 @@ export default function App() {
                 className="whitespace-nowrap rounded-full border border-dashed border-line px-2 py-1 text-[10px] font-medium text-muted hover:border-accent hover:text-accent"
                 title="Mockup only: switch between the FC and manager views"
               >
-                {isManager ? "View as FC" : "View as manager"}
+                {isManager ? "FC view" : "Manager view"}
               </button>
             )}
-            <div className="text-right">
-              <div className="whitespace-nowrap text-[13px] font-semibold text-ink">{me.name}</div>
-              <div className="whitespace-nowrap text-[11px] text-muted">
+            <div className="min-w-0 text-right">
+              <div className="truncate text-[13px] font-semibold text-ink">{me.name}</div>
+              <div className="truncate text-[11px] text-muted">
                 {me.banding_code} · {isManager ? "Manager" : me.fc_code}
               </div>
             </div>
-            <div className="grid h-9 w-9 place-items-center rounded-full bg-accent-soft text-[13px] font-semibold text-accent" aria-hidden="true">
+            <div className="hidden h-9 w-9 shrink-0 place-items-center rounded-full bg-accent-soft text-[13px] font-semibold text-accent min-[400px]:grid" aria-hidden="true">
               {me.name
                 .split(" ")
                 .slice(0, 2)
