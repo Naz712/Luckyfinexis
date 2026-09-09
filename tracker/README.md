@@ -33,9 +33,11 @@ phone or an email attachment without a server.
 
 ## Screens
 
-- **Home** — this period's metrics as tiles (tap one for the cases behind it) and a
-  progress card charting commission per week or per month, with a verdict against
-  the previous period and a streak.
+- **Home** — hero (name, band, weeks left), a progress chart by week or month,
+  then one list of metric rows: value, pending amount, a thin meter toward the
+  goal (solid = confirmed, translucent = pending, tick = today) and a pace line
+  that turns amber when behind and green when reached. Tap a row to expand it in
+  place with projected, gap and the cases behind the number.
 - **Goals** — switch between MDRT, COT, TOT and a custom goal; a distance card with
   pace and weeks left; "Edit goals" sets the amount and cadence (year, half,
   quarter, month) per metric.

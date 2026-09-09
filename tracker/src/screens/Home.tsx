@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { metric_definitions, TODAY, type Advisor, type Case, type MetricUnit } from "../mock/data";
+import { metric_definitions, TODAY, type Advisor, type Case } from "../mock/data";
 import {
   effectiveDate,
   metricSnapshot,
@@ -12,13 +12,9 @@ import {
   type Grain,
   type MetricSnapshot,
 } from "../lib/calc";
-import { CADENCE_LABEL, count, longDate, periodLabel, sgd, sgdCompact, shortDate } from "../lib/format";
+import { CADENCE_LABEL, fmtMetric as fmt, longDate, paceText, pct, periodLabel, sgd, sgdCompact, shortDate } from "../lib/format";
 import { Card, Label, Segmented } from "../components/ui";
 import BarChart from "../components/BarChart";
-
-function fmt(value: number, unit: MetricUnit): string {
-  return unit === "sgd" ? sgd(value) : count(value);
-}
 
 function StatusBadge({ status }: { status: Case["status"] }) {
   if (status !== "pending") return null;
@@ -119,42 +115,87 @@ function ProgressCard({ advisorId, cases }: { advisorId: string; cases: Case[] }
   );
 }
 
-/** Full-width metric row. Tap to expand the same card with projected, gap and the cases behind it. */
+type Tone = "accent" | "ok" | "warn";
+
+const METER: Record<Tone, { track: string; fill: string; soft: string; dot: string; text: string }> = {
+  accent: { track: "bg-accent-soft", fill: "bg-accent", soft: "bg-accent/35", dot: "bg-accent", text: "text-accent" },
+  ok: { track: "bg-ok/10", fill: "bg-ok", soft: "bg-ok/35", dot: "bg-ok", text: "text-ok" },
+  warn: { track: "bg-warn/10", fill: "bg-warn", soft: "bg-warn/35", dot: "bg-warn", text: "text-warn" },
+};
+
+/** Thin meter toward the goal: solid = confirmed, translucent = pending, tick = where today falls in the window. */
+function Meter({ achieved, projected, target, elapsed, tone }: { achieved: number; projected: number; target: number; elapsed: number | null; tone: Tone }) {
+  const a = Math.min(achieved / target, 1);
+  const p = Math.min(projected / target, 1);
+  const c = METER[tone];
+  return (
+    <div className={`relative h-2 w-full overflow-hidden rounded-full ${c.track}`} aria-hidden="true">
+      <div className={`absolute inset-y-0 left-0 rounded-full ${c.soft}`} style={{ width: `${p * 100}%` }} />
+      <div className={`absolute inset-y-0 left-0 rounded-full ${c.fill}`} style={{ width: `${a * 100}%` }} />
+      {elapsed !== null && elapsed > 0 && elapsed < 1 && <div className="absolute inset-y-0 w-0.5 bg-ink/50" style={{ left: `calc(${elapsed * 100}% - 1px)` }} />}
+    </div>
+  );
+}
+
+/** One metric in the list. Tap to expand in place with projected, gap and the cases behind it. */
 function MetricRow({ snapshot, expanded, onToggle }: { snapshot: MetricSnapshot; expanded: boolean; onToggle: () => void }) {
-  const { definition: def, achieved, projected, target, gap, period, cadence } = snapshot;
+  const { definition: def, achieved, projected, target, gap, pace, period, cadence } = snapshot;
   const unit = def.unit;
   const pending = projected - achieved;
+  const reached = target !== null && (gap ?? 0) === 0;
+  const tone: Tone = reached ? "ok" : pace && !pace.onTrack ? "warn" : "accent";
+  const elapsed = pace && pace.elapsedMonths + pace.remainingMonths > 0 ? pace.elapsedMonths / (pace.elapsedMonths + pace.remainingMonths) : null;
   const metricValue = (c: Case) => {
     if (def.code === "new_clients") return "1 client";
     if (def.code === "elite" || def.code === "referrals" || def.code === "testimonials") return "";
     return sgd(metricsForCase(c)[def.code]);
   };
   return (
-    <Card className={`p-0 transition-shadow ${expanded ? "border-accent ring-2 ring-accent/20" : ""}`}>
-      <button type="button" onClick={onToggle} aria-expanded={expanded} className="flex w-full items-center gap-3 rounded-2xl p-4 text-left">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
+    <li className={expanded ? "bg-accent-soft/30" : ""}>
+      <button type="button" onClick={onToggle} aria-expanded={expanded} className="block w-full px-4 py-3.5 text-left">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-1.5">
             <Label>{def.label}</Label>
             {cadence && cadence !== "year" && <span className="rounded bg-accent-soft px-1 py-px text-[9px] font-semibold uppercase text-accent">{CADENCE_LABEL[cadence]}</span>}
           </div>
-          <div className="mt-0.5 text-[11px] text-muted">{periodLabel(period)}</div>
+          <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted">
+            {periodLabel(period)}
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" className={`transition-transform ${expanded ? "rotate-180" : ""}`}>
+              <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
         </div>
-        <div className="shrink-0 text-right">
-          <div className="tnum text-[24px] font-semibold leading-none text-ink">{fmt(achieved, unit)}</div>
-          <div className="tnum mt-1 text-[11px] text-muted">{pending > 0 ? `+${fmt(pending, unit)} pending` : "all confirmed"}</div>
+        <div className="mt-1.5 flex items-baseline justify-between gap-3">
+          <span className="text-[26px] font-semibold leading-none text-ink">{fmt(achieved, unit)}</span>
+          <span className="tnum shrink-0 text-[11px] text-muted">{pending > 0 ? `+${fmt(pending, unit)} pending` : "all confirmed"}</span>
         </div>
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" className={`shrink-0 text-muted transition-transform ${expanded ? "rotate-180" : ""}`}>
-          <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        {target !== null ? (
+          <>
+            <div className="mt-2.5">
+              <Meter achieved={achieved} projected={projected} target={target} elapsed={elapsed} tone={tone} />
+            </div>
+            <div className="mt-1.5 flex items-center justify-between gap-3 text-[12px]">
+              <span className={`flex min-w-0 items-center gap-1.5 font-medium ${METER[tone].text}`}>
+                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${METER[tone].dot}`} aria-hidden="true" />
+                <span className="truncate">{paceText(pace, unit, reached)}</span>
+              </span>
+              <span className="tnum shrink-0 text-muted">
+                {pct(achieved / target)} of {fmt(target, unit)}
+              </span>
+            </div>
+          </>
+        ) : (
+          <div className="mt-2 text-[12px] text-muted">No goal set for this metric.</div>
+        )}
       </button>
       {expanded && (
-        <div className="border-t border-line px-4 pb-4 pt-3">
+        <div className="px-4 pb-4">
           <dl className="tnum grid grid-cols-2 gap-2">
-            <div className="rounded-xl bg-canvas px-3 py-2">
+            <div className="rounded-xl bg-white px-3 py-2">
               <dt className="text-[11px] text-muted">Projected (incl. pending)</dt>
               <dd className="text-[16px] font-semibold text-ink">{fmt(projected, unit)}</dd>
             </div>
-            <div className="rounded-xl bg-canvas px-3 py-2">
+            <div className="rounded-xl bg-white px-3 py-2">
               <dt className="text-[11px] text-muted">{target === null ? "Goal" : "Gap to goal"}</dt>
               <dd className="text-[16px] font-semibold text-ink">{target === null ? "not set" : fmt(gap ?? 0, unit)}</dd>
             </div>
@@ -162,7 +203,7 @@ function MetricRow({ snapshot, expanded, onToggle }: { snapshot: MetricSnapshot;
           <CaseList cases={snapshot.contributing} value={metricValue} empty="No cases in this period yet." />
         </div>
       )}
-    </Card>
+    </li>
   );
 }
 
@@ -216,9 +257,13 @@ export default function Home({ advisor, cases, goalSet }: { advisor: Advisor; ca
 
       <ProgressCard advisorId={advisor.id} cases={cases} />
 
-      {tracked.map((s) => (
-        <MetricRow key={s.definition.code} snapshot={s} expanded={expanded === s.definition.code} onToggle={() => toggle(s.definition.code)} />
-      ))}
+      <Card className="overflow-hidden p-0">
+        <ul className="divide-y divide-line">
+          {tracked.map((s) => (
+            <MetricRow key={s.definition.code} snapshot={s} expanded={expanded === s.definition.code} onToggle={() => toggle(s.definition.code)} />
+          ))}
+        </ul>
+      </Card>
 
       <UntrackedCard snapshots={untracked} />
 

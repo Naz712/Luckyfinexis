@@ -1,4 +1,6 @@
 // Display formatting only. No business logic here.
+import type { MetricUnit } from "../mock/data";
+import type { Pace } from "./calc";
 
 const sgdFormatter = new Intl.NumberFormat("en-SG", { maximumFractionDigits: 0 });
 
@@ -73,4 +75,19 @@ export function sgdCompact(value: number): string {
   if (Math.abs(v) < 1000) return `S$${v}`;
   const k = v / 1000;
   return `S$${k >= 10 ? Math.round(k) : Math.round(k * 10) / 10}k`;
+}
+
+/** A metric value in its own unit: money as S$, counts as plain numbers. */
+export function fmtMetric(value: number, unit: MetricUnit): string {
+  return unit === "sgd" ? sgd(value) : count(value);
+}
+
+/** One short sentence on pace toward a target, shared by Home and Goals. */
+export function paceText(pace: Pace | null, unit: MetricUnit, reached: boolean): string {
+  if (reached) return "Goal reached";
+  if (!pace) return "";
+  if (pace.onTrack) return `On track · projected ${fmtMetric(pace.runRateProjection, unit)}`;
+  if (pace.requiredPerMonth === null) return `Period ended · short by ${fmtMetric(pace.gap, unit)}`;
+  if (pace.remainingMonths < 1.5 && pace.requiredPerWeek !== null) return `Need ${fmtMetric(pace.requiredPerWeek, unit)}/week`;
+  return `Need ${fmtMetric(pace.requiredPerMonth, unit)}/month`;
 }

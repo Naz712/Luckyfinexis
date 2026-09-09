@@ -1,16 +1,12 @@
 import { useEffect, useState } from "react";
-import { MDRT_MEMBERSHIP_YEAR, MDRT_PRODUCTION_YEAR, MDRT_THRESHOLDS_CONFIRMED, metric_definitions, TODAY, type Advisor, type Case, type MetricCode, type MetricUnit, type Tier } from "../mock/data";
+import { MDRT_MEMBERSHIP_YEAR, MDRT_PRODUCTION_YEAR, MDRT_THRESHOLDS_CONFIRMED, metric_definitions, TODAY, type Advisor, type Case, type MetricCode, type Tier } from "../mock/data";
 import { UNTRACKED_METRICS, mdrtSnapshot, metricSnapshot, weeksLeftInYear, type GoalSet, type MdrtRoute, type Pace } from "../lib/calc";
-import { CADENCE_LABEL, count, periodLabel, sgd } from "../lib/format";
+import { CADENCE_LABEL, fmtMetric as fmt, paceText, periodLabel, sgd } from "../lib/format";
 import { Card, Segmented, Select } from "../components/ui";
 
 const TIER_LABEL = { mdrt: "MDRT", cot: "COT", tot: "TOT" } as const;
 
 export type PrimaryGoal = { kind: "tier" } | { kind: "custom"; metric: MetricCode };
-
-function fmt(value: number, unit: MetricUnit): string {
-  return unit === "sgd" ? sgd(value) : count(value);
-}
 
 /** Thick bar on the accent card: white = achieved, translucent = projected, tick = where today falls. */
 function DistanceBar({ achieved, projected, elapsed }: { achieved: number; projected: number; elapsed: number | null }) {
@@ -28,15 +24,6 @@ function DistanceBar({ achieved, projected, elapsed }: { achieved: number; proje
       {elapsed !== null && elapsed > 0 && elapsed < 1 && <div className="absolute inset-y-0 w-0.5 bg-ink/60" style={{ left: `calc(${elapsed * 100}% - 1px)` }} title="Today" />}
     </div>
   );
-}
-
-function paceText(pace: Pace | null, unit: MetricUnit, reached: boolean): string {
-  if (reached) return "Reached";
-  if (!pace) return "";
-  if (pace.onTrack) return `On track · projected ${fmt(pace.runRateProjection, unit)}`;
-  if (pace.requiredPerMonth === null) return `Period ended · short by ${fmt(pace.gap, unit)}`;
-  if (pace.remainingMonths < 1.5 && pace.requiredPerWeek !== null) return `Need ${fmt(pace.requiredPerWeek, unit)}/week`;
-  return `Need ${fmt(pace.requiredPerMonth, unit)}/month`;
 }
 
 function elapsedOf(pace: Pace | null): number | null {
