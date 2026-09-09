@@ -21,13 +21,14 @@ interface Row {
   key: number;
   insurerId: string;
   productId: string;
-  /** Gross revenue typed by the FC (the primary input). */
-  gross: string;
-  /** Optional premium, used only to estimate gross revenue. */
+  /** Premium (or amount invested). Pre-filled with the product's typical case until the FC types over it. */
   premium: string;
+  /** Gross revenue. Filled from the premium at the product's placeholder rate until the FC types over it. */
+  gross: string;
+  /** True once the FC has typed the premium themselves; product changes then stop resetting it. */
+  premiumTouched: boolean;
   /** True once the FC has typed gross revenue themselves; the estimate then stops overwriting it. */
   grossTouched: boolean;
-  showPremium: boolean;
 }
 
 const CATEGORY_LABEL: Record<Product["category"], string> = {
@@ -46,11 +47,17 @@ function amountLabel(product: Product | undefined): string {
 }
 
 let nextKey = 1;
-const blankRow = (): Row => ({ key: nextKey++, insurerId: "", productId: "", gross: "", premium: "", grossTouched: false, showPremium: false });
+const blankRow = (): Row => ({ key: nextKey++, insurerId: "", productId: "", premium: "", gross: "", premiumTouched: false, grossTouched: false });
 
 function parseMoney(s: string): number {
   const n = Number(s);
   return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** Gross revenue estimated from a premium, as field text ("" when there is nothing to estimate from). */
+function estimateText(premium: number, product: Product | undefined): string {
+  if (!product || premium <= 0) return "";
+  return String(Math.round(estimateGrossRevenue(premium, product)));
 }
 
 export default function Calculator({ advisor, cases, goalSet }: { advisor: Advisor; cases: Case[]; goalSet: GoalSet }) {
@@ -90,14 +97,20 @@ export default function Calculator({ advisor, cases, goalSet }: { advisor: Advis
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const remove = (key: number) => setRows((rs) => rs.filter((r) => r.key !== key));
 
-  /** Premium typed → gross revenue estimated from the product's rate, unless the FC has set gross revenue by hand. */
+  /** Premium typed → gross revenue re-estimated from the product's rate, unless the FC has set gross revenue by hand. */
   const setPremium = (row: Row, premium: string) => {
     const product = row.productId ? productById(row.productId) : undefined;
-    const patch: Partial<Row> = { premium };
-    if (product && !row.grossTouched) {
-      const est = estimateGrossRevenue(parseMoney(premium), product);
-      patch.gross = est > 0 ? String(Math.round(est)) : "";
-    }
+    const patch: Partial<Row> = { premium, premiumTouched: premium !== "" };
+    if (!row.grossTouched) patch.gross = estimateText(parseMoney(premium), product);
+    update(row.key, patch);
+  };
+
+  /** Product chosen → premium pre-filled with the product's typical case and gross revenue estimated from it, unless the FC typed either. */
+  const setProduct = (row: Row, productId: string) => {
+    const product = productId ? productById(productId) : undefined;
+    const premium = row.premiumTouched ? row.premium : product ? String(product.typical_premium) : "";
+    const patch: Partial<Row> = { productId, premium };
+    if (!row.grossTouched) patch.gross = estimateText(parseMoney(premium), product);
     update(row.key, patch);
   };
 
@@ -123,7 +136,7 @@ export default function Calculator({ advisor, cases, goalSet }: { advisor: Advis
       {computed.map(({ row, gross, commission }, i) => {
         const product = row.productId ? productById(row.productId) : undefined;
         const productOptions = row.insurerId ? productsForInsurer(row.insurerId) : [];
-        const estimated = product && row.showPremium && !row.grossTouched && parseMoney(row.premium) > 0;
+        const fund = product?.category === "fund";
         return (
           <Card key={row.key}>
             <div className="mb-2 flex items-center justify-between">
@@ -144,7 +157,14 @@ export default function Calculator({ advisor, cases, goalSet }: { advisor: Advis
                 aria-label={`Insurer for product ${i + 1}`}
                 placeholder="Insurer"
                 value={row.insurerId}
-                onChange={(e) => update(row.key, { insurerId: e.target.value, productId: "", gross: row.grossTouched ? row.gross : "", premium: "" })}
+                onChange={(e) =>
+                  update(row.key, {
+                    insurerId: e.target.value,
+                    productId: "",
+                    premium: row.premiumTouched ? row.premium : "",
+                    gross: row.grossTouched ? row.gross : "",
+                  })
+                }
                 options={insurers.map((x) => ({ value: x.id, label: x.name }))}
               />
               <Select
@@ -152,56 +172,73 @@ export default function Calculator({ advisor, cases, goalSet }: { advisor: Advis
                 placeholder={row.insurerId ? "Product" : "Choose an insurer first"}
                 disabled={!row.insurerId}
                 value={row.productId}
-                onChange={(e) => {
-                  const next = productById(e.target.value);
-                  const patch: Partial<Row> = { productId: e.target.value };
-                  // Re-estimate for the new product if the FC is working from premium.
-                  if (next && !row.grossTouched && parseMoney(row.premium) > 0) patch.gross = String(Math.round(estimateGrossRevenue(parseMoney(row.premium), next)));
-                  update(row.key, patch);
-                }}
+                onChange={(e) => setProduct(row, e.target.value)}
                 options={productOptions.map((p) => ({ value: p.id, label: p.name }))}
               />
+              <div>
+                <div className="mb-1 flex items-baseline justify-between">
+                  <label htmlFor={`premium-${row.key}`} className="text-[12px] text-muted">
+                    {amountLabel(product)}
+                  </label>
+                  {product && (
+                    <span className="text-[11px] text-muted">
+                      {CATEGORY_LABEL[product.category]}
+                      {!row.premiumTouched && " · typical case, adjust to yours"}
+                    </span>
+                  )}
+                </div>
+                <MoneyInput
+                  id={`premium-${row.key}`}
+                  value={row.premium}
+                  onChange={(v) => setPremium(row, v)}
+                  disabled={!product}
+                  placeholder={product ? "0" : "Choose a product first"}
+                />
+              </div>
               <div>
                 <div className="mb-1 flex items-baseline justify-between">
                   <label htmlFor={`gross-${row.key}`} className="text-[12px] text-muted">
                     Gross revenue
                   </label>
-                  {product && <span className="text-[11px] text-muted">{CATEGORY_LABEL[product.category]}</span>}
+                  {product && (
+                    <span className="text-[11px] text-muted">
+                      {row.grossTouched ? (
+                        "your figure"
+                      ) : (
+                        <>
+                          est. × {product.comm_rate} <span className="rounded bg-canvas px-1 py-px text-[10px] uppercase tracking-wide">placeholder rate</span>
+                        </>
+                      )}
+                    </span>
+                  )}
                 </div>
                 <MoneyInput
                   id={`gross-${row.key}`}
                   value={row.gross}
                   onChange={(v) => update(row.key, { gross: v, grossTouched: v !== "" })}
-                  placeholder={product ? "From the insurer's illustration" : "0"}
+                  disabled={!product}
+                  placeholder={product ? "0" : "Choose a product first"}
                 />
-                {row.showPremium ? (
-                  <div className="mt-2">
-                    <div className="mb-1 flex items-baseline justify-between">
-                      <label htmlFor={`premium-${row.key}`} className="text-[12px] text-muted">
-                        {amountLabel(product)}
-                      </label>
-                      {product && (
-                        <span className="text-[11px] text-muted">
-                          est. × {product.comm_rate} <span className="rounded bg-canvas px-1 py-px text-[10px] uppercase tracking-wide">placeholder rate</span>
-                        </span>
-                      )}
-                    </div>
-                    <MoneyInput id={`premium-${row.key}`} value={row.premium} onChange={(v) => setPremium(row, v)} />
-                    {estimated && (
-                      <p className="mt-1 text-[11px] text-muted">
-                        Gross revenue filled from this {product?.category === "fund" ? "amount (upfront charge only, trailer fees not included)" : "premium"}. Type over it if you have the real figure.
-                      </p>
+                {product && (
+                  <p className="mt-1 text-[11px] text-muted">
+                    {row.grossTouched ? (
+                      <>
+                        Using the figure you typed.{" "}
+                        <button
+                          type="button"
+                          onClick={() => update(row.key, { grossTouched: false, gross: estimateText(parseMoney(row.premium), product) })}
+                          className="font-medium text-accent"
+                        >
+                          Re-estimate from {fund ? "the amount" : "the premium"}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        Filled from the {fund ? "amount above (upfront charge only, trailer fees not included)" : "premium above"}. Type over it if the
+                        illustration says otherwise.
+                      </>
                     )}
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => update(row.key, { showPremium: true })}
-                    disabled={!product}
-                    className="mt-1.5 text-[12px] font-medium text-accent disabled:text-muted"
-                  >
-                    Don't know it? Estimate from premium
-                  </button>
+                  </p>
                 )}
               </div>
             </div>

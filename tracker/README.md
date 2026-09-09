@@ -40,8 +40,9 @@ phone or an email attachment without a server.
   pace and weeks left; "Edit goals" sets the amount and cadence (year, half,
   quarter, month) per metric.
 - **Calculator** — gross revenue × banding per product, total per client, clients
-  needed to close the goal. Premium can estimate gross revenue via the product's
-  placeholder rate.
+  needed to close the goal. Choosing a product pre-fills a typical premium and
+  estimates gross revenue from it via the product's placeholder rate; both can be
+  typed over, and a typed gross revenue can be re-estimated with one tap.
 - **Log** — record a closed case as pending until Merlin confirms it.
 - **Team** (manager only) — each FC's commission, goal, MDRT route and pace, with a
   read-only drill-down.
@@ -52,5 +53,8 @@ phone or an email attachment without a server.
 ## Placeholders to replace before go-live
 
 All in Section 1 of `src/mock/data.ts`: insurers, products and their `comm_rate`,
-banding rates, credit rates, MDRT thresholds (2026 membership figures; confirm the
-2027 chart), and each metric's period type. `TODAY` is pinned for stable demos.
+banding rates, typical premiums, credit rates, MDRT thresholds (labelled for 2027
+membership because 2026 production counts toward it; the Singapore values are
+still the 2026-chart figures until the 2027 row is entered and
+`MDRT_THRESHOLDS_CONFIRMED` flipped), and each metric's period type. `TODAY` is
+pinned for stable demos.

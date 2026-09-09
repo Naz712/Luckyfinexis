@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { metric_definitions, TODAY, type Advisor, type Case, type MetricCode, type MetricUnit, type Tier } from "../mock/data";
+import { MDRT_MEMBERSHIP_YEAR, MDRT_PRODUCTION_YEAR, MDRT_THRESHOLDS_CONFIRMED, metric_definitions, TODAY, type Advisor, type Case, type MetricCode, type MetricUnit, type Tier } from "../mock/data";
 import { UNTRACKED_METRICS, mdrtSnapshot, metricSnapshot, weeksLeftInYear, type GoalSet, type MdrtRoute, type Pace } from "../lib/calc";
 import { CADENCE_LABEL, count, periodLabel, sgd } from "../lib/format";
 import { Card, Segmented, Select } from "../components/ui";
@@ -116,7 +116,9 @@ export default function Goals({
         <>
           <Card tone="accent">
             <div className="flex items-baseline justify-between">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-white/70">Distance to {TIER_LABEL[mdrt.goalTier]}</div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-white/70">
+              Distance to {TIER_LABEL[mdrt.goalTier]} {MDRT_MEMBERSHIP_YEAR}
+            </div>
               <div className="tnum text-[11px] text-white/70">
                 {periodLabel(mdrt.period)} · {weeksLeft} weeks left
               </div>
@@ -210,7 +212,11 @@ export default function Goals({
       <button type="button" onClick={onEdit} className="w-full rounded-2xl border border-line bg-white py-3 text-[14px] font-semibold text-accent hover:bg-accent-soft">
         Edit goals ›
       </button>
-      <p className="px-1 text-center text-[11px] text-muted">MDRT, COT and TOT use the published thresholds. Custom goals are yours and reset each period.</p>
+      <p className="px-1 text-center text-[11px] text-muted">
+        MDRT, COT and TOT use the {MDRT_MEMBERSHIP_YEAR} thresholds: your {MDRT_PRODUCTION_YEAR} production counts toward {MDRT_MEMBERSHIP_YEAR} membership.
+        {!MDRT_THRESHOLDS_CONFIRMED && ` Singapore figures still to be confirmed against the ${MDRT_MEMBERSHIP_YEAR} chart.`} Custom goals are yours and reset each
+        period.
+      </p>
     </div>
   );
 }

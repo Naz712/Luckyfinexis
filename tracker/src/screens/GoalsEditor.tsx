@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { metric_definitions, TODAY, type Advisor, type Case, type Goal, type GoalCadence, type MetricCode, type Tier } from "../mock/data";
+import { MDRT_MEMBERSHIP_YEAR, MDRT_PRODUCTION_YEAR, MDRT_THRESHOLDS_CONFIRMED, metric_definitions, TODAY, type Advisor, type Case, type Goal, type GoalCadence, type MetricCode, type Tier } from "../mock/data";
 import {
   UNTRACKED_METRICS,
   aggregate,
@@ -85,8 +85,12 @@ export default function GoalsEditor({
 
       <div className="space-y-3 px-4 pb-6 pt-3">
         <Card>
-          <Label>MDRT aspiration</Label>
-          <p className="mt-1 text-[12px] text-muted">Both routes on Home will pace you toward this tier.</p>
+          <Label>MDRT {MDRT_MEMBERSHIP_YEAR} aspiration</Label>
+          <p className="mt-1 text-[12px] text-muted">
+            Your {MDRT_PRODUCTION_YEAR} production counts toward {MDRT_MEMBERSHIP_YEAR} membership, so the {MDRT_MEMBERSHIP_YEAR} thresholds apply. Goals paces you
+            toward the tier you pick here.
+            {!MDRT_THRESHOLDS_CONFIRMED && ` Singapore figures still to be confirmed against the ${MDRT_MEMBERSHIP_YEAR} chart.`}
+          </p>
           <div className="mt-2">
             <Segmented
               ariaLabel="MDRT tier"

@@ -59,17 +59,22 @@ export function MoneyInput({
   onChange,
   placeholder = "0",
   id,
+  disabled = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   id?: string;
+  disabled?: boolean;
 }) {
   return (
-    <div className="flex items-center rounded-xl border border-line bg-white focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20">
+    <div
+      className={`flex items-center rounded-xl border border-line focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20 ${disabled ? "bg-canvas" : "bg-white"}`}
+    >
       <span className="pl-3.5 pr-1 text-[15px] text-muted">S$</span>
       <input
         id={id}
+        disabled={disabled}
         type="number"
         inputMode="decimal"
         min={0}

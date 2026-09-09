@@ -48,6 +48,13 @@ export interface Product {
    * altogether; model those as a rule when the business supplies them.
    */
   comm_rate: number;
+  /**
+   * PLACEHOLDER — a typical case size for this product (annual premium for
+   * regular products, lump sum for single premium, annual contribution for
+   * RSPs). Pre-fills the calculator so gross revenue appears as soon as a
+   * product is chosen; the FC adjusts it to the real case.
+   */
+  typical_premium: number;
 }
 
 export interface Banding {
@@ -95,25 +102,25 @@ export const insurers: Insurer[] = [
 // invested (lump sum) or the annual contribution (RSP), and comm_rate is the
 // upfront charge only; ongoing trailer fees are not modelled.
 export const products: Product[] = [
-  { id: "prd_01", insurer_id: "ins_a", name: "Singlife Term", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
-  { id: "prd_02", insurer_id: "ins_a", name: "Singlife Whole Life (par)", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
-  { id: "prd_03", insurer_id: "ins_f", name: "Unit trust, lump sum", category: "fund", premium_type: "single", mdrt_category: "other", comm_rate: 0.015 },
-  { id: "prd_04", insurer_id: "ins_b", name: "Manulife Regular-Premium ILP", category: "ilp", premium_type: "regular", mdrt_category: "other", comm_rate: 0.7 },
-  { id: "prd_05", insurer_id: "ins_b", name: "Manulife Single-Premium Endowment", category: "endowment", premium_type: "single", mdrt_category: "other", comm_rate: 0.03 },
-  { id: "prd_06", insurer_id: "ins_b", name: "Manulife Hospital Plan", category: "health", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.6 },
-  { id: "prd_07", insurer_id: "ins_c", name: "HSBC Life Critical Illness", category: "health", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
-  { id: "prd_08", insurer_id: "ins_c", name: "HSBC Life Regular Endowment", category: "endowment", premium_type: "regular", mdrt_category: "other", comm_rate: 0.45 },
-  { id: "prd_09", insurer_id: "ins_c", name: "HSBC Life Single-Premium ILP", category: "ilp", premium_type: "single", mdrt_category: "other", comm_rate: 0.04 },
-  { id: "prd_10", insurer_id: "ins_d", name: "Tokio Marine Whole Life (par)", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
-  { id: "prd_11", insurer_id: "ins_d", name: "Tokio Marine Term", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
-  { id: "prd_12", insurer_id: "ins_e", name: "Etiqa Retirement Income", category: "endowment", premium_type: "regular", mdrt_category: "other", comm_rate: 0.45 },
-  { id: "prd_13", insurer_id: "ins_g", name: "Portfolio, lump sum", category: "fund", premium_type: "single", mdrt_category: "other", comm_rate: 0.015 },
-  { id: "prd_14", insurer_id: "ins_h", name: "FWD Term", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
-  { id: "prd_15", insurer_id: "ins_h", name: "FWD Critical Illness", category: "health", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95 },
-  { id: "prd_16", insurer_id: "ins_h", name: "FWD Regular-Premium ILP", category: "ilp", premium_type: "regular", mdrt_category: "other", comm_rate: 0.7 },
-  { id: "prd_17", insurer_id: "ins_e", name: "Etiqa Single-Premium Endowment", category: "endowment", premium_type: "single", mdrt_category: "other", comm_rate: 0.03 },
-  { id: "prd_18", insurer_id: "ins_f", name: "Unit trust RSP (monthly)", category: "fund", premium_type: "regular", mdrt_category: "other", comm_rate: 0.02 },
-  { id: "prd_19", insurer_id: "ins_g", name: "Portfolio RSP (monthly)", category: "fund", premium_type: "regular", mdrt_category: "other", comm_rate: 0.02 },
+  { id: "prd_01", insurer_id: "ins_a", name: "Singlife Term", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95, typical_premium: 1800 },
+  { id: "prd_02", insurer_id: "ins_a", name: "Singlife Whole Life (par)", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95, typical_premium: 3600 },
+  { id: "prd_03", insurer_id: "ins_f", name: "Unit trust, lump sum", category: "fund", premium_type: "single", mdrt_category: "other", comm_rate: 0.015, typical_premium: 50000 },
+  { id: "prd_04", insurer_id: "ins_b", name: "Manulife Regular-Premium ILP", category: "ilp", premium_type: "regular", mdrt_category: "other", comm_rate: 0.7, typical_premium: 6000 },
+  { id: "prd_05", insurer_id: "ins_b", name: "Manulife Single-Premium Endowment", category: "endowment", premium_type: "single", mdrt_category: "other", comm_rate: 0.03, typical_premium: 50000 },
+  { id: "prd_06", insurer_id: "ins_b", name: "Manulife Hospital Plan", category: "health", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.6, typical_premium: 1200 },
+  { id: "prd_07", insurer_id: "ins_c", name: "HSBC Life Critical Illness", category: "health", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95, typical_premium: 2400 },
+  { id: "prd_08", insurer_id: "ins_c", name: "HSBC Life Regular Endowment", category: "endowment", premium_type: "regular", mdrt_category: "other", comm_rate: 0.45, typical_premium: 6000 },
+  { id: "prd_09", insurer_id: "ins_c", name: "HSBC Life Single-Premium ILP", category: "ilp", premium_type: "single", mdrt_category: "other", comm_rate: 0.04, typical_premium: 50000 },
+  { id: "prd_10", insurer_id: "ins_d", name: "Tokio Marine Whole Life (par)", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95, typical_premium: 3600 },
+  { id: "prd_11", insurer_id: "ins_d", name: "Tokio Marine Term", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95, typical_premium: 1800 },
+  { id: "prd_12", insurer_id: "ins_e", name: "Etiqa Retirement Income", category: "endowment", premium_type: "regular", mdrt_category: "other", comm_rate: 0.45, typical_premium: 6000 },
+  { id: "prd_13", insurer_id: "ins_g", name: "Portfolio, lump sum", category: "fund", premium_type: "single", mdrt_category: "other", comm_rate: 0.015, typical_premium: 50000 },
+  { id: "prd_14", insurer_id: "ins_h", name: "FWD Term", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95, typical_premium: 1800 },
+  { id: "prd_15", insurer_id: "ins_h", name: "FWD Critical Illness", category: "health", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95, typical_premium: 2400 },
+  { id: "prd_16", insurer_id: "ins_h", name: "FWD Regular-Premium ILP", category: "ilp", premium_type: "regular", mdrt_category: "other", comm_rate: 0.7, typical_premium: 6000 },
+  { id: "prd_17", insurer_id: "ins_e", name: "Etiqa Single-Premium Endowment", category: "endowment", premium_type: "single", mdrt_category: "other", comm_rate: 0.03, typical_premium: 50000 },
+  { id: "prd_18", insurer_id: "ins_f", name: "Unit trust RSP (monthly)", category: "fund", premium_type: "regular", mdrt_category: "other", comm_rate: 0.02, typical_premium: 6000 },
+  { id: "prd_19", insurer_id: "ins_g", name: "Portfolio RSP (monthly)", category: "fund", premium_type: "regular", mdrt_category: "other", comm_rate: 0.02, typical_premium: 6000 },
 ];
 
 // PLACEHOLDER — replace with business-supplied values (actual banding rates).
@@ -191,13 +198,26 @@ export const credit_rates: CreditRate[] = [
   { product_id: "prd_19", metric: "wape", rate: 0 },
 ];
 
-// PLACEHOLDER — replace with business-supplied values.
-// These are the published MDRT Singapore requirements for 2026 membership
-// (i.e. 2025 production): MDRT / COT / TOT at 1x / 3x / 6x. Production in
-// 2026 counts toward 2027 membership, whose Singapore chart must be confirmed
-// once the firm has it (MDRT's USD base, 87,000 commission / 174,000 premium,
-// carried over unchanged into the 2027 requirements; the SGD conversion may not).
-// Verified 6 Sep 2026.
+/**
+ * MDRT qualifies on the previous calendar year's production: what an FC
+ * writes in MDRT_PRODUCTION_YEAR counts toward membership in
+ * MDRT_MEMBERSHIP_YEAR, so the thresholds below must be that membership
+ * year's chart (confirmed by marketing, 9 Sep 2026).
+ */
+export const MDRT_PRODUCTION_YEAR = 2026;
+export const MDRT_MEMBERSHIP_YEAR = 2027;
+/**
+ * PLACEHOLDER — false until the Singapore row of the MDRT 2027 chart
+ * (assets.mdrt.org/download/27498d3c2c7411f191876ed115eea297) has been
+ * copied into metric_thresholds. The UI shows a "to confirm" note while false.
+ */
+export const MDRT_THRESHOLDS_CONFIRMED = false;
+
+// PLACEHOLDER — the Singapore figures below are the 2026-membership chart
+// (2025 production). Marketing has said the 2027 levels are higher; replace
+// each value with the 2027 Singapore row (MDRT / COT / TOT at 1x / 3x / 6x)
+// and flip MDRT_THRESHOLDS_CONFIRMED to true. Only the commission and
+// premium routes are modelled; the chart's income route is not.
 export const metric_thresholds: MetricThreshold[] = [
   { metric: "mdrt_commission", tier: "mdrt", value: 72400 },
   { metric: "mdrt_commission", tier: "cot", value: 217200 },
