@@ -67,6 +67,9 @@ export interface GoalSet {
 
 export const defaultGoalSet: GoalSet = { targets: goals, mdrtTiers: mdrt_tier_goals };
 
+/** The one aim the FC is working toward: their MDRT tier (held in GoalSet.mdrtTiers) or one of their own metric targets. */
+export type PrimaryGoal = { kind: "tier" } | { kind: "custom"; metric: MetricCode };
+
 export function goalFor(advisorId: string, metric: MetricCode, year: number, targets: Goal[] = goals): Goal | null {
   return targets.find((x) => x.advisor_id === advisorId && x.metric === metric && x.year === year) ?? null;
 }
@@ -304,6 +307,48 @@ export function pace(achieved: number, target: number, periodStart: Date, period
   const requiredPerWeek = requiredPerMonth === null ? null : requiredPerMonth / (52 / 12);
   const onTrack = achieved >= target || (elapsedMonths > 0 && runRateProjection >= target);
   return { runRateProjection, requiredPerMonth, requiredPerWeek, onTrack, gap, elapsedMonths, remainingMonths };
+}
+
+/** Whole weeks from today to the end of a period (0 once it has ended). */
+export function weeksLeftIn(period: Period, today: Date): number {
+  const endExclusive = period.end.getTime() + MS_PER_DAY;
+  return Math.max(Math.floor((endExclusive - today.getTime()) / (7 * MS_PER_DAY)), 0);
+}
+
+export interface SeriesPoint {
+  /** Bucket end (inclusive). */
+  at: Date;
+  label: string;
+  /** Cumulative confirmed value of the metric from the window start to the bucket end. */
+  value: number;
+}
+
+/**
+ * Cumulative confirmed value of a metric at each bucket end within a window:
+ * calendar month-ends when the window is longer than 100 days, else week-ends.
+ * Every bucket is returned; callers plot the ones at or before today.
+ */
+export function cumulativeSeries(advisorId: string, cases: Case[], metric: MetricCode, period: Period, today: Date): SeriesPoint[] {
+  const confirmed = cases.filter((c) => c.advisor_id === advisorId && c.status === "confirmed");
+  const endExclusive = period.end.getTime() + MS_PER_DAY;
+  const ends: { at: Date; label: string }[] = [];
+  if ((endExclusive - period.start.getTime()) / MS_PER_DAY > 100) {
+    let cur = new Date(period.start.getFullYear(), period.start.getMonth(), 1);
+    for (;;) {
+      const next = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+      if (next.getTime() > endExclusive) break;
+      ends.push({ at: new Date(next.getTime() - MS_PER_DAY), label: MONTH_SHORT[cur.getMonth()] });
+      cur = next;
+    }
+  } else {
+    for (let t = period.start.getTime(); t < endExclusive; t += 7 * MS_PER_DAY) {
+      const at = new Date(Math.min(t + 6 * MS_PER_DAY, endExclusive - MS_PER_DAY));
+      const d = new Date(t);
+      ends.push({ at, label: `${d.getDate()} ${MONTH_SHORT[d.getMonth()]}` });
+    }
+  }
+  void today;
+  return ends.map((e) => ({ at: e.at, label: e.label, value: aggregate(confirmed, metric, period.start, e.at) }));
 }
 
 /** Whole clients needed to close a gap; 0 when there is no gap; null when the average is not positive. */

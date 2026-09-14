@@ -1,13 +1,13 @@
-import { useState } from "react";
-import { advisors, cases as seedCases, DEFAULT_USER_ID, MANAGER_USER_ID, TODAY, type Case, type Goal, type Tier } from "./mock/data";
-import { advisorById, casesForAdvisor, defaultGoalSet, withAdvisorGoals, withAdvisorTier, type GoalSet } from "./lib/calc";
+import { useState, type ReactNode } from "react";
+import { advisors, bandings, cases as seedCases, DEFAULT_USER_ID, MANAGER_USER_ID, TODAY, type BandingCode, type Case, type Tier } from "./mock/data";
+import { advisorById, casesForAdvisor, clientsForAdvisor, defaultGoalSet, periodBounds, weeksLeftIn, withAdvisorTier, type GoalSet, type PrimaryGoal } from "./lib/calc";
+import { pct } from "./lib/format";
 import Calculator from "./screens/Calculator";
 import Home from "./screens/Home";
 import Log from "./screens/Log";
 import Team from "./screens/Team";
 import Clients from "./screens/Clients";
-import Goals, { type PrimaryGoal } from "./screens/Goals";
-import GoalsEditor from "./screens/GoalsEditor";
+import Goals from "./screens/Goals";
 
 type Tab = "home" | "goals" | "calculator" | "log" | "team" | "clients";
 
@@ -20,14 +20,72 @@ const TABS: { id: Tab; label: string; managerOnly?: boolean }[] = [
   { id: "clients", label: "Clients" },
 ];
 
-const ICONS: Record<Tab, string> = {
-  goals: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2.5a7.5 7.5 0 1 1 0 15 7.5 7.5 0 0 1 0-15Zm0 3a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Zm0 2.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z",
-  calculator: "M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm1 4v3h8V7H8Zm0 6h2v2H8v-2Zm3 0h2v2h-2v-2Zm3 0h2v5h-2v-5Zm-6 3h2v2H8v-2Zm3 0h2v2h-2v-2Z",
-  home: "M3 11 12 3l9 8v10a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1V11Z",
-  log: "M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm2 8h8v2H8v-2Zm0 4h8v2H8v-2Z",
-  team: "M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm8 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 19a6 6 0 0 1 12 0v1H2v-1Zm12.5-4.8A6 6 0 0 1 22 19v1h-6v-1a7.9 7.9 0 0 0-1.5-4.8Z",
-  clients: "M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Zm-8 8.5A8 8 0 0 1 20 20.5V22H4v-1.5Z",
-};
+/** Tab icons from the handoff: an outline at rest, a filled version when active. 23px on a 24 grid. */
+function TabIcon({ tab, active }: { tab: Tab; active: boolean }) {
+  const p = { width: 23, height: 23, viewBox: "0 0 24 24", fill: "none", "aria-hidden": true as const };
+  switch (tab) {
+    case "home":
+      return (
+        <svg {...p}>
+          <path d="M3.5 10.8 12 3.8l8.5 7v9.4a.8.8 0 0 1-.8.8H15v-6.5H9V21H4.3a.8.8 0 0 1-.8-.8v-9.4Z" fill={active ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+        </svg>
+      );
+    case "goals":
+      return (
+        <svg {...p}>
+          <circle cx="12" cy="12" r="8.2" stroke="currentColor" strokeWidth="1.8" />
+          {active ? <circle cx="12" cy="12" r="3.6" fill="currentColor" /> : <circle cx="12" cy="12" r="3.4" stroke="currentColor" strokeWidth="1.8" />}
+        </svg>
+      );
+    case "calculator":
+      return (
+        <svg {...p}>
+          <rect x="5.2" y="3.2" width="13.6" height="17.6" rx="2.6" fill={active ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" />
+          <path d="M8.4 7.6h7.2" stroke={active ? "#fff" : "currentColor"} strokeWidth="1.8" strokeLinecap="round" />
+          {[
+            [9.4, 12.4],
+            [14.6, 12.4],
+            [9.4, 16.6],
+            [14.6, 16.6],
+          ].map(([cx, cy]) => (
+            <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="1.1" fill={active ? "#fff" : "currentColor"} />
+          ))}
+        </svg>
+      );
+    case "log":
+      return (
+        <svg {...p}>
+          <rect x="3.6" y="3.6" width="16.8" height="16.8" rx="4.4" fill={active ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" />
+          <path d="M12 8.4v7.2M8.4 12h7.2" stroke={active ? "#fff" : "currentColor"} strokeWidth="1.9" strokeLinecap="round" />
+        </svg>
+      );
+    case "clients":
+      return active ? (
+        <svg {...p}>
+          <circle cx="9.6" cy="8.4" r="3.4" fill="currentColor" />
+          <path d="M3.4 20.2a6.2 6.2 0 0 1 12.4 0Z" fill="currentColor" />
+          <circle cx="17" cy="9.4" r="2.4" fill="currentColor" fillOpacity=".55" />
+          <path d="M14.6 16.2a4.4 4.4 0 0 1 6 3.9h-3" fill="currentColor" fillOpacity=".55" />
+        </svg>
+      ) : (
+        <svg {...p}>
+          <circle cx="9.6" cy="8.4" r="3.4" stroke="currentColor" strokeWidth="1.8" />
+          <path d="M3.4 20.2a6.2 6.2 0 0 1 12.4 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <circle cx="17.2" cy="9.6" r="2.3" stroke="currentColor" strokeWidth="1.6" />
+          <path d="M15.4 16.4a4.3 4.3 0 0 1 5.2 3.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      );
+    case "team":
+      return (
+        <svg {...p}>
+          <circle cx="8" cy="8.5" r="3" fill={active ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" />
+          <circle cx="16" cy="8.5" r="3" fill={active ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" />
+          <path d="M2.5 19.5a5.5 5.5 0 0 1 11 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" fill={active ? "currentColor" : "none"} />
+          <path d="M14.5 14.3a5.5 5.5 0 0 1 7 5.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+        </svg>
+      );
+  }
+}
 
 /** The user switch is dev-only, unless a shared build opts in with VITE_USER_SWITCH=1. */
 const SHOW_USER_SWITCH = import.meta.env.DEV || import.meta.env.VITE_USER_SWITCH === "1";
@@ -45,81 +103,104 @@ export default function App() {
   const [cases, setCases] = useState(seedCases);
   const addCase = (c: Case) => setCases((cs) => [...cs, c]);
   const removePendingCase = (id: string) => setCases((cs) => cs.filter((c) => !(c.id === id && c.status === "pending")));
-  // Self-set goals, also in memory only. Editing happens on a Goals screen reached from Home.
+  // Self-set goals, also in memory only. Goals edits them in place; Home and Calculator read them.
   const [goalSet, setGoalSet] = useState<GoalSet>(defaultGoalSet);
-  const [editingGoals, setEditingGoals] = useState(false);
   const [primaryGoal, setPrimaryGoal] = useState<PrimaryGoal>({ kind: "tier" });
+  // The Calculator's band lives in the header strip, so the shell holds it.
+  const [band, setBand] = useState<BandingCode | null>(null);
 
   const me = advisorById(userId)!;
   const isManager = advisors.some((a) => a.manager_id === me.id);
   const myCases = casesForAdvisor(me.id, cases);
   const visibleTabs = TABS.filter((t) => !t.managerOnly || isManager);
   const activeTab = visibleTabs.some((t) => t.id === tab) ? tab : "home";
-  const saveGoals = (targets: Goal[], tier: Tier) => {
-    setGoalSet((set) => withAdvisorGoals(set, me.id, TODAY.getFullYear(), targets, tier));
-    setEditingGoals(false);
-  };
+  const bandInUse = band ?? me.banding_code;
   const setTier = (tier: Tier) => setGoalSet((set) => withAdvisorTier(set, me.id, TODAY.getFullYear(), tier));
   const switchUser = () => {
-    setEditingGoals(false);
     setPrimaryGoal({ kind: "tier" });
+    setBand(null);
     setUserId(isManager ? DEFAULT_USER_ID : MANAGER_USER_ID);
+  };
+
+  const userSwitch: ReactNode = SHOW_USER_SWITCH ? (
+    <button
+      type="button"
+      onClick={switchUser}
+      className={`whitespace-nowrap rounded-full border border-dashed px-2 py-1 text-[10px] font-medium ${activeTab === "home" ? "border-white/40 text-white/80" : "border-line text-muted hover:border-accent hover:text-accent"}`}
+      title="Mockup only: switch between the FC and manager views"
+    >
+      {isManager ? "FC view" : "Manager view"}
+    </button>
+  ) : null;
+
+  const pendingCount = myCases.filter((c) => c.status === "pending").length;
+  const weeksLeft = weeksLeftIn(periodBounds("jan_dec", TODAY), TODAY);
+  const headerNote: Record<Exclude<Tab, "home">, ReactNode> = {
+    goals: `${weeksLeft} weeks left in ${TODAY.getFullYear()}`,
+    calculator: (
+      <>
+        Commission per client
+        <br />
+        before you meet them
+      </>
+    ),
+    log: (
+      <>
+        {pendingCount} waiting
+        <br />
+        on Merlin
+      </>
+    ),
+    team: `${advisors.filter((a) => a.manager_id === me.id).length} FCs`,
+    clients: `${clientsForAdvisor(me.id).length} clients`,
   };
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-canvas sm:border-x sm:border-line">
-      <header className="sticky top-0 z-10 border-b border-line bg-white/95 px-4 pb-3 pt-[max(12px,env(safe-area-inset-top))] backdrop-blur">
-        <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <div className="truncate text-[11px] font-semibold uppercase tracking-wide text-accent">Finexis tracker</div>
-            <div className="truncate text-[17px] font-semibold text-ink">{activeTab === "goals" && editingGoals ? "Edit goals" : TABS.find((t) => t.id === activeTab)?.label}</div>
+      {activeTab !== "home" && (
+        <header className="sticky top-0 z-10 border-b border-line bg-white px-5 pb-3 pt-[max(6px,env(safe-area-inset-top))]">
+          <div className="flex items-end justify-between gap-2.5">
+            <div className="min-w-0">
+              <div className="whitespace-nowrap text-[10px] font-bold uppercase tracking-[.13em] text-accent">Finexis tracker</div>
+              <div className="mt-0.5 text-[22px] font-bold leading-tight tracking-[-.015em] text-ink">{TABS.find((t) => t.id === activeTab)?.label}</div>
+            </div>
+            <div className="flex shrink-0 items-end gap-2">
+              {userSwitch}
+              <div className="tnum whitespace-nowrap text-right text-[11px] leading-[1.45] text-muted">{headerNote[activeTab]}</div>
+            </div>
           </div>
-          <div className="flex min-w-0 shrink items-center gap-2">
-            {SHOW_USER_SWITCH && (
-              <button
-                type="button"
-                onClick={switchUser}
-                className="whitespace-nowrap rounded-full border border-dashed border-line px-2 py-1 text-[10px] font-medium text-muted hover:border-accent hover:text-accent"
-                title="Mockup only: switch between the FC and manager views"
-              >
-                {isManager ? "FC view" : "Manager view"}
-              </button>
-            )}
-            <div className="min-w-0 text-right">
-              <div className="truncate text-[13px] font-semibold text-ink">{me.name}</div>
-              <div className="truncate text-[11px] text-muted">
-                {me.banding_code} · {isManager ? "Manager" : me.fc_code}
+          {activeTab === "calculator" && (
+            <div className="mt-[11px] flex items-center gap-2">
+              <span className="shrink-0 text-[11px] font-bold uppercase tracking-[.08em] text-muted">Band</span>
+              <div className="flex flex-1 gap-0.5 rounded-[9px] bg-canvas p-0.5" role="radiogroup" aria-label="Banding">
+                {bandings.map((b) => {
+                  const on = b.code === bandInUse;
+                  return (
+                    <button
+                      key={b.code}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      onClick={() => setBand(b.code)}
+                      className={`flex-1 rounded-[7px] py-[5px] text-center ${on ? "bg-white shadow-[0_1px_2px_rgba(20,35,94,.14)]" : ""}`}
+                    >
+                      <div className={`text-[12px] ${on ? "font-bold text-accent" : "font-medium text-muted"}`}>{b.code}</div>
+                      <div className={`tnum text-[9.5px] ${on ? "text-muted" : "text-[#9aa1b1]"}`}>{pct(b.commission_rate)}</div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
-            <div className="hidden h-9 w-9 shrink-0 place-items-center rounded-full bg-accent-soft text-[13px] font-semibold text-accent min-[400px]:grid" aria-hidden="true">
-              {me.name
-                .split(" ")
-                .slice(0, 2)
-                .map((s) => s[0])
-                .join("")}
-            </div>
-          </div>
-        </div>
-      </header>
+          )}
+        </header>
+      )}
 
-      <main className="flex-1 pb-[calc(64px+env(safe-area-inset-bottom))]">
-        {activeTab === "home" && <Home key={me.id} advisor={me} cases={cases} goalSet={goalSet} />}
-        {activeTab === "goals" &&
-          (editingGoals ? (
-            <GoalsEditor key={me.id} advisor={me} cases={cases} goalSet={goalSet} onSave={saveGoals} onCancel={() => setEditingGoals(false)} />
-          ) : (
-            <Goals
-              key={me.id}
-              advisor={me}
-              cases={cases}
-              goalSet={goalSet}
-              primary={primaryGoal}
-              onPrimaryChange={setPrimaryGoal}
-              onTierChange={setTier}
-              onEdit={() => setEditingGoals(true)}
-            />
-          ))}
-        {activeTab === "calculator" && <Calculator key={me.id} advisor={me} cases={myCases} goalSet={goalSet} />}
+      <main className="flex-1 pb-[calc(84px+env(safe-area-inset-bottom))]">
+        {activeTab === "home" && <Home key={me.id} advisor={me} cases={cases} goalSet={goalSet} primary={primaryGoal} onChangeGoal={() => goTo("goals")} identityExtra={userSwitch} />}
+        {activeTab === "goals" && (
+          <Goals key={me.id} advisor={me} cases={cases} goalSet={goalSet} onGoalSetChange={setGoalSet} primary={primaryGoal} onPrimaryChange={setPrimaryGoal} onTierChange={setTier} />
+        )}
+        {activeTab === "calculator" && <Calculator key={me.id} advisor={me} cases={myCases} goalSet={goalSet} primary={primaryGoal} band={bandInUse} onGoToGoals={() => goTo("goals")} />}
         {activeTab === "log" && <Log key={`${me.id}:${logClient ?? ""}`} advisor={me} cases={cases} onAdd={addCase} onRemove={removePendingCase} initialClient={logClient ?? undefined} />}
         {activeTab === "team" && isManager && <Team key={me.id} manager={me} cases={cases} goalSet={goalSet} />}
         {activeTab === "clients" && (
@@ -135,22 +216,17 @@ export default function App() {
         )}
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-10 mx-auto w-full max-w-[430px] border-t border-line bg-white pb-[env(safe-area-inset-bottom)]" aria-label="Sections">
+      <nav className="fixed inset-x-0 bottom-0 z-10 mx-auto w-full max-w-[430px] border-t border-line bg-white px-1.5 pb-[max(20px,env(safe-area-inset-bottom))] pt-1.5" aria-label="Sections">
         <ul className="grid" style={{ gridTemplateColumns: `repeat(${visibleTabs.length}, minmax(0, 1fr))` }}>
           {visibleTabs.map((t) => {
             const active = t.id === activeTab;
             return (
               <li key={t.id}>
-                <button
-                  type="button"
-                  onClick={() => goTo(t.id)}
-                  aria-current={active ? "page" : undefined}
-                  className={`flex w-full flex-col items-center gap-1 py-2.5 text-[10px] font-semibold ${active ? "text-accent" : "text-muted"}`}
-                >
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                    <path d={ICONS[t.id]} fillRule={t.id === "goals" ? "evenodd" : undefined} />
-                  </svg>
-                  {t.label}
+                <button type="button" onClick={() => goTo(t.id)} aria-current={active ? "page" : undefined} className="flex w-full flex-col items-center gap-[3px] py-[5px]">
+                  <span className={`grid h-7 w-12 place-items-center rounded-[10px] ${active ? "bg-accent-soft text-accent" : "text-[#9aa1b1]"}`}>
+                    <TabIcon tab={t.id} active={active} />
+                  </span>
+                  <span className={`text-[10px] ${active ? "font-bold text-accent" : "font-medium text-muted"}`}>{t.label}</span>
                 </button>
               </li>
             );

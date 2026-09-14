@@ -33,21 +33,23 @@ phone or an email attachment without a server.
 
 ## Screens
 
-- **Home** — hero (name, band, weeks left), a progress chart by week or month,
-  then one list of metric rows: value, pending amount, a thin meter toward the
-  goal (solid = confirmed, translucent = pending, tick = today) and a pace line
-  that turns amber when behind and green when reached. Tap a row to expand it in
-  place with projected, gap and the cases behind the number.
-- **Goals** — switch between MDRT, COT, TOT and a custom goal; a distance card with
-  pace and weeks left; "Edit goals" sets the amount and cadence (year, half,
-  quarter, month) per metric.
-- **Calculator** — gross revenue × banding per product, total per client, clients
-  needed to close the goal. Choosing a product pre-fills a typical premium and
-  estimates gross revenue from it via the product's placeholder rate; both can be
-  typed over, and a typed gross revenue can be re-estimated with one tap.
-- **Log** — record a closed case as pending until Merlin confirms it.
-- **Team** (manager only) — each FC's commission, goal, MDRT route and pace, with a
-  read-only drill-down.
+- **Home** — a blue hero that answers "am I on pace for the goal I set?": the aim
+  from Goals (MDRT/COT/TOT 2027 or your own commission goal), a Commission /
+  Premium route switch, a progress arc (confirmed, pending, target), a verdict
+  pill, then "What it takes from here" (per month, per week, cases at your
+  average), a pending strip, the other route, and "This year" metric rows that
+  expand in place. Tapping a case opens a detail sheet.
+- **Goals** — one aim at a time (MDRT, COT, TOT or Custom), a distance card with
+  both qualifying routes, a projection chart (confirmed line, run rate, the pace
+  that reaches the goal), custom targets edited in place with a cadence
+  (year/half/quarter/month), and a list of every metric's goal.
+- **Calculator** — band strip in the header, product cards opened from a product
+  picker sheet (search by product, insurer or category), typical premium and
+  estimated gross revenue pre-filled, a pinned total per client, and "How far this
+  gets you" against the one goal set in Goals with a what-if figure.
+- **Log** — client search against existing clients, the product picker sheet, an
+  amount and term, a live "What this case adds" preview and the list of cases
+  waiting on Merlin.
 - **Clients** — the draw in view heads the screen ("September draw · Current", with
   past draws one tap away and their totals), then a searchable client list ordered
   recently-viewed first with gold and blue pass tickets per client. A client's page
