@@ -41,6 +41,19 @@ const TIER_LABEL: Record<Tier, string> = { mdrt: "MDRT", cot: "COT", tot: "TOT" 
 /** Semicircular progress arc: 350×180 viewBox, 471.2 units long. */
 const ARC = 471.2;
 const ARC_PATH = "M25 160 A150 150 0 0 1 325 160";
+
+/**
+ * The one-line verdict under the arc. Always true to the numbers, never a
+ * scolding: when behind, it says what closes the gap rather than "behind".
+ */
+function verdictFor(pace: Pace, achieved: number): { tone: "ok" | "warn"; text: string } {
+  if (pace.gap === 0) return { tone: "ok", text: "Goal reached · the rest is above target" };
+  if (pace.onTrack) return { tone: "ok", text: `On pace · at this rate you finish at ${sgd(pace.runRateProjection)}` };
+  if (pace.requiredPerMonth === null) return { tone: "warn", text: `Period over · short by ${sgd(pace.gap)}` };
+  const runRate = pace.elapsedMonths > 0 ? achieved / pace.elapsedMonths : 0;
+  const lead = pace.requiredPerMonth <= runRate * 2 ? "Nearly on pace" : "Still in play";
+  return { tone: "warn", text: `${lead} · ${sgd(pace.requiredPerMonth)} a month gets you there` };
+}
 const ARC_TRANSITION = { transition: "stroke-dasharray .55s cubic-bezier(.22,1,.36,1)" } as const;
 const arcDash = (frac: number) => `${(ARC * frac).toFixed(1)} ${ARC}`;
 
@@ -358,7 +371,7 @@ export default function Home({
   const goal = view.target !== null && view.target > 0 && view.pace !== null ? { target: view.target, pace: view.pace } : null;
   const achievedFrac = goal ? Math.min(view.achieved / goal.target, 1) : 0;
   const projectedFrac = goal ? Math.min(view.projected / goal.target, 1) : 0;
-  const onTrack = goal?.pace.onTrack ?? false;
+  const verdict = goal ? verdictFor(goal.pace, view.achieved) : { tone: "warn" as const, text: "" };
 
   // What it takes from here: the average confirmed case on this route this window sets the case count.
   const confirmedInWindow = contributingCases(
@@ -467,7 +480,7 @@ export default function Home({
               {toConfirm && <span className="shrink-0 text-[11px] text-white/60">to confirm</span>}
             </div>
 
-            <div className="relative mx-auto h-[146px] w-[350px] max-w-full">
+            <div className="relative mx-auto h-[170px] w-[350px] max-w-full">
               <svg width="350" height="180" viewBox="0 0 350 180" className="pointer-events-none absolute left-1/2 top-0 -translate-x-1/2" aria-hidden="true">
                 <path d={ARC_PATH} fill="none" strokeWidth="14" strokeLinecap="round" className="stroke-white/18" />
                 <path d={ARC_PATH} fill="none" strokeWidth="14" strokeLinecap="round" className="stroke-white/45" strokeDasharray={arcDash(projectedFrac)} style={ARC_TRANSITION} />
@@ -482,14 +495,12 @@ export default function Home({
             </div>
 
             <div
-              className={`relative mt-0.5 flex items-center justify-center gap-[7px] rounded-full border px-3.5 py-[7px] ${
-                onTrack ? "border-[rgba(84,212,160,.5)] bg-ok/30" : "border-gold/50 bg-warn/28"
+              className={`relative mt-2 flex items-center justify-center gap-[7px] rounded-full border px-3.5 py-[7px] ${
+                verdict.tone === "ok" ? "border-[rgba(84,212,160,.5)] bg-ok/30" : "border-gold/50 bg-warn/28"
               }`}
             >
-              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${onTrack ? "bg-[#54d4a0]" : "bg-gold"}`} aria-hidden="true" />
-              <span className="tnum text-[12px] font-semibold text-white">
-                {onTrack ? "On pace" : "Behind pace"} · on run rate you finish {sgd(goal.pace.runRateProjection)}
-              </span>
+              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${verdict.tone === "ok" ? "bg-[#54d4a0]" : "bg-gold"}`} aria-hidden="true" />
+              <span className="tnum text-[12px] font-semibold text-white">{verdict.text}</span>
             </div>
           </>
         ) : (
