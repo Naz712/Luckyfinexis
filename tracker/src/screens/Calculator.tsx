@@ -141,7 +141,7 @@ function MoneyField({
 }) {
   return (
     <div className={`relative flex items-center ${className}`}>
-      <span aria-hidden="true" className="tnum pointer-events-none absolute left-[13px] text-[15px] font-semibold text-[#9aa1b1]">
+      <span aria-hidden="true" className="tnum pointer-events-none absolute left-[13px] text-[15px] font-semibold text-faint">
         S$
       </span>
       <input
@@ -152,7 +152,7 @@ function MoneyField({
         value={value}
         placeholder="0"
         onChange={(e) => onChange(e.target.value)}
-        className={`tnum w-full rounded-xl border border-line bg-white pl-[42px] pr-3.5 font-semibold text-ink transition-[border-color,box-shadow] duration-150 placeholder:font-normal placeholder:text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16 ${
+        className={`tnum w-full rounded-xl border border-line bg-surface pl-[42px] pr-3.5 font-semibold text-ink transition-[border-color,box-shadow] duration-150 placeholder:font-normal placeholder:text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16 ${
           compact ? "py-2.5 text-[16px]" : "py-[11px] text-[17px]"
         }`}
       />
@@ -290,7 +290,7 @@ export default function Calculator({
         {computed.map(({ row, product, gross, commission }) => {
           const fund = product.category === "fund";
           return (
-            <div key={row.key} className="overflow-hidden rounded-2xl border border-line bg-white">
+            <div key={row.key} className="overflow-hidden rounded-2xl border border-line bg-surface">
               <ProductButton product={product} onClick={() => setPicker({ mode: "edit", key: row.key })} bordered={false} />
 
               <div className="flex flex-col gap-[11px] px-4 pb-3.5">
@@ -341,7 +341,7 @@ export default function Calculator({
                       type="button"
                       onClick={() => remove(row.key)}
                       aria-label={`Remove ${product.name}`}
-                      className="grid h-[26px] w-[26px] place-items-center rounded-lg border border-line bg-white text-muted"
+                      className="grid h-[26px] w-[26px] place-items-center rounded-lg border border-line bg-surface text-muted"
                     >
                       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                         <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
@@ -395,7 +395,7 @@ export default function Calculator({
               Try a different figure
             </button>
           ) : (
-            <div className="mt-2.5 rounded-xl border border-dashed border-[#d5ddf2] bg-accent-soft/40 px-3 py-[11px]">
+            <div className="mt-2.5 rounded-xl border border-dashed border-dash bg-accent-soft/40 px-3 py-[11px]">
               <div className="flex items-baseline justify-between gap-2.5">
                 <label htmlFor="what-if" className="text-[11px] font-bold uppercase tracking-[.06em] text-muted">
                   What if the goal were
@@ -425,7 +425,7 @@ export default function Calculator({
 
       <section
         aria-label="Total per client"
-        className="fixed inset-x-0 bottom-[calc(82px+env(safe-area-inset-bottom))] z-10 mx-auto flex w-full max-w-[430px] items-center justify-between gap-3 bg-accent px-5 pb-3 pt-[11px] text-white"
+        className="fixed inset-x-0 bottom-[calc(82px+env(safe-area-inset-bottom))] z-10 mx-auto flex w-full max-w-[430px] items-center justify-between gap-3 bg-brand px-5 pb-3 pt-[11px] text-white"
       >
         <div className="min-w-0">
           <div className="text-[10px] font-bold uppercase tracking-[.08em] text-white/72">Total per client</div>

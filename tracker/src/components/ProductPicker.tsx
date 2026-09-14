@@ -24,7 +24,7 @@ export function searchProducts(query: string): Product[] {
 
 function Chevron({ className = "" }: { className?: string }) {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" className={`shrink-0 text-[#c3c8d4] ${className}`}>
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" className={`shrink-0 text-hairline ${className}`}>
       <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
@@ -53,12 +53,12 @@ export function ProductButton({
   bordered?: boolean;
   className?: string;
 }) {
-  const frame = bordered ? `rounded-xl border bg-white px-3.5 py-[11px] ${invalid ? "border-warn" : "border-line"}` : "bg-white px-4 py-[13px]";
+  const frame = bordered ? `rounded-xl border bg-surface px-3.5 py-[11px] ${invalid ? "border-warn" : "border-line"}` : "bg-surface px-4 py-[13px]";
   return (
     <button type="button" onClick={onClick} aria-haspopup="dialog" className={`flex w-full items-center justify-between gap-2.5 text-left ${frame} ${className}`}>
       <span className="block min-w-0">
         {product && <span className="block text-[10px] font-bold uppercase tracking-[.08em] text-muted">{insurerName(product)}</span>}
-        <span className={`block truncate text-[15px] ${product ? "mt-0.5 font-semibold text-ink" : "font-normal text-[#9aa1b1]"}`}>{product ? product.name : "Choose an insurer and product"}</span>
+        <span className={`block truncate text-[15px] ${product ? "mt-0.5 font-semibold text-ink" : "font-normal text-faint"}`}>{product ? product.name : "Choose an insurer and product"}</span>
       </span>
       <span className="flex shrink-0 items-center gap-[7px]">
         {product && <CategoryPill product={product} />}
@@ -100,7 +100,7 @@ export function ProductPicker({
         </div>
         <div className="mt-[11px] border-b border-line pb-[11px]">
           <div className="relative flex items-center">
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="absolute left-3 text-[#9aa1b1]">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="absolute left-3 text-faint">
               <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.8" />
               <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
             </svg>
@@ -112,7 +112,7 @@ export function ProductPicker({
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search insurer or product"
               aria-label="Search insurer or product"
-              className="w-full rounded-xl border border-line bg-white py-2.5 pl-9 pr-[38px] text-[14px] text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16"
+              className="w-full rounded-xl border border-line bg-surface py-2.5 pl-9 pr-[38px] text-[14px] text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16"
             />
             {query !== "" && (
               <button type="button" onClick={() => setQuery("")} aria-label="Clear search" className="absolute right-2.5 grid h-5 w-5 place-items-center rounded-full bg-canvas text-muted">
@@ -139,7 +139,7 @@ export function ProductPicker({
                   onPick(p);
                 }}
                 aria-pressed={selected}
-                className={`flex w-full items-center justify-between gap-2.5 border-b border-line py-[13px] text-left ${selected ? "bg-accent-soft/55" : "bg-white hover:bg-canvas"}`}
+                className={`flex w-full items-center justify-between gap-2.5 border-b border-line py-[13px] text-left ${selected ? "bg-accent-soft/55" : "bg-surface hover:bg-canvas"}`}
               >
                 <span className="block min-w-0">
                   <span className="block text-[14px] font-semibold text-ink">{p.name}</span>
@@ -150,7 +150,7 @@ export function ProductPicker({
                 <span className="flex shrink-0 items-center gap-2">
                   <CategoryPill product={p} />
                   {selected && (
-                    <span className="grid h-[18px] w-[18px] place-items-center rounded-full bg-accent text-white" aria-hidden="true">
+                    <span className="grid h-[18px] w-[18px] place-items-center rounded-full bg-brand text-white" aria-hidden="true">
                       <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
                         <path d="M2.5 6.2l2.3 2.3 4.7-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>

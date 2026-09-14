@@ -44,7 +44,7 @@ export default function Sheet({
         role="dialog"
         aria-modal="true"
         aria-label={label}
-        className="sheet-up absolute inset-x-0 bottom-0 flex flex-col rounded-t-3xl bg-white shadow-[0_-8px_32px_rgba(13,23,56,.18)] focus:outline-none"
+        className="sheet-up absolute inset-x-0 bottom-0 flex flex-col rounded-t-3xl bg-surface shadow-[0_-8px_32px_rgba(13,23,56,.18)] focus:outline-none"
         style={{ height, maxHeight: "92dvh" }}
       >
         <div className="mx-auto mt-2.5 h-1 w-9 shrink-0 rounded-full bg-line" aria-hidden="true" />

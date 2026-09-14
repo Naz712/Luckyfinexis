@@ -1,19 +1,92 @@
 @import "tailwindcss";
 
-/* One accent colour (Finexis brand blue) plus neutrals. No gradients. */
+/*
+ * One accent colour (Finexis brand blue) plus neutrals. No gradients.
+ *
+ * Two blues on purpose: `brand` is the big solid surfaces (the Home hero,
+ * blue cards, blue headers, primary buttons) and stays deep blue with white
+ * text in both themes; `accent` is emphasis on a card (text, bars, borders,
+ * chips) and lightens in dark mode so it still reads. `surface` is a card,
+ * input, header or tab bar; `white` is only ever used on top of brand blue.
+ */
 @theme {
+  --color-brand: #1e3a9f;
+  --color-brand-hover: #14235e;
   --color-accent: #1e3a9f;
   --color-accent-soft: #e8edf9;
   --color-ink: #14235e;
   --color-body: #2b3245;
   --color-muted: #6b7280;
+  --color-faint: #9aa1b1;
+  --color-hairline: #c3c8d4;
+  --color-dim: #d6dae3;
+  --color-well: #edeff4;
+  --color-grid: #c8d3ee;
+  --color-dash: #d5ddf2;
   --color-line: #e5e7eb;
   --color-canvas: #f4f5f9;
+  --color-surface: #ffffff;
   --color-ok: #16855a;
+  --color-ok-ink: #0f6a48;
   --color-warn: #b07908;
   --color-gold: #e2b93b;
   --color-gold-ink: #7a5a00;
   --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+/*
+ * Dark theme: follows the phone's setting, or an explicit data-theme on the
+ * root (the artifact viewer sets one). Same hue family, lifted for contrast;
+ * brand blue and the golds stay put.
+ */
+:root {
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-brand-hover: #2c4dcc;
+    --color-accent: #8fa8ff;
+    --color-accent-soft: #1d2a52;
+    --color-ink: #eef1fa;
+    --color-body: #c9d0e2;
+    --color-muted: #8d97ae;
+    --color-faint: #5c6680;
+    --color-hairline: #3d4763;
+    --color-dim: #333c57;
+    --color-well: #262f49;
+    --color-grid: #33406a;
+    --color-dash: #34437a;
+    --color-line: #283150;
+    --color-canvas: #0e1322;
+    --color-surface: #171d31;
+    --color-ok: #3fcf8e;
+    --color-ok-ink: #7be2b3;
+    --color-warn: #e6b33a;
+    --color-gold-ink: #f3cc62;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-brand-hover: #2c4dcc;
+  --color-accent: #8fa8ff;
+  --color-accent-soft: #1d2a52;
+  --color-ink: #eef1fa;
+  --color-body: #c9d0e2;
+  --color-muted: #8d97ae;
+  --color-faint: #5c6680;
+  --color-hairline: #3d4763;
+  --color-dim: #333c57;
+  --color-well: #262f49;
+  --color-grid: #33406a;
+  --color-dash: #34437a;
+  --color-line: #283150;
+  --color-canvas: #0e1322;
+  --color-surface: #171d31;
+  --color-ok: #3fcf8e;
+  --color-ok-ink: #7be2b3;
+  --color-warn: #e6b33a;
+  --color-gold-ink: #f3cc62;
 }
 
 html {
@@ -92,13 +165,13 @@ button:not(:disabled):active {
 
 /* Solid accent buttons glow, lift on hover and settle when pressed. */
 .btn-primary {
-  background: var(--color-accent);
+  background: var(--color-brand);
   color: #fff;
   box-shadow: 0 8px 18px -10px rgba(30, 58, 159, 0.7);
 }
 @media (hover: hover) {
   .btn-primary:not(:disabled):hover {
-    background: var(--color-ink);
+    background: var(--color-brand-hover);
     box-shadow: 0 12px 22px -10px rgba(30, 58, 159, 0.8);
     transform: translateY(-1px);
   }

@@ -41,14 +41,14 @@ function TabIcon({ tab, active }: { tab: Tab; active: boolean }) {
       return (
         <svg {...p}>
           <rect x="5.2" y="3.2" width="13.6" height="17.6" rx="2.6" fill={active ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" />
-          <path d="M8.4 7.6h7.2" stroke={active ? "#fff" : "currentColor"} strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M8.4 7.6h7.2" stroke={active ? "var(--color-accent-soft)" : "currentColor"} strokeWidth="1.8" strokeLinecap="round" />
           {[
             [9.4, 12.4],
             [14.6, 12.4],
             [9.4, 16.6],
             [14.6, 16.6],
           ].map(([cx, cy]) => (
-            <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="1.1" fill={active ? "#fff" : "currentColor"} />
+            <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="1.1" fill={active ? "var(--color-accent-soft)" : "currentColor"} />
           ))}
         </svg>
       );
@@ -56,7 +56,7 @@ function TabIcon({ tab, active }: { tab: Tab; active: boolean }) {
       return (
         <svg {...p}>
           <rect x="3.6" y="3.6" width="16.8" height="16.8" rx="4.4" fill={active ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" />
-          <path d="M12 8.4v7.2M8.4 12h7.2" stroke={active ? "#fff" : "currentColor"} strokeWidth="1.9" strokeLinecap="round" />
+          <path d="M12 8.4v7.2M8.4 12h7.2" stroke={active ? "var(--color-accent-soft)" : "currentColor"} strokeWidth="1.9" strokeLinecap="round" />
         </svg>
       );
     case "clients":
@@ -155,7 +155,7 @@ export default function App() {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-canvas sm:border-x sm:border-line">
       {activeTab !== "home" && (
-        <header className="sticky top-0 z-10 border-b border-line bg-white px-5 pb-3 pt-[max(6px,env(safe-area-inset-top))]">
+        <header className="sticky top-0 z-10 border-b border-line bg-surface px-5 pb-3 pt-[max(6px,env(safe-area-inset-top))]">
           <div className="flex items-end justify-between gap-2.5">
             <div className="min-w-0">
               <div className="whitespace-nowrap text-[10px] font-bold uppercase tracking-[.13em] text-accent">Finexis tracker</div>
@@ -179,10 +179,10 @@ export default function App() {
                       role="radio"
                       aria-checked={on}
                       onClick={() => setBand(b.code)}
-                      className={`flex-1 rounded-[7px] py-[5px] text-center ${on ? "bg-white shadow-[0_1px_2px_rgba(20,35,94,.14)]" : ""}`}
+                      className={`flex-1 rounded-[7px] py-[5px] text-center ${on ? "bg-surface shadow-[0_1px_2px_rgba(20,35,94,.14)]" : ""}`}
                     >
                       <div className={`text-[12px] ${on ? "font-bold text-accent" : "font-medium text-muted"}`}>{b.code}</div>
-                      <div className={`tnum text-[9.5px] ${on ? "text-muted" : "text-[#9aa1b1]"}`}>{pct(b.commission_rate)}</div>
+                      <div className={`tnum text-[9.5px] ${on ? "text-muted" : "text-faint"}`}>{pct(b.commission_rate)}</div>
                     </button>
                   );
                 })}
@@ -213,14 +213,14 @@ export default function App() {
         )}
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-10 mx-auto w-full max-w-[430px] border-t border-line bg-white px-1.5 pb-[max(20px,env(safe-area-inset-bottom))] pt-1.5" aria-label="Sections">
+      <nav className="fixed inset-x-0 bottom-0 z-10 mx-auto w-full max-w-[430px] border-t border-line bg-surface px-1.5 pb-[max(20px,env(safe-area-inset-bottom))] pt-1.5" aria-label="Sections">
         <ul className="grid" style={{ gridTemplateColumns: `repeat(${visibleTabs.length}, minmax(0, 1fr))` }}>
           {visibleTabs.map((t) => {
             const active = t.id === activeTab;
             return (
               <li key={t.id}>
                 <button type="button" onClick={() => goTo(t.id)} aria-current={active ? "page" : undefined} className="flex w-full flex-col items-center gap-[3px] py-[5px]">
-                  <span key={active ? "on" : "off"} className={`grid h-7 w-12 place-items-center rounded-[10px] ${active ? "tab-pop bg-accent-soft text-accent" : "text-[#9aa1b1]"}`}>
+                  <span key={active ? "on" : "off"} className={`grid h-7 w-12 place-items-center rounded-[10px] ${active ? "tab-pop bg-accent-soft text-accent" : "text-faint"}`}>
                     <TabIcon tab={t.id} active={active} />
                   </span>
                   <span className={`text-[10px] ${active ? "font-bold text-accent" : "font-medium text-muted"}`}>{t.label}</span>

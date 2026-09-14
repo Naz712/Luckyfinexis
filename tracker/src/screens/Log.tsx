@@ -50,12 +50,12 @@ function amountLabelFor(p: Product | undefined): string {
   return p.premium_type === "single" ? "Single premium" : "Annual premium";
 }
 
-const FIELD = "w-full rounded-xl border bg-white transition-[border-color,box-shadow] duration-150 focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16";
+const FIELD = "w-full rounded-xl border bg-surface transition-[border-color,box-shadow] duration-150 focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16";
 const border = (bad: boolean) => (bad ? "border-warn" : "border-line");
 
 function Chevron() {
   return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="shrink-0 text-[#c3c8d4]">
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="shrink-0 text-hairline">
       <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
@@ -166,7 +166,7 @@ export default function Log({
                 <path d="M2.5 6.2l2.3 2.3 4.7-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </span>
-            <span className="text-[12px] leading-[1.5] text-[#0f6a48]">
+            <span className="text-[12px] leading-[1.5] text-ok-ink">
               <span className="font-bold">Logged {saved}.</span> It counts as projected on Home until Merlin confirms it.
             </span>
           </div>
@@ -203,7 +203,7 @@ export default function Log({
                         key={c.id}
                         type="button"
                         onClick={() => set({ clientName: c.name })}
-                        className="flex w-full items-center justify-between gap-2.5 border-t border-line bg-white px-3 py-2.5 text-left"
+                        className="flex w-full items-center justify-between gap-2.5 border-t border-line bg-surface px-3 py-2.5 text-left"
                       >
                         <span className="block min-w-0">
                           <span className="block truncate text-[13px] font-semibold text-ink">{c.name}</span>
@@ -232,7 +232,7 @@ export default function Log({
                   {amountLabelFor(product)}
                 </label>
                 <div className="relative mt-[5px] flex items-center">
-                  <span className="tnum pointer-events-none absolute left-[13px] text-[15px] font-semibold text-[#9aa1b1]" aria-hidden="true">
+                  <span className="tnum pointer-events-none absolute left-[13px] text-[15px] font-semibold text-faint" aria-hidden="true">
                     S$
                   </span>
                   <input
@@ -289,15 +289,15 @@ export default function Log({
               {preview && product ? (
                 <>
                   <div className="mt-[9px] grid grid-cols-3 gap-px overflow-hidden rounded-[10px] bg-line">
-                    <div className="bg-white px-2.5 py-[9px]">
+                    <div className="bg-surface px-2.5 py-[9px]">
                       <div className="text-[10px] text-muted">Commission</div>
                       <div className="tnum mt-0.5 text-[14px] font-bold text-accent">{sgd(preview.commission)}</div>
                     </div>
-                    <div className="bg-white px-2.5 py-[9px]">
+                    <div className="bg-surface px-2.5 py-[9px]">
                       <div className="text-[10px] text-muted">MDRT premium</div>
                       <div className="tnum mt-0.5 text-[14px] font-bold text-ink">{sgd(preview.mdrt_premium)}</div>
                     </div>
-                    <div className="bg-white px-2.5 py-[9px]">
+                    <div className="bg-surface px-2.5 py-[9px]">
                       <div className="text-[10px] text-muted">WAPE</div>
                       <div className="tnum mt-0.5 text-[14px] font-bold text-ink">{sgd(preview.wape)}</div>
                     </div>
@@ -321,7 +321,7 @@ export default function Log({
           </Card>
         </form>
 
-        <section className="overflow-hidden rounded-2xl border border-line bg-white">
+        <section className="overflow-hidden rounded-2xl border border-line bg-surface">
           <div className="flex items-baseline justify-between gap-2.5 px-4 pb-[11px] pt-3.5">
             <Label>Waiting on Merlin</Label>
             <span className="tnum shrink-0 text-[11px] text-muted">{sgd(pendingCommission)} projected</span>

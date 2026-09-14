@@ -126,7 +126,7 @@ export default function Team({ manager, cases, goalSet }: { manager: Advisor; ca
                       <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted">
                         {TIER_LABEL[mdrt.goalTier]} goal · {route.label.toLowerCase()}
                         {route.tiers.reached && (
-                          <span className="ml-1 rounded bg-accent px-1 py-px text-[9px] font-semibold text-white">{TIER_LABEL[route.tiers.reached]}</span>
+                          <span className="ml-1 rounded bg-brand px-1 py-px text-[9px] font-semibold text-white">{TIER_LABEL[route.tiers.reached]}</span>
                         )}
                       </dt>
                       <dd className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-canvas" aria-hidden="true">

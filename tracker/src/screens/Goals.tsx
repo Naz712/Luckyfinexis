@@ -75,7 +75,7 @@ interface GoalView {
 
 type Tone = "none" | "ok" | "accent" | "warn";
 const TONE = {
-  none: { bar: "bg-[#9aa1b1]", soft: "bg-accent/35", text: "text-muted" },
+  none: { bar: "bg-faint", soft: "bg-accent/35", text: "text-muted" },
   ok: { bar: "bg-ok", soft: "bg-ok/35", text: "text-ok" },
   accent: { bar: "bg-accent", soft: "bg-accent/35", text: "text-accent" },
   warn: { bar: "bg-warn", soft: "bg-warn/35", text: "text-warn" },
@@ -93,7 +93,7 @@ function DistanceBar({ achieved, projected, elapsed }: { achieved: number; proje
     <div className="relative mt-3 h-3 overflow-hidden rounded-full bg-white/20" aria-hidden="true">
       <span className={`${grow} bg-white/45`} style={{ width: `${(mounted ? projected : 0) * 100}%` }} />
       <span className={`${grow} bg-white`} style={{ width: `${(mounted ? achieved : 0) * 100}%` }} />
-      <span className="absolute inset-y-0 w-0.5 bg-ink/60" style={{ left: `calc(${elapsed * 100}% - 1px)` }} title="Today" />
+      <span className="absolute inset-y-0 w-0.5 bg-[rgba(13,23,56,.6)]" style={{ left: `calc(${elapsed * 100}% - 1px)` }} title="Today" />
     </div>
   );
 }
@@ -129,7 +129,7 @@ function DistanceBlock({
     <div className={`rounded-xl p-3 ${highlight ? "bg-white/15" : ""}`}>
       <div className="flex items-center justify-between gap-2">
         <span className="text-[12px] font-semibold text-white/92">{title}</span>
-        {closest && <span className="shrink-0 rounded bg-white px-[5px] py-[2px] text-[10px] font-bold uppercase tracking-[.05em] text-accent">Closest</span>}
+        {closest && <span className="shrink-0 rounded bg-white px-[5px] py-[2px] text-[10px] font-bold uppercase tracking-[.05em] text-brand">Closest</span>}
       </div>
       <div className="tnum mt-[5px] flex items-baseline justify-between gap-2">
         <span className={`font-bold leading-none tracking-[-.025em] ${highlight ? "text-[34px]" : "text-[24px]"}`}>{achieved}</span>
@@ -222,7 +222,7 @@ function ProjectionCard({
           role="img"
           aria-label={`Confirmed ${subject} so far against a goal of ${fmt(target)}, with the run rate and the pace needed.`}
         >
-          <line x1="4" y1={goalY} x2="316" y2={goalY} className="stroke-[#c8d3ee]" strokeWidth="1" strokeDasharray="3 3" />
+          <line x1="4" y1={goalY} x2="316" y2={goalY} className="stroke-grid" strokeWidth="1" strokeDasharray="3 3" />
           <text x="4" y={(y(target) - 6).toFixed(1)} fontSize="9.5" fontWeight="600" letterSpacing=".02em" className="tnum fill-muted">
             Goal {fmt(target)}
           </text>
@@ -231,9 +231,9 @@ function ProjectionCard({
           <polyline points={proj} fill="none" className="stroke-accent/45" strokeWidth="2" strokeDasharray="4 4" strokeLinecap="round" />
           <polyline points={actual.join(" ")} fill="none" className="stroke-accent" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
           <line x1={todayX} y1="14" x2={todayX} y2="112" className="stroke-line" strokeWidth="1" />
-          <circle cx="316" cy={projY} r="3.5" className="fill-white stroke-accent/55" strokeWidth="2" />
+          <circle cx="316" cy={projY} r="3.5" className="fill-surface stroke-accent/55" strokeWidth="2" />
           <circle cx="316" cy={goalY} r="3.5" className="fill-warn" />
-          <circle cx={todayX} cy={todayY} r="4.5" className="fill-accent stroke-white" strokeWidth="2" />
+          <circle cx={todayX} cy={todayY} r="4.5" className="fill-accent stroke-surface" strokeWidth="2" />
         </svg>
         <div className="tnum mt-1.5 flex items-baseline justify-between text-[10px] text-muted">
           <span>{shortDate(period.start)}</span>
@@ -248,11 +248,11 @@ function ProjectionCard({
           Confirmed
         </span>
         <span className={legendItem}>
-          <span className="h-[2.5px] w-3.5 rounded-sm bg-[repeating-linear-gradient(to_right,rgba(30,58,159,.45)_0_4px,transparent_4px_7px)]" />
+          <span className="h-[2.5px] w-3.5 rounded-sm bg-[repeating-linear-gradient(to_right,color-mix(in_oklab,var(--color-accent)_45%,transparent)_0_4px,transparent_4px_7px)]" />
           Your run rate
         </span>
         <span className={legendItem}>
-          <span className="h-[2.5px] w-3.5 rounded-sm bg-[repeating-linear-gradient(to_right,#b07908_0_4px,transparent_4px_7px)]" />
+          <span className="h-[2.5px] w-3.5 rounded-sm bg-[repeating-linear-gradient(to_right,var(--color-warn)_0_4px,transparent_4px_7px)]" />
           Pace to reach it
         </span>
       </div>
@@ -548,10 +548,10 @@ export default function Goals({
                     aria-checked={on}
                     onClick={() => focusCustom(m.code)}
                     className={`flex items-center gap-[5px] rounded-full border px-3 py-[7px] text-[12px] font-semibold transition-colors duration-200 ${
-                      on ? "border-accent bg-accent text-white" : `border-line bg-white ${tracked ? "text-body" : "text-muted"}`
+                      on ? "border-brand bg-brand text-white" : `border-line bg-surface ${tracked ? "text-body" : "text-muted"}`
                     }`}
                   >
-                    {isSet && <span className={`h-[5px] w-[5px] rounded-full ${on ? "bg-white" : tracked ? "bg-accent" : "bg-[#9aa1b1]"}`} aria-hidden="true" />}
+                    {isSet && <span className={`h-[5px] w-[5px] rounded-full ${on ? "bg-white" : tracked ? "bg-accent" : "bg-faint"}`} aria-hidden="true" />}
                     {m.label}
                   </button>
                 );
@@ -561,7 +561,7 @@ export default function Goals({
             <div className="mt-[11px] flex items-center gap-[9px]">
               <div className="relative flex min-w-0 flex-1 items-center">
                 {cvMoney && (
-                  <span className={`tnum pointer-events-none absolute left-[13px] text-[16px] font-semibold ${cvEmpty ? "text-[#9aa1b1]" : "text-ink"}`} aria-hidden="true">
+                  <span className={`tnum pointer-events-none absolute left-[13px] text-[16px] font-semibold ${cvEmpty ? "text-faint" : "text-ink"}`} aria-hidden="true">
                     S$
                   </span>
                 )}
@@ -575,7 +575,7 @@ export default function Goals({
                   placeholder="No goal"
                   aria-label={`${cv.definition.label} goal ${CADENCE_PER[cv.cadence]}`}
                   onChange={(e) => setAmount(customMetric, e.target.value)}
-                  className={`tnum w-full rounded-xl border border-line bg-white py-3 pr-3.5 text-[17px] font-semibold text-ink transition-[border-color,box-shadow] duration-150 placeholder:font-normal placeholder:text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16 ${
+                  className={`tnum w-full rounded-xl border border-line bg-surface py-3 pr-3.5 text-[17px] font-semibold text-ink transition-[border-color,box-shadow] duration-150 placeholder:font-normal placeholder:text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16 ${
                     cvMoney ? "pl-11" : "pl-3.5"
                   }`}
                 />
@@ -595,7 +595,7 @@ export default function Goals({
                     role="radio"
                     aria-checked={on}
                     onClick={() => setCadence(customMetric, c)}
-                    className={`flex-1 rounded-lg py-[7px] text-center text-[12px] ${on ? "bg-white font-bold text-accent shadow-[0_1px_2px_rgba(20,35,94,.14)]" : "font-medium text-muted"}`}
+                    className={`flex-1 rounded-lg py-[7px] text-center text-[12px] ${on ? "bg-surface font-bold text-accent shadow-[0_1px_2px_rgba(20,35,94,.14)]" : "font-medium text-muted"}`}
                   >
                     {CADENCE_SHORT[c]}
                   </button>
@@ -635,7 +635,7 @@ export default function Goals({
                 type="button"
                 aria-pressed={focused}
                 onClick={() => focusCustom(m.code)}
-                className={`block w-full border-t border-line px-4 pb-3 pt-[11px] text-left ${focused ? "bg-accent-soft/55" : "bg-white"}`}
+                className={`block w-full border-t border-line px-4 pb-3 pt-[11px] text-left ${focused ? "bg-accent-soft/55" : "bg-surface"}`}
               >
                 <div className="flex items-baseline justify-between gap-2.5">
                   <span className="flex min-w-0 items-baseline gap-1.5">
@@ -684,12 +684,12 @@ function AimCard({ name, hint, progress, selected, onPick }: { name: string; hin
       role="radio"
       aria-checked={selected}
       onClick={onPick}
-      className={`btn-lift block rounded-xl border-[1.5px] px-3 py-[11px] text-left ${selected ? "border-accent bg-accent-soft" : "border-line bg-white hover:border-accent/50"}`}
+      className={`btn-lift block rounded-xl border-[1.5px] px-3 py-[11px] text-left ${selected ? "border-accent bg-accent-soft" : "border-line bg-surface hover:border-accent/50"}`}
     >
       <div className="flex items-center justify-between gap-1.5">
         <span className={`text-[14px] font-bold ${selected ? "text-accent" : "text-ink"}`}>{name}</span>
         {selected && (
-          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent text-white" aria-hidden="true">
+          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand text-white" aria-hidden="true">
             <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
               <path d="M2.5 6.2l2.3 2.3 4.7-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
             </svg>

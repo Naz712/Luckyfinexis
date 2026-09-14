@@ -10,7 +10,7 @@ export function Card({
   /** "accent" = solid brand-blue card with white text (used for the one number that matters on a screen). */
   tone?: "default" | "accent";
 }) {
-  const surface = tone === "accent" ? "bg-accent border-accent text-white" : "bg-white border-line";
+  const surface = tone === "accent" ? "bg-brand border-brand text-white" : "bg-surface border-line";
   return <section className={`rounded-2xl border p-4 ${surface} ${className}`}>{children}</section>;
 }
 
@@ -29,7 +29,7 @@ export function Select({ placeholder, options, className = "", ...rest }: Select
     <div className="relative">
       <select
         {...rest}
-        className={`w-full appearance-none rounded-xl border border-line bg-white px-3.5 py-3 pr-9 text-[15px] text-body disabled:bg-canvas disabled:text-muted focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 ${rest.value === "" ? "text-muted" : ""} ${className}`}
+        className={`w-full appearance-none rounded-xl border border-line bg-surface px-3.5 py-3 pr-9 text-[15px] text-body disabled:bg-canvas disabled:text-muted focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 ${rest.value === "" ? "text-muted" : ""} ${className}`}
       >
         <option value="" disabled>
           {placeholder}
@@ -69,7 +69,7 @@ export function MoneyInput({
 }) {
   return (
     <div
-      className={`flex items-center rounded-xl border border-line focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20 ${disabled ? "bg-canvas" : "bg-white"}`}
+      className={`flex items-center rounded-xl border border-line focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20 ${disabled ? "bg-canvas" : "bg-surface"}`}
     >
       <span className="pl-3.5 pr-1 text-[15px] text-muted">S$</span>
       <input
@@ -111,7 +111,7 @@ export function Segmented<T extends string>({
             aria-checked={active}
             onClick={() => onChange(o.value)}
             className={`rounded-lg px-1 py-2 text-center transition-colors ${
-              active ? "bg-white text-accent shadow-sm border border-line" : "text-muted hover:text-body border border-transparent"
+              active ? "bg-surface text-accent shadow-sm border border-line" : "text-muted hover:text-body border border-transparent"
             }`}
           >
             <div className="text-[13px] font-semibold leading-none">{o.label}</div>

@@ -90,6 +90,15 @@ Global edition dated 14 Mar 2026):
   credit (a term rule, not a product rule); the 5% cap on business written on
   the advisor's own family; replacements; group business.
 
+## Light and dark
+
+The app follows the phone's appearance setting. Colours are theme tokens in
+`src/index.css`: `brand` is the solid blue surfaces (hero, blue cards, primary
+buttons) and stays the same in both themes; `accent` is emphasis on a card and
+lightens in dark mode; `surface`, `canvas`, `line`, `ink`, `body`, `muted` and
+the small neutrals (`faint`, `hairline`, `dim`, `well`, `grid`, `dash`) all
+flip. Screens never hard-code a colour, so a new theme is a token block.
+
 ## Trying it on a phone
 
 Every push to the tracker branch (or main) runs `.github/workflows/tracker-pages.yml`,

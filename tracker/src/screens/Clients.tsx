@@ -36,7 +36,7 @@ function Ticket({ size = 17 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path d="M2 4.8A1.8 1.8 0 0 1 3.8 3h8.4A1.8 1.8 0 0 1 14 4.8v1.4a1.8 1.8 0 0 0 0 3.6v1.4A1.8 1.8 0 0 1 12.2 13H3.8A1.8 1.8 0 0 1 2 11.2V9.8a1.8 1.8 0 0 0 0-3.6V4.8Z" fill="currentColor" />
-      <path d="M6.4 6.1v3.8" stroke="#fff" strokeWidth="1.1" strokeLinecap="round" strokeDasharray="1 1.4" />
+      <path d="M6.4 6.1v3.8" stroke="var(--color-surface)" strokeWidth="1.1" strokeLinecap="round" strokeDasharray="1 1.4" />
     </svg>
   );
 }
@@ -44,7 +44,7 @@ function Ticket({ size = 17 }: { size?: number }) {
 /** A count beside its ticket. Zero is a dash in muted ink on a neutral ticket, never a faded number. */
 function PassCount({ type, n }: { type: PassType; n: number }) {
   const zero = n === 0;
-  const icon = zero ? "text-[#d6dae3]" : type === "gold" ? "text-gold" : "text-accent";
+  const icon = zero ? "text-dim" : type === "gold" ? "text-gold" : "text-accent";
   const ink = zero ? "text-muted" : type === "gold" ? "text-gold-ink" : "text-accent";
   return (
     <span className="flex items-center gap-1" aria-label={`${n} ${type} ${n === 1 ? "pass" : "passes"}`}>
@@ -58,7 +58,7 @@ function PassCount({ type, n }: { type: PassType; n: number }) {
 
 function Caret({ open }: { open: boolean }) {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" className={`text-[#9aa1b1] transition-transform duration-200 ${open ? "rotate-180" : ""}`}>
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" className={`text-faint transition-transform duration-200 ${open ? "rotate-180" : ""}`}>
       <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
@@ -101,7 +101,7 @@ function DrawCard({ advisorId, month, current, onMonth }: { advisorId: string; m
                     onMonth(d.monthly_draw);
                     setOpen(false);
                   }}
-                  className={`flex w-full items-center justify-between gap-2.5 border-t border-line px-3.5 py-2.5 text-left ${selected ? "bg-accent-soft/50" : "bg-white"}`}
+                  className={`flex w-full items-center justify-between gap-2.5 border-t border-line px-3.5 py-2.5 text-left ${selected ? "bg-accent-soft/50" : "bg-surface"}`}
                 >
                   <span className="min-w-0">
                     <span className={`block text-[13px] ${selected ? "font-bold text-accent" : "font-semibold text-ink"}`}>
@@ -113,7 +113,7 @@ function DrawCard({ advisorId, month, current, onMonth }: { advisorId: string; m
                     </span>
                   </span>
                   {selected && (
-                    <span className="grid h-[17px] w-[17px] shrink-0 place-items-center rounded-full bg-accent text-white" aria-hidden="true">
+                    <span className="grid h-[17px] w-[17px] shrink-0 place-items-center rounded-full bg-brand text-white" aria-hidden="true">
                       <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
                         <path d="M2.5 6.2l2.3 2.3 4.7-5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
@@ -160,7 +160,7 @@ function ClientDetail({
   const action = "flex flex-1 items-center justify-center gap-1.5 rounded-[11px] bg-white/16 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-white/26 active:bg-white/30";
   return (
     <div className="slide-in">
-      <div className="rounded-b-[26px] bg-accent px-4 pb-[22px] pt-2 text-white">
+      <div className="rounded-b-[26px] bg-brand px-4 pb-[22px] pt-2 text-white">
         <div className="flex items-center justify-between gap-2.5">
           <button type="button" onClick={onBack} className="flex items-center gap-[3px] text-[12px] font-bold text-white/92">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -191,7 +191,7 @@ function ClientDetail({
           <a href={`mailto:${client.email}`} className={action}>
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <rect x="1.8" y="3.2" width="12.4" height="9.6" rx="1.6" fill="currentColor" />
-              <path d="M2.6 4.4 8 8.4l5.4-4" stroke="#1e3a9f" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M2.6 4.4 8 8.4l5.4-4" stroke="var(--color-brand)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             Email
           </a>
@@ -217,7 +217,7 @@ function ClientDetail({
               </div>
               <div className="tnum mt-2 text-[30px] font-bold leading-none tracking-[-.025em] text-ink">{totals[type]}</div>
               <div className="mt-[5px] text-[11px] leading-[1.4] text-muted">{validCaption}</div>
-              <div className="tnum mt-[7px] border-t border-[#edeff4] pt-[7px] text-[11px] text-muted">
+              <div className="tnum mt-[7px] border-t border-well pt-[7px] text-[11px] text-muted">
                 {allTime[type]} {type} since {firstMonth}
               </div>
             </Card>
@@ -259,7 +259,7 @@ function ClientDetail({
                     <div className="flex w-[38px] shrink-0 flex-col items-center">
                       <span className="tnum whitespace-nowrap text-[10px] font-bold text-muted">{shortDate(parseISODate(r.awarded_on))}</span>
                       <span className={`mt-[5px] h-[9px] w-[9px] rounded-full ${gold ? "bg-gold" : "bg-accent"}`} aria-hidden="true" />
-                      <span className="mt-[3px] w-px flex-1 bg-[#edeff4]" aria-hidden="true" />
+                      <span className="mt-[3px] w-px flex-1 bg-well" aria-hidden="true" />
                     </div>
                     <div className="min-w-0 flex-1 pb-0.5">
                       <div className="flex items-baseline justify-between gap-[9px]">
@@ -305,7 +305,7 @@ function ClientDetail({
                       <span className="mt-px block whitespace-nowrap text-[11px] text-muted">{planTerms(c)}</span>
                     </span>
                   </div>
-                  <div className="tnum mt-2 border-t border-[#edeff4] pt-2 text-[11px] text-muted">
+                  <div className="tnum mt-2 border-t border-well pt-2 text-[11px] text-muted">
                     Submitted {shortDate(parseISODate(c.submitted_on))}
                     {c.confirmed_on ? ` · confirmed ${shortDate(parseISODate(c.confirmed_on))}` : " · awaiting Merlin"}
                   </div>
@@ -361,7 +361,7 @@ export default function Clients({ advisor, cases, onLogCase }: { advisor: Adviso
       <DrawCard advisorId={advisor.id} month={month} current={current} onMonth={setMonth} />
 
       <div className="relative flex items-center">
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="absolute left-3 text-[#9aa1b1]">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="absolute left-3 text-faint">
           <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.8" />
           <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
         </svg>
@@ -372,7 +372,7 @@ export default function Clients({ advisor, cases, onLogCase }: { advisor: Adviso
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search clients"
           aria-label="Search clients"
-          className="w-full rounded-xl border border-line bg-white py-[11px] pl-9 pr-[38px] text-[14px] text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16"
+          className="w-full rounded-xl border border-line bg-surface py-[11px] pl-9 pr-[38px] text-[14px] text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16"
         />
         {query !== "" && (
           <button type="button" onClick={() => setQuery("")} aria-label="Clear search" className="absolute right-[11px] grid h-5 w-5 place-items-center rounded-full bg-canvas text-muted">
@@ -405,7 +405,7 @@ export default function Clients({ advisor, cases, onLogCase }: { advisor: Adviso
                 <button
                   type="button"
                   onClick={() => openClient(s.client.id)}
-                  className="flex w-full items-center gap-[11px] border-t border-line bg-white py-[11px] pl-4 pr-3.5 text-left hover:bg-canvas focus:outline-none focus-visible:bg-accent-soft"
+                  className="flex w-full items-center gap-[11px] border-t border-line bg-surface py-[11px] pl-4 pr-3.5 text-left hover:bg-canvas focus:outline-none focus-visible:bg-accent-soft"
                 >
                   <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent-soft text-[12px] font-bold text-accent" aria-hidden="true">
                     {initialsOf(s.client.name)}

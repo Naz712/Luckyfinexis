@@ -225,7 +225,7 @@ function MetricRow({
         </div>
         <div className="mt-2 flex items-center justify-between gap-2.5">
           <span className={`tnum flex min-w-0 items-center gap-1.5 text-[12px] font-medium ${tgt !== null ? t.text : "text-muted"}`}>
-            <span className={`h-[5px] w-[5px] shrink-0 rounded-full ${tgt !== null ? t.dot : "bg-[#c3c8d4]"}`} aria-hidden="true" />
+            <span className={`h-[5px] w-[5px] shrink-0 rounded-full ${tgt !== null ? t.dot : "bg-hairline"}`} aria-hidden="true" />
             <span className="truncate">{tgt !== null ? paceText(pace, unit, reached) : "No target set"}</span>
           </span>
           {tgt !== null && (
@@ -239,11 +239,11 @@ function MetricRow({
       {expanded && (
         <div className="px-4 pb-3.5">
           <dl className="grid grid-cols-2 gap-2">
-            <div className="rounded-xl bg-white px-[11px] py-[9px]">
+            <div className="rounded-xl bg-surface px-[11px] py-[9px]">
               <dt className="text-[11px] text-muted">Projected incl. pending</dt>
               <dd className="tnum mt-0.5 text-[16px] font-semibold text-ink">{fmtMetric(projected, unit)}</dd>
             </div>
-            <div className="rounded-xl bg-white px-[11px] py-[9px]">
+            <div className="rounded-xl bg-surface px-[11px] py-[9px]">
               <dt className="text-[11px] text-muted">Gap to goal</dt>
               <dd className="tnum mt-0.5 text-[16px] font-semibold text-ink">{tgt !== null ? fmtMetric(gap ?? 0, unit) : "No target"}</dd>
             </div>
@@ -275,7 +275,7 @@ function MetricRow({
                   </span>
                   <span className="tnum flex shrink-0 items-center gap-1.5 text-[14px] font-semibold text-body">
                     {caseValue(c, def.code)}
-                    <Chevron className="text-[#c3c8d4]" />
+                    <Chevron className="text-hairline" />
                   </span>
                 </button>
               ))
@@ -432,7 +432,7 @@ export default function Home({
   return (
     <div>
       {/* Blue hero: identity, the one goal, the route switch, and the arc. */}
-      <section className="overflow-hidden bg-accent px-5 pb-6 pt-[max(6px,env(safe-area-inset-top))] text-white">
+      <section className="overflow-hidden bg-brand px-5 pb-6 pt-[max(6px,env(safe-area-inset-top))] text-white">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-[9px]">
             <span className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full bg-white/16 text-[12px] font-bold" aria-hidden="true">
@@ -476,7 +476,7 @@ export default function Home({
                 aria-checked={on}
                 onClick={() => setRoute(v.metric)}
                 className={`relative flex-1 rounded-lg py-[7px] text-center text-[13px] transition-colors before:absolute before:inset-x-0 before:-inset-y-[7px] before:content-[''] ${
-                  on ? "bg-white font-bold text-accent" : "font-medium text-white/80"
+                  on ? "bg-white font-bold text-brand" : "font-medium text-white/80"
                 }`}
               >
                 {v.label}
@@ -526,7 +526,7 @@ export default function Home({
               <button
                 type="button"
                 onClick={onChangeGoal}
-                className="relative mt-3.5 inline-flex items-center gap-[5px] rounded-full bg-white px-3.5 py-2 text-[12px] font-semibold text-accent before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-[''] hover:bg-accent-soft"
+                className="relative mt-3.5 inline-flex items-center gap-[5px] rounded-full bg-white px-3.5 py-2 text-[12px] font-semibold text-brand before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-[''] hover:bg-[#e8edf9]"
               >
                 Set a {view.word} goal
                 <Chevron size={11} strokeWidth={2} />
@@ -581,7 +581,7 @@ export default function Home({
                 <Label>{o.label} route</Label>
                 <span className="tnum mt-1 block text-[13px] text-body">{routeLine(o)}</span>
               </span>
-              <Chevron size={15} className="shrink-0 text-[#c3c8d4]" />
+              <Chevron size={15} className="shrink-0 text-hairline" />
             </button>
           ))}
         </Card>
