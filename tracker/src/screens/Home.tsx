@@ -14,6 +14,7 @@ import {
 import {
   casesForAdvisor,
   clientsNeeded,
+  clientsNeededOnRoute,
   contributingCases,
   effectiveDate,
   goalFor,
@@ -21,6 +22,8 @@ import {
   metricSnapshot,
   metricsForCase,
   productById,
+  ROUTE_WORD,
+  routeCaseValue,
   UNTRACKED_METRICS,
   weeksLeftIn,
   type CaseMetrics,
@@ -31,8 +34,9 @@ import {
   type Pace,
   type Period,
   type PrimaryGoal,
+  type RouteCredit,
 } from "../lib/calc";
-import { fmtMetric, paceText, pct, periodLabel, sgd, shortDate } from "../lib/format";
+import { fmtMetric, paceText, pct, periodLabel, routeGateText, sgd, shortDate } from "../lib/format";
 import { Card, Label } from "../components/ui";
 import Sheet from "../components/Sheet";
 
@@ -132,7 +136,7 @@ function firstCaseIds(cases: Case[]): Set<string> {
 
 // ───────────────────────── Route view ─────────────────────────
 
-type RouteWord = "commission" | "premium";
+type RouteWord = "commission" | "premium" | "income";
 
 /** One MDRT route as the hero shows it: its window, totals and — when the aim gives it one — a target to pace against. */
 interface RouteView {
@@ -147,13 +151,15 @@ interface RouteView {
   pace: Pace | null;
   /** Which per-case figure this route sums. */
   valueKey: keyof CaseMetrics;
+  /** The route's credit as MDRT splits it (Risk-Protection floor, income minimums); null when the FC's own commission goal is shown, which has no such rule. */
+  credit: RouteCredit | null;
 }
 
 function routeView(r: MdrtRoute, primary: PrimaryGoal, mdrtPeriod: Period, commission: MetricSnapshot): RouteView {
-  const word: RouteWord = r.metric === "mdrt_commission" ? "commission" : "premium";
-  const base = { metric: r.metric, label: r.label, word };
+  const word: RouteWord = ROUTE_WORD[r.metric];
+  const base = { metric: r.metric, label: r.label, word, valueKey: routeCaseValue(r.metric) };
   if (primary.kind === "tier") {
-    return { ...base, period: mdrtPeriod, achieved: r.achieved, projected: r.projected, target: r.goalThreshold, gap: r.pace.gap, pace: r.pace, valueKey: r.metric };
+    return { ...base, period: mdrtPeriod, achieved: r.achieved, projected: r.projected, target: r.goalThreshold, gap: r.pace.gap, pace: r.pace, credit: r.credit };
   }
   if (word === "commission") {
     // The custom aim is the FC's own commission goal, measured over that goal's cadence window.
@@ -166,10 +172,11 @@ function routeView(r: MdrtRoute, primary: PrimaryGoal, mdrtPeriod: Period, commi
       gap: commission.gap ?? 0,
       pace: commission.pace,
       valueKey: "commission",
+      credit: null,
     };
   }
-  // No custom premium target exists: the credit is tracked but there is nothing to pace it against.
-  return { ...base, period: mdrtPeriod, achieved: r.achieved, projected: r.projected, target: null, gap: 0, pace: null, valueKey: "mdrt_premium" };
+  // No custom premium or income target exists: the credit is tracked but there is nothing to pace it against.
+  return { ...base, period: mdrtPeriod, achieved: r.achieved, projected: r.projected, target: null, gap: 0, pace: null, credit: r.credit };
 }
 
 // ───────────────────────── This year rows ─────────────────────────
@@ -361,7 +368,7 @@ export default function Home({
 
   const views = mdrt.routes.map((r) => routeView(r, primary, mdrt.period, commissionSnap));
   const view = views.find((v) => v.metric === route) ?? views[0];
-  const other = views.find((v) => v.metric !== view.metric) ?? views[0];
+  const others = views.filter((v) => v.metric !== view.metric);
 
   // Hero goal: the tier's threshold on this route, or the FC's own commission goal.
   const goalName = primary.kind === "tier" ? `${TIER_LABEL[mdrt.goalTier]} ${MDRT_MEMBERSHIP_YEAR}` : "Your commission goal";
@@ -372,16 +379,23 @@ export default function Home({
   const achievedFrac = goal ? Math.min(view.achieved / goal.target, 1) : 0;
   const projectedFrac = goal ? Math.min(view.projected / goal.target, 1) : 0;
   const verdict = goal ? verdictFor(goal.pace, view.achieved) : { tone: "warn" as const, text: "" };
+  // MDRT's minimums inside the route, when one is not met yet.
+  const gate = view.credit ? routeGateText(view.credit) : null;
 
   // What it takes from here: the average confirmed case on this route this window sets the case count.
+  // With a tier aim the count follows MDRT's rule: an average case's Other Products share only counts once
+  // Risk-Protection credit reaches the floor.
   const confirmedInWindow = contributingCases(
     mine.filter((c) => c.status === "confirmed"),
     view.period.start,
     view.period.end,
   );
-  const caseValues = confirmedInWindow.map((c) => metricsForCase(c)[view.valueKey]).filter((v) => v > 0);
-  const avgCase = caseValues.length > 0 ? caseValues.reduce((a, b) => a + b, 0) / caseValues.length : 0;
-  const casesNeeded = goal ? clientsNeeded(view.gap, avgCase) : null;
+  const caseParts = confirmedInWindow
+    .map((c) => ({ value: metricsForCase(c)[view.valueKey], risk: productById(c.product_id)?.mdrt_category !== "other" }))
+    .filter((x) => x.value > 0);
+  const avgCase = caseParts.length > 0 ? caseParts.reduce((a, x) => a + x.value, 0) / caseParts.length : 0;
+  const riskPerCase = caseParts.length > 0 ? caseParts.filter((x) => x.risk).reduce((a, x) => a + x.value, 0) / caseParts.length : 0;
+  const casesNeeded = !goal ? null : view.credit ? clientsNeededOnRoute(view.credit, goal.target, riskPerCase, avgCase - riskPerCase) : clientsNeeded(view.gap, avgCase);
   const weeksLeft = weeksLeftIn(view.period, TODAY);
 
   // Pending strip: the pending cases in this window on this route.
@@ -396,12 +410,10 @@ export default function Home({
     ? `${pendingWord} would take you to ${pct(view.projected / goal.target)} once Merlin confirms.`
     : `${pendingWord} are waiting on Merlin.`;
 
-  const otherLine =
-    other.target !== null && other.target > 0
-      ? `${sgd(other.achieved)} · ${pct(other.achieved / other.target)} of ${sgd(other.target)}`
-      : `${sgd(other.achieved)} credit · no goal set`;
+  const routeLine = (v: RouteView) =>
+    v.target !== null && v.target > 0 ? `${sgd(v.achieved)} · ${pct(v.achieved / v.target)} of ${sgd(v.target)}` : `${sgd(v.achieved)} credit · no goal set`;
 
-  // This year: every tracked metric except the two MDRT routes, in the handoff's order.
+  // This year: every tracked metric except the MDRT routes, in the handoff's order.
   const order = (m: MetricDefinition) => {
     const i = TRACKED_ORDER.indexOf(m.code);
     return i === -1 ? TRACKED_ORDER.length : i;
@@ -502,6 +514,7 @@ export default function Home({
               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${verdict.tone === "ok" ? "bg-[#54d4a0]" : "bg-gold"}`} aria-hidden="true" />
               <span className="tnum text-[12px] font-semibold text-white">{verdict.text}</span>
             </div>
+            {gate && <p className="tnum mt-2.5 text-pretty text-center text-[11px] leading-[1.5] text-white/78">{gate}</p>}
           </>
         ) : (
           <div className="mt-4 rounded-2xl border border-dashed border-white/34 px-[18px] py-5 text-center">
@@ -556,17 +569,22 @@ export default function Home({
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={() => setRoute(other.metric)}
-          className="flex w-full items-center justify-between gap-2.5 rounded-2xl border border-line bg-white px-4 py-[13px] text-left"
-        >
-          <span className="block min-w-0">
-            <Label>{other.label} route</Label>
-            <span className="tnum mt-1 block text-[13px] text-body">{otherLine}</span>
-          </span>
-          <Chevron size={15} className="shrink-0 text-[#c3c8d4]" />
-        </button>
+        <Card className="divide-y divide-line overflow-hidden p-0">
+          {others.map((o) => (
+            <button
+              key={o.metric}
+              type="button"
+              onClick={() => setRoute(o.metric)}
+              className="flex w-full items-center justify-between gap-2.5 px-4 py-[13px] text-left hover:bg-canvas"
+            >
+              <span className="block min-w-0">
+                <Label>{o.label} route</Label>
+                <span className="tnum mt-1 block text-[13px] text-body">{routeLine(o)}</span>
+              </span>
+              <Chevron size={15} className="shrink-0 text-[#c3c8d4]" />
+            </button>
+          ))}
+        </Card>
 
         <Card className="overflow-hidden p-0">
           <div className="flex items-baseline justify-between px-4 pb-2.5 pt-3">

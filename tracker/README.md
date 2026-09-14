@@ -35,12 +35,12 @@ phone or an email attachment without a server.
 
 - **Home** — a blue hero that answers "am I on pace for the goal I set?": the aim
   from Goals (MDRT/COT/TOT 2027 or your own commission goal), a Commission /
-  Premium route switch, a progress arc (confirmed, pending, target), a verdict
+  Premium / Income route switch, a progress arc (confirmed, pending, target), a verdict
   pill, then "What it takes from here" (per month, per week, cases at your
-  average), a pending strip, the other route, and "This year" metric rows that
+  average), a pending strip, the other routes, and "This year" metric rows that
   expand in place. Tapping a case opens a detail sheet.
 - **Goals** — one aim at a time (MDRT, COT, TOT or Custom), a distance card with
-  both qualifying routes, a projection chart (confirmed line, run rate, the pace
+  all three qualifying routes, a projection chart (confirmed line, run rate, the pace
   that reaches the goal), custom targets edited in place with a cadence
   (year/half/quarter/month), and a list of every metric's goal.
 - **Calculator** — band strip in the header, product cards opened from a product
@@ -64,6 +64,31 @@ banding rates, typical premiums, credit rates, and each metric's period type.
 The MDRT thresholds are no longer placeholders: they are the Singapore row of
 MDRT's 2027 membership chart (2026 production), entered on 14 Sep 2026, and
 `MDRT_THRESHOLDS_CONFIRMED` is true. `TODAY` is pinned for stable demos.
+
+## How MDRT is modelled
+
+From "Membership Information for the 2027 Million Dollar Round Table" (MDRT,
+Global edition dated 14 Mar 2026):
+
+- **Three routes.** Commission (first-year commission credit), premium
+  (first-year premium credit, 6% for single premium and money into funds) and
+  income (first-year commission from this year's cases plus renewals, trails
+  and other production income, held per advisor in `income_other_ytd` as a
+  placeholder). Thresholds for all three are in `metric_thresholds`.
+- **The Risk-Protection floor.** Each product carries MDRT's category
+  (`mdrt_category`): life, ILPs, endowments, annuities, CI and disability are
+  Risk-Protection; hospital plans, funds, portfolios and advice fees are Other
+  Products. On the commission and premium routes, Other Products credit counts
+  only once Risk-Protection credit reaches half the entry-level MDRT
+  requirement (`mdrt_floors`; the same floor applies to COT and TOT). Until
+  then `RouteCredit.locked` holds the credit MDRT is not counting, and Home,
+  Goals and the Calculator say so.
+- **Income minimums.** The income route also needs USD 46,000 (SGD 37,750) of
+  new-business income and the same from Risk-Protection products; a route
+  with an unmet minimum is never "closest" or "reached".
+- **Not modelled.** Regular endowments of 15 years or less get only 6% premium
+  credit (a term rule, not a product rule); the 5% cap on business written on
+  the advisor's own family; replacements; group business.
 
 ## Trying it on a phone
 

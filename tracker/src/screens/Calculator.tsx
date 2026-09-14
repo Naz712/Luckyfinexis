@@ -4,18 +4,20 @@ import {
   aggregate,
   bandingRate,
   clientsNeeded,
+  clientsNeededOnRoute,
   commissionForCase,
   creditRate,
   estimateGrossRevenue,
   goalFor,
   goalPeriod,
-  mdrtTierGoalFor,
+  MDRT_CATEGORY_LABEL,
+  mdrtSnapshot,
   metricDefinition,
   periodBounds,
   productById,
-  thresholdFor,
   type GoalSet,
   type PrimaryGoal,
+  type RouteCredit,
 } from "../lib/calc";
 import { pct, periodLabel, sgd } from "../lib/format";
 import { Card, Label } from "../components/ui";
@@ -50,6 +52,8 @@ interface ActiveGoal {
   achieved: number;
   /** "commission route, Jan–Dec 2026" / "Q3 2026". */
   window: string;
+  /** The commission route's credit as MDRT splits it when the aim is a tier (the Risk-Protection floor applies); null for the FC's own goal. */
+  credit: RouteCredit | null;
 }
 
 /** What the money field means for this product. */
@@ -90,20 +94,22 @@ function rowFor(product: Product): Row {
 
 /**
  * The goal chosen in Goals. A tier aim reads the MDRT commission route
- * (threshold of the aimed-for tier over the MDRT production year); a custom
- * aim reads the FC's own commission goal over that goal's cadence window.
+ * (threshold of the aimed-for tier over the MDRT production year, credit as
+ * MDRT counts it); a custom aim reads the FC's own commission goal over that
+ * goal's cadence window.
  */
 function activeGoalFor(advisor: Advisor, cases: Case[], goalSet: GoalSet, primary: PrimaryGoal): ActiveGoal {
   const year = TODAY.getFullYear();
   const confirmed = cases.filter((c) => c.status === "confirmed");
   if (primary.kind === "tier") {
-    const tier = mdrtTierGoalFor(advisor.id, year, goalSet.mdrtTiers);
-    const period = periodBounds(metricDefinition("mdrt_commission").period_type, TODAY);
+    const mdrt = mdrtSnapshot(advisor.id, cases, TODAY, goalSet);
+    const route = mdrt.routes.find((r) => r.metric === "mdrt_commission")!;
     return {
-      label: `${TIER_LABEL[tier]} ${MDRT_MEMBERSHIP_YEAR}`,
-      target: thresholdFor("mdrt_commission", tier),
-      achieved: aggregate(confirmed, "mdrt_commission", period.start, period.end),
-      window: `commission route, ${periodLabel(period)}`,
+      label: `${TIER_LABEL[mdrt.goalTier]} ${MDRT_MEMBERSHIP_YEAR}`,
+      target: route.goalThreshold,
+      achieved: route.achieved,
+      window: `commission route, ${periodLabel(mdrt.period)}`,
+      credit: route.credit,
     };
   }
   const goal = goalFor(advisor.id, "commission", year, goalSet.targets);
@@ -114,6 +120,7 @@ function activeGoalFor(advisor: Advisor, cases: Case[], goalSet: GoalSet, primar
     target: goal ? goal.target_value : null,
     achieved: aggregate(confirmed, "commission", period.start, period.end),
     window: periodLabel(period),
+    credit: null,
   };
 }
 
@@ -199,6 +206,8 @@ export default function Calculator({
   const totalGross = computed.reduce((t, c) => t + c.gross, 0);
   const totalCommission = computed.reduce((t, c) => t + c.commission, 0);
   const totalMdrt = computed.reduce((t, c) => t + c.mdrt, 0);
+  /** The client's commission from Other Products (hospital plans, funds): MDRT counts it only once the Risk-Protection floor is met. */
+  const otherCommission = computed.filter((c) => c.product.mdrt_category === "other").reduce((t, c) => t + c.commission, 0);
   const filled = computed.filter((c) => c.gross > 0).length;
 
   // ── The goal set in Goals, and the what-if figure laid over it ──
@@ -209,21 +218,36 @@ export default function Calculator({
 
   const goalNum = whatIf === null ? savedTarget : parseMoney(whatIf);
   const gap = Math.max(goalNum - goal.achieved, 0);
-  const needed = clientsNeeded(gap, totalCommission);
+  const needed = goal.credit
+    ? clientsNeededOnRoute(goal.credit, goalNum, totalCommission - otherCommission, otherCommission)
+    : clientsNeeded(gap, totalCommission);
   const goalName = whatIf === null ? goal.label : "that figure";
+  /** A tier aim, Other Products in the mix, and the floor not reached yet: part of every client waits. */
+  const floorHolds = goal.credit !== null && goal.credit.riskShortfall > 0 && otherCommission > 0;
 
   let verdict: { figure: string; unit: string; note: string; ink: string };
   if (goalNum <= 0) {
     verdict = { figure: "—", unit: "Enter a figure above", note: "With an amount set, this shows how many clients like this one close the gap.", ink: "text-ink" };
   } else if (gap === 0) {
     verdict = { figure: "Goal reached", unit: "", note: `${goalName} is already met. Anything from here is above target.`, ink: "text-ok" };
+  } else if (needed === null && floorHolds && totalCommission === otherCommission) {
+    verdict = {
+      figure: "—",
+      unit: "Not counted yet",
+      note: `Everything here is Other Products credit. MDRT only counts it once ${sgd(goal.credit!.riskShortfall)} more of your commission comes from Risk-Protection products (life, ILPs, CI). Add one of those to see the number.`,
+      ink: "text-ink",
+    };
   } else if (needed === null) {
     verdict = { figure: "—", unit: "Add a product above", note: "Once a product has gross revenue, this shows the number of clients you need.", ink: "text-ink" };
   } else {
     verdict = {
       figure: String(needed),
       unit: needed === 1 ? "more client like this" : "more clients like this",
-      note: `At ${sgd(totalCommission)} a client, that closes the ${sgd(gap)} gap to ${goalName}. Each one also adds ${sgd(totalMdrt)} of MDRT premium credit.`,
+      note: `At ${sgd(totalCommission)} a client, that closes the ${sgd(gap)} gap to ${goalName}. Each one also adds ${sgd(totalMdrt)} of MDRT premium credit.${
+        floorHolds
+          ? ` ${sgd(otherCommission)} of each is Other Products credit, which MDRT counts only once Risk-Protection commission reaches ${sgd(goal.credit!.riskFloor)}; the count allows for that.`
+          : ""
+      }`,
       ink: "text-accent",
     };
   }
@@ -308,7 +332,7 @@ export default function Calculator({
               <div className="flex items-center justify-between gap-2.5 border-t border-line bg-canvas px-4 py-[11px]">
                 <span className="tnum text-[12px] text-muted">
                   Commission @ {band} · {pct(rate)}
-                  {fund && " · upfront only"}
+                  {fund && " · upfront only"} · {MDRT_CATEGORY_LABEL[product.mdrt_category]}
                 </span>
                 <span className="flex shrink-0 items-center gap-3">
                   <span className="tnum text-[20px] font-bold text-ink">{gross > 0 ? sgd(commission) : "—"}</span>

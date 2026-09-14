@@ -18,6 +18,7 @@ import {
   UNTRACKED_METRICS,
   aggregate,
   cumulativeSeries,
+  floorsFor,
   goalFor,
   goalPeriod,
   mdrtSnapshot,
@@ -25,15 +26,18 @@ import {
   metricDefinition,
   metricSnapshot,
   pace as paceFor,
+  routeSeries,
   thresholdFor,
   weeksLeftIn,
   withAdvisorGoals,
   type GoalSet,
+  type MdrtRoute,
   type Pace,
   type Period,
   type PrimaryGoal,
+  type SeriesPoint,
 } from "../lib/calc";
-import { CADENCE_LABEL, CADENCE_PER, dateRange, fmtMetric, paceText, pct, periodLabel, sgd, shortDate } from "../lib/format";
+import { CADENCE_LABEL, CADENCE_PER, dateRange, fmtMetric, paceText, pct, periodLabel, routeGateText, sgd, shortDate } from "../lib/format";
 import { Card, Label } from "../components/ui";
 
 export type { PrimaryGoal } from "../lib/calc";
@@ -42,7 +46,7 @@ const TIER_LABEL: Record<Tier, string> = { mdrt: "MDRT", cot: "COT", tot: "TOT" 
 const TIERS: Tier[] = ["mdrt", "cot", "tot"];
 const CADENCES: GoalCadence[] = ["year", "half", "quarter", "month"];
 const CADENCE_SHORT: Record<GoalCadence, string> = { year: "Year", half: "Half", quarter: "Quarter", month: "Month" };
-/** The seven metrics an FC sets their own targets on: everything except the two MDRT routes, which the tier aims cover. */
+/** The seven metrics an FC sets their own targets on: everything except the MDRT routes, which the tier aims cover. */
 const OWN_METRICS = metric_definitions.filter((m) => m.code !== "mdrt_commission" && m.code !== "mdrt_premium");
 const DAY = 86_400_000;
 
@@ -106,6 +110,7 @@ function DistanceBlock({
   elapsed,
   toGo,
   pace,
+  note,
 }: {
   title: string;
   closest: boolean;
@@ -117,6 +122,8 @@ function DistanceBlock({
   elapsed: number;
   toGo: string;
   pace: string;
+  /** An MDRT minimum inside the route that is not met yet. */
+  note?: string | null;
 }) {
   return (
     <div className={`rounded-xl p-3 ${highlight ? "bg-white/15" : ""}`}>
@@ -133,15 +140,15 @@ function DistanceBlock({
         <span className="font-semibold">{toGo}</span>
         <span className="shrink-0 text-white/85">{pace}</span>
       </div>
+      {note && <p className="tnum mt-2 text-pretty text-[11px] leading-[1.45] text-white/75">{note}</p>}
     </div>
   );
 }
 
 /** "How you get there": cumulative confirmed line, run-rate continuation and the pace that reaches the goal. */
 function ProjectionCard({
-  advisorId,
-  cases,
-  metric,
+  series,
+  subject,
   unit,
   period,
   target,
@@ -150,9 +157,10 @@ function ProjectionCard({
   pace,
   caption,
 }: {
-  advisorId: string;
-  cases: Case[];
-  metric: MetricCode;
+  /** Cumulative confirmed value at each bucket end (routeSeries / cumulativeSeries). */
+  series: SeriesPoint[];
+  /** What the line measures, for the chart's accessible name: "commission credit", "new clients". */
+  subject: string;
   unit: MetricUnit;
   period: Period;
   target: number;
@@ -170,9 +178,7 @@ function ProjectionCard({
   const y = (v: number) => 112 - (Math.max(v, 0) / max) * 94;
   const pt = (t: number, v: number) => `${x(t).toFixed(1)},${y(v).toFixed(1)}`;
 
-  const cum = cumulativeSeries(advisorId, cases, metric, period, TODAY)
-    .filter((p) => p.at.getTime() <= now)
-    .map((p) => pt(p.at.getTime(), p.value));
+  const cum = series.filter((p) => p.at.getTime() <= now).map((p) => pt(p.at.getTime(), p.value));
   const actual = [pt(start, 0), ...cum, pt(now, achieved)];
   const area = [...actual, pt(now, 0), pt(start, 0)].join(" ");
   const proj = `${pt(now, achieved)} ${pt(endEx, pace.runRateProjection)}`;
@@ -214,7 +220,7 @@ function ProjectionCard({
           height="132"
           className="block overflow-visible"
           role="img"
-          aria-label={`Confirmed ${metricWord(metricDefinition(metric).label)} so far against a goal of ${fmt(target)}, with the run rate and the pace needed.`}
+          aria-label={`Confirmed ${subject} so far against a goal of ${fmt(target)}, with the run rate and the pace needed.`}
         >
           <line x1="4" y1={goalY} x2="316" y2={goalY} className="stroke-[#c8d3ee]" strokeWidth="1" strokeDasharray="3 3" />
           <text x="4" y={(y(target) - 6).toFixed(1)} fontSize="9.5" fontWeight="600" letterSpacing=".02em" className="tnum fill-muted">
@@ -371,7 +377,12 @@ export default function Goals({
 
   // ── Blue card + chart: the one aim in force ──
   const closest = mdrt.routes.find((r) => r.metric === mdrt.closer)!;
-  const other = mdrt.routes.find((r) => r.metric !== mdrt.closer)!;
+  const others = mdrt.routes.filter((r) => r.metric !== mdrt.closer);
+  /** How far a route is toward a tier, held back by any minimum inside the route that is not met (income route). */
+  const routeRatio = (r: MdrtRoute, t: Tier) => {
+    const gate = r.credit.newBusiness ? Math.min(r.credit.risk / r.credit.riskFloor, r.credit.newBusiness.value / r.credit.newBusiness.floor) : 1;
+    return Math.min(r.achieved / thresholdFor(r.metric, t), gate, 1);
+  };
   const cv = view(customMetric);
   const cvFmt = (v: number) => fmtMetric(v, cv.definition.unit);
   const cvWord = metricWord(cv.definition.label);
@@ -383,7 +394,7 @@ export default function Goals({
   if (!isCustom) {
     heroLabel = `Distance to ${TIER_LABEL[tier]} ${MDRT_MEMBERSHIP_YEAR}`;
     heroPeriod = `${periodLabel(mdrt.period)} · ${weeksLeftIn(mdrt.period, TODAY)} weeks left`;
-    heroBlurb = `Either route qualifies. You are closest on the ${closest.label.toLowerCase()} route.`;
+    heroBlurb = `Any of the three routes qualifies. You are closest on the ${closest.label.toLowerCase()} route.`;
   } else {
     heroPeriod = `${CADENCE_LABEL[cv.cadence]} · ${periodLabel(cv.period)}`;
     if (cv.target === null) {
@@ -414,7 +425,7 @@ export default function Goals({
 
         {!isCustom ? (
           <div className="mt-3 flex flex-col gap-2">
-            {[closest, other].map((r, i) => (
+            {[closest, ...others].map((r, i) => (
               <DistanceBlock
                 key={r.metric}
                 title={`${r.label} route`}
@@ -425,8 +436,9 @@ export default function Goals({
                 fill={r.goalProgress}
                 projFill={Math.min(r.projected / r.goalThreshold, 1)}
                 elapsed={elapsedFraction(r.pace)}
-                toGo={r.goalReached ? `${TIER_LABEL[tier]} reached` : `${sgd(r.goalThreshold - r.achieved)} to go`}
+                toGo={r.goalReached ? `${TIER_LABEL[tier]} reached` : `${sgd(Math.max(r.goalThreshold - r.achieved, 0))} to go`}
                 pace={paceText(r.pace, "sgd", r.goalReached)}
+                note={routeGateText(r.credit)}
               />
             ))}
           </div>
@@ -458,9 +470,8 @@ export default function Goals({
       {hasGoal &&
         (!isCustom ? (
           <ProjectionCard
-            advisorId={advisor.id}
-            cases={cases}
-            metric={closest.metric}
+            series={routeSeries(advisor.id, cases, closest.metric, mdrt.period, TODAY)}
+            subject={`${closest.label.toLowerCase()} credit`}
             unit="sgd"
             period={mdrt.period}
             target={closest.goalThreshold}
@@ -473,9 +484,8 @@ export default function Goals({
           cv.target !== null &&
           cv.pace && (
             <ProjectionCard
-              advisorId={advisor.id}
-              cases={cases}
-              metric={customMetric}
+              series={cumulativeSeries(advisor.id, cases, customMetric, cv.period, TODAY)}
+              subject={metricWord(cv.definition.label)}
               unit={cv.definition.unit}
               period={cv.period}
               target={cv.target}
@@ -496,7 +506,7 @@ export default function Goals({
         <div role="radiogroup" aria-label="What you are aiming at" className="mt-[11px] grid grid-cols-2 gap-2">
           {TIERS.map((t) => {
             const selected = !isCustom && tier === t;
-            const progress = Math.max(...mdrt.routes.map((r) => Math.min(r.achieved / thresholdFor(r.metric, t), 1)));
+            const progress = Math.max(...mdrt.routes.map((r) => routeRatio(r, t)));
             return (
               <AimCard
                 key={t}
@@ -656,7 +666,11 @@ export default function Goals({
       <p className="tnum px-1 text-pretty text-center text-[11px] leading-[1.55] text-muted">
         {`MDRT, COT and TOT use the ${MDRT_MEMBERSHIP_YEAR} thresholds: your ${MDRT_PRODUCTION_YEAR} production counts toward ${MDRT_MEMBERSHIP_YEAR} membership.${
           MDRT_THRESHOLDS_CONFIRMED ? "" : ` Singapore figures still to be confirmed against the ${MDRT_MEMBERSHIP_YEAR} chart.`
-        } Custom goals are yours and reset each period.`}
+        } Other Products credit (hospital plans, funds, portfolios) counts only once Risk-Protection credit reaches ${sgd(floorsFor("mdrt_commission").risk)} of commission or ${sgd(
+          floorsFor("mdrt_premium").risk,
+        )} of premium. The income route adds renewals and other production income but needs ${sgd(floorsFor("mdrt_income").newBusiness ?? 0)} of new business and ${sgd(
+          floorsFor("mdrt_income").risk,
+        )} from Risk-Protection products. Custom goals are yours and reset each period.`}
       </p>
     </div>
   );

@@ -7,6 +7,7 @@ import {
   cases as allCases,
   credit_rates,
   goals,
+  mdrt_floors,
   mdrt_tier_goals,
   metric_definitions,
   metric_thresholds,
@@ -17,6 +18,8 @@ import {
   type CreditMetric,
   type Goal,
   type GoalCadence,
+  type MdrtCategory,
+  type MdrtRouteMetric,
   type MdrtTierGoal,
   type MetricCode,
   type MetricDefinition,
@@ -24,6 +27,8 @@ import {
   type Product,
   type Tier,
 } from "../mock/data";
+
+export type { MdrtRouteMetric } from "../mock/data";
 
 // ───────────────────────── Lookups ─────────────────────────
 
@@ -362,7 +367,7 @@ export function clientsNeeded(gap: number, avgCommissionPerClient: number): numb
 
 const TIER_ORDER: Tier[] = ["mdrt", "cot", "tot"];
 
-export function thresholdFor(metric: "mdrt_premium" | "mdrt_commission", tier: Tier): number {
+export function thresholdFor(metric: MdrtRouteMetric, tier: Tier): number {
   const t = metric_thresholds.find((x) => x.metric === metric && x.tier === tier);
   if (!t) throw new Error(`No threshold for ${metric}/${tier}`);
   return t.value;
@@ -375,7 +380,7 @@ export interface TierProgress {
   progress: number;
 }
 
-export function tierProgress(metric: "mdrt_premium" | "mdrt_commission", value: number): TierProgress {
+export function tierProgress(metric: MdrtRouteMetric, value: number): TierProgress {
   let reached: Tier | null = null;
   for (const tier of TIER_ORDER) if (value >= thresholdFor(metric, tier)) reached = tier;
   const next = TIER_ORDER[reached ? TIER_ORDER.indexOf(reached) + 1 : 0] ?? null;
@@ -455,18 +460,132 @@ export function metricSnapshot(
   };
 }
 
-export type MdrtRouteMetric = "mdrt_commission" | "mdrt_premium";
+export const MDRT_ROUTES: readonly MdrtRouteMetric[] = ["mdrt_commission", "mdrt_premium", "mdrt_income"];
+export const ROUTE_LABEL: Record<MdrtRouteMetric, string> = { mdrt_commission: "Commission", mdrt_premium: "Premium", mdrt_income: "Income" };
+/** Lower-case noun for prose: "commission route". */
+export const ROUTE_WORD: Record<MdrtRouteMetric, "commission" | "premium" | "income"> = {
+  mdrt_commission: "commission",
+  mdrt_premium: "premium",
+  mdrt_income: "income",
+};
+export const MDRT_CATEGORY_LABEL: Record<MdrtCategory, string> = { risk_protection: "Risk-Protection", other: "Other Products" };
+
+export function floorsFor(metric: MdrtRouteMetric): { risk: number; newBusiness: number | null } {
+  const f = mdrt_floors.find((x) => x.metric === metric);
+  if (!f) throw new Error(`No MDRT floors for ${metric}`);
+  return { risk: f.risk_protection, newBusiness: f.new_business };
+}
+
+/** The per-case figure a route sums: premium credit on the premium route, commission everywhere else. */
+export function routeCaseValue(metric: MdrtRouteMetric): "mdrt_commission" | "mdrt_premium" | "commission" {
+  return metric === "mdrt_premium" ? "mdrt_premium" : metric === "mdrt_commission" ? "mdrt_commission" : "commission";
+}
+
+/**
+ * Credit on one MDRT route, split the way MDRT judges it. On the commission
+ * and premium routes, Other Products credit only counts once Risk-Protection
+ * credit has reached the floor (half the entry-level requirement, the same
+ * for COT and TOT). On the income route, everything counts toward the total
+ * but two separate minimums must also be met: new-business income and
+ * income from Risk-Protection products.
+ */
+export interface RouteCredit {
+  /** From Risk-Protection products (life, ILPs, endowments, CI, disability, annuities). */
+  risk: number;
+  /** From Other Products (hospital plans, funds, portfolios, advice fees). */
+  other: number;
+  /** Income route only: renewals, trails and other production income that no case carries. 0 elsewhere. */
+  otherIncome: number;
+  /** Everything earned on the route: risk + other + otherIncome. */
+  total: number;
+  /** What MDRT counts today: `other` is left out while `risk` is below the floor. Income: the total. */
+  counted: number;
+  /** Other Products credit earned but not counted yet (0 once unlocked, and always 0 on the income route). */
+  locked: number;
+  /** The Risk-Protection floor for this route. */
+  riskFloor: number;
+  /** Risk-Protection credit still needed to reach the floor (0 once there). */
+  riskShortfall: number;
+  /** Income route only: income from business written this year, and its floor. null elsewhere. */
+  newBusiness: { value: number; floor: number; shortfall: number } | null;
+  /** True when every minimum inside the route is met (the total may still be short of the tier). */
+  gatesMet: boolean;
+}
+
+function categoryOf(c: Case): MdrtCategory {
+  const p = productById(c.product_id);
+  if (!p) throw new Error(`Case ${c.id} references unknown product ${c.product_id}`);
+  return p.mdrt_category;
+}
+
+/**
+ * Route credit over the cases inside [periodStart, periodEnd]. Pass a
+ * pre-filtered list to control status (confirmed only, or confirmed +
+ * pending). `otherIncome` is the advisor's non-case income for the income
+ * route; it is ignored on the other routes.
+ */
+export function routeCredit(cases: Case[], metric: MdrtRouteMetric, periodStart: Date, periodEnd: Date, otherIncome = 0): RouteCredit {
+  const key = routeCaseValue(metric);
+  let risk = 0;
+  let other = 0;
+  for (const c of cases) {
+    if (c.status === "superseded") continue;
+    if (!inPeriod(effectiveDate(c), periodStart, periodEnd)) continue;
+    const v = metricsForCase(c)[key];
+    if (categoryOf(c) === "risk_protection") risk += v;
+    else other += v;
+  }
+  const floors = floorsFor(metric);
+  const riskShortfall = Math.max(floors.risk - risk, 0);
+  if (metric === "mdrt_income") {
+    const nb = risk + other;
+    const total = nb + otherIncome;
+    const nbFloor = floors.newBusiness ?? 0;
+    const nbShortfall = Math.max(nbFloor - nb, 0);
+    return {
+      risk,
+      other,
+      otherIncome,
+      total,
+      counted: total,
+      locked: 0,
+      riskFloor: floors.risk,
+      riskShortfall,
+      newBusiness: { value: nb, floor: nbFloor, shortfall: nbShortfall },
+      gatesMet: riskShortfall === 0 && nbShortfall === 0,
+    };
+  }
+  const unlocked = riskShortfall === 0;
+  return {
+    risk,
+    other,
+    otherIncome: 0,
+    total: risk + other,
+    counted: unlocked ? risk + other : risk,
+    locked: unlocked ? 0 : other,
+    riskFloor: floors.risk,
+    riskShortfall,
+    newBusiness: null,
+    gatesMet: unlocked,
+  };
+}
 
 export interface MdrtRoute {
   metric: MdrtRouteMetric;
   label: string;
+  /** Confirmed credit as MDRT counts it (credit.counted). */
   achieved: number;
+  /** Confirmed + pending credit as MDRT would count it. */
   projected: number;
+  credit: RouteCredit;
+  projectedCredit: RouteCredit;
   tiers: TierProgress;
   /** Threshold of the tier the FC is aiming for on this route. */
   goalThreshold: number;
-  /** 0..1 progress toward the aimed-for tier. */
+  /** 0..1 progress of the counted credit toward the aimed-for tier. */
   goalProgress: number;
+  /** goalProgress, further limited by any minimum inside the route that is not met yet (income route). */
+  qualifyingProgress: number;
   goalReached: boolean;
   pace: Pace;
 }
@@ -476,7 +595,7 @@ export interface MdrtSnapshot {
   /** The tier the FC set as their aspiration this year. */
   goalTier: Tier;
   routes: MdrtRoute[];
-  /** The route that is furthest along toward the aimed-for tier. */
+  /** The route that is furthest along toward the aimed-for tier, minimums included. */
   closer: MdrtRouteMetric;
   contributing: Case[];
 }
@@ -484,29 +603,81 @@ export interface MdrtSnapshot {
 export function mdrtSnapshot(advisorId: string, cases: Case[], today: Date, goalSet: GoalSet = defaultGoalSet): MdrtSnapshot {
   const period = periodBounds(metricDefinition("mdrt_commission").period_type, today);
   const goalTier = mdrtTierGoalFor(advisorId, today.getFullYear(), goalSet.mdrtTiers);
+  const otherIncome = advisorById(advisorId)?.income_other_ytd ?? 0;
   const mine = cases.filter((c) => c.advisor_id === advisorId && c.status !== "superseded");
   const confirmed = mine.filter((c) => c.status === "confirmed");
 
-  const routes: MdrtRoute[] = (["mdrt_commission", "mdrt_premium"] as const).map((metric) => {
-    const achieved = aggregate(confirmed, metric, period.start, period.end);
-    const projected = aggregate(mine, metric, period.start, period.end);
+  const routes: MdrtRoute[] = MDRT_ROUTES.map((metric) => {
+    const credit = routeCredit(confirmed, metric, period.start, period.end, otherIncome);
+    const projectedCredit = routeCredit(mine, metric, period.start, period.end, otherIncome);
+    const achieved = credit.counted;
     const goalThreshold = thresholdFor(metric, goalTier);
+    const goalProgress = Math.min(achieved / goalThreshold, 1);
+    const gateRatios =
+      credit.newBusiness === null ? [] : [Math.min(credit.risk / credit.riskFloor, 1), Math.min(credit.newBusiness.value / credit.newBusiness.floor, 1)];
+    const qualifyingProgress = Math.min(goalProgress, ...gateRatios);
+    const tiers = credit.gatesMet ? tierProgress(metric, achieved) : { reached: null, next: "mdrt" as Tier, progress: Math.min(achieved / thresholdFor(metric, "mdrt"), 1) };
     return {
       metric,
-      label: metric === "mdrt_commission" ? "Commission" : "Premium",
+      label: ROUTE_LABEL[metric],
       achieved,
-      projected,
-      tiers: tierProgress(metric, achieved),
+      projected: projectedCredit.counted,
+      credit,
+      projectedCredit,
+      tiers,
       goalThreshold,
-      goalProgress: Math.min(achieved / goalThreshold, 1),
-      goalReached: achieved >= goalThreshold,
+      goalProgress,
+      qualifyingProgress,
+      goalReached: achieved >= goalThreshold && credit.gatesMet,
       pace: pace(achieved, goalThreshold, period.start, period.end, today),
     };
   });
 
-  const closer = routes.reduce((best, r) => (r.goalProgress > best.goalProgress ? r : best), routes[0]).metric;
+  const closer = routes.reduce((best, r) => (r.qualifyingProgress > best.qualifyingProgress ? r : best), routes[0]).metric;
 
   return { period, goalTier, routes, closer, contributing: contributingCases(mine, period.start, period.end) };
+}
+
+/**
+ * Cumulative counted credit on a route at each bucket end (same buckets as
+ * cumulativeSeries). Non-case income on the income route is spread evenly
+ * over the part of the window that has elapsed, since only a year-to-date
+ * figure exists for it.
+ */
+export function routeSeries(advisorId: string, cases: Case[], metric: MdrtRouteMetric, period: Period, today: Date): SeriesPoint[] {
+  const confirmed = cases.filter((c) => c.advisor_id === advisorId && c.status === "confirmed");
+  const otherIncome = metric === "mdrt_income" ? (advisorById(advisorId)?.income_other_ytd ?? 0) : 0;
+  const elapsedNow = Math.max(today.getTime() - period.start.getTime(), 1);
+  return cumulativeSeries(advisorId, cases, "commission", period, today).map((pt) => {
+    const share = Math.min(Math.max(pt.at.getTime() + MS_PER_DAY - period.start.getTime(), 0) / elapsedNow, 1);
+    return { at: pt.at, label: pt.label, value: routeCredit(confirmed, metric, period.start, pt.at, otherIncome * share).counted };
+  });
+}
+
+/**
+ * Whole clients needed on a route, each adding `riskPer` of Risk-Protection
+ * credit and `otherPer` of Other Products credit, until the route qualifies
+ * for `target`. On the commission and premium routes, Other Products credit
+ * (the FC's locked credit included) starts counting the moment the
+ * Risk-Protection floor is crossed; on the income route every minimum must
+ * be met as well as the total. 0 when already there; null when the clients
+ * add nothing that can get there.
+ */
+export function clientsNeededOnRoute(credit: RouteCredit, target: number, riskPer: number, otherPer: number): number | null {
+  if (credit.counted >= target && credit.gatesMet) return 0;
+  if (!(riskPer > 0) && !(otherPer > 0)) return null;
+  if (!(riskPer > 0) && credit.riskShortfall > 0) return null; // the floor can never be reached with these products
+  const nbFloor = credit.newBusiness?.floor ?? 0;
+  for (let n = 1; n <= 100_000; n++) {
+    const risk = credit.risk + n * riskPer;
+    const other = credit.other + n * otherPer;
+    if (credit.newBusiness) {
+      if (risk + other + credit.otherIncome >= target && risk >= credit.riskFloor && risk + other >= nbFloor) return n;
+    } else if ((risk >= credit.riskFloor ? risk + other : risk) >= target) {
+      return n;
+    }
+  }
+  return null;
 }
 
 // ───────────────────────── This week ─────────────────────────

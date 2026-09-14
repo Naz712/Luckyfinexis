@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { TODAY, type Advisor, type Case, type Product } from "../mock/data";
-import { bandingRate, clientsForAdvisor, estimateGrossRevenue, metricsForCase, parseISODate, productById, toISODate } from "../lib/calc";
+import { bandingRate, clientsForAdvisor, estimateGrossRevenue, MDRT_CATEGORY_LABEL, metricsForCase, parseISODate, productById, toISODate } from "../lib/calc";
 import { pct, sgd, shortDate } from "../lib/format";
 import { Card, Label } from "../components/ui";
 import { ProductButton, ProductPicker, insurerName } from "../components/ProductPicker";
@@ -304,7 +304,7 @@ export default function Log({
                   </div>
                   <div className="tnum mt-[9px] text-pretty text-[11px] leading-[1.5] text-muted">
                     Gross revenue estimated at {sgd(preview.gross_revenue)} (rate {product.comm_rate}, a placeholder) and commission at {advisor.banding_code} ·{" "}
-                    {pct(bandingRate(advisor.banding_code))}. Merlin's figure replaces it on confirmation.
+                    {pct(bandingRate(advisor.banding_code))}. Merlin's figure replaces it on confirmation. MDRT counts this product as {MDRT_CATEGORY_LABEL[product.mdrt_category]}.
                   </div>
                 </>
               ) : (

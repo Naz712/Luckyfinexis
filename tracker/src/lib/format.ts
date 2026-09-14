@@ -1,6 +1,6 @@
 // Display formatting only. No business logic here.
 import type { MetricUnit } from "../mock/data";
-import type { Pace } from "./calc";
+import type { Pace, RouteCredit } from "./calc";
 
 const sgdFormatter = new Intl.NumberFormat("en-SG", { maximumFractionDigits: 0 });
 
@@ -90,4 +90,22 @@ export function paceText(pace: Pace | null, unit: MetricUnit, reached: boolean):
   if (pace.requiredPerMonth === null) return `Period ended · short by ${fmtMetric(pace.gap, unit)}`;
   if (pace.remainingMonths < 1.5 && pace.requiredPerWeek !== null) return `Need ${fmtMetric(pace.requiredPerWeek, unit)}/week`;
   return `Need ${fmtMetric(pace.requiredPerMonth, unit)}/month`;
+}
+
+/**
+ * What still stands between a route's credit and MDRT's minimums inside it,
+ * shared by Home, Goals and the Calculator; null when every minimum is met
+ * or nothing is affected yet.
+ */
+export function routeGateText(credit: RouteCredit): string | null {
+  if (credit.newBusiness) {
+    const parts: string[] = [];
+    if (credit.newBusiness.shortfall > 0) parts.push(`${sgd(credit.newBusiness.floor)} of new-business income (you have ${sgd(credit.newBusiness.value)})`);
+    if (credit.riskShortfall > 0) parts.push(`${sgd(credit.riskFloor)} from Risk-Protection products (you have ${sgd(credit.risk)})`);
+    return parts.length === 0 ? null : `To qualify on income, MDRT also needs ${parts.join(" and ")}.`;
+  }
+  if (credit.locked > 0) {
+    return `${sgd(credit.locked)} of Other Products credit is not counted yet. MDRT needs ${sgd(credit.riskShortfall)} more from Risk-Protection products first.`;
+  }
+  return null;
 }
