@@ -74,3 +74,54 @@ input[type="number"] {
 .drop-in {
   animation: dropIn 0.25s ease both;
 }
+
+/* Lively buttons: everything eases, and shrinks a touch while pressed. */
+button {
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    opacity 0.18s ease;
+}
+button:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+/* Solid accent buttons glow, lift on hover and settle when pressed. */
+.btn-primary {
+  background: var(--color-accent);
+  color: #fff;
+  box-shadow: 0 8px 18px -10px rgba(30, 58, 159, 0.7);
+}
+@media (hover: hover) {
+  .btn-primary:not(:disabled):hover {
+    background: var(--color-ink);
+    box-shadow: 0 12px 22px -10px rgba(30, 58, 159, 0.8);
+    transform: translateY(-1px);
+  }
+}
+.btn-primary:not(:disabled):active {
+  box-shadow: 0 3px 8px -6px rgba(30, 58, 159, 0.6);
+  transform: scale(0.98);
+}
+
+/* Cards that act as choices lift on hover and drop when pressed. */
+@media (hover: hover) {
+  .btn-lift:not(:disabled):hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 14px -10px rgba(20, 35, 94, 0.35);
+  }
+}
+
+/* The active tab's icon pops in. */
+@keyframes tabPop {
+  0% { transform: scale(0.85); }
+  55% { transform: scale(1.14); }
+  100% { transform: scale(1); }
+}
+.tab-pop {
+  animation: tabPop 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}

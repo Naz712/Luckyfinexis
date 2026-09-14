@@ -223,7 +223,7 @@ export default function App() {
             return (
               <li key={t.id}>
                 <button type="button" onClick={() => goTo(t.id)} aria-current={active ? "page" : undefined} className="flex w-full flex-col items-center gap-[3px] py-[5px]">
-                  <span className={`grid h-7 w-12 place-items-center rounded-[10px] ${active ? "bg-accent-soft text-accent" : "text-[#9aa1b1]"}`}>
+                  <span key={active ? "on" : "off"} className={`grid h-7 w-12 place-items-center rounded-[10px] ${active ? "tab-pop bg-accent-soft text-accent" : "text-[#9aa1b1]"}`}>
                     <TabIcon tab={t.id} active={active} />
                   </span>
                   <span className={`text-[10px] ${active ? "font-bold text-accent" : "font-medium text-muted"}`}>{t.label}</span>

@@ -309,7 +309,7 @@ function CaseSheet({ c, onDone }: { c: Case; onDone: () => void }) {
 
       <p className="tnum mt-3.5 text-pretty text-[12px] leading-[1.55] text-muted">{footnote}</p>
 
-      <button type="button" onClick={onDone} className="mt-[18px] block w-full rounded-xl bg-accent py-3.5 text-center text-[15px] font-semibold text-white">
+      <button type="button" onClick={onDone} className="btn-primary mt-[18px] block w-full rounded-xl py-3.5 text-center text-[15px] font-semibold text-white">
         Done
       </button>
     </div>
@@ -432,7 +432,7 @@ export default function Home({
             <button
               type="button"
               onClick={onChangeGoal}
-              className="relative flex shrink-0 items-center gap-1 rounded-full bg-white/14 px-2.5 py-1.5 text-[11px] font-semibold text-white/85 before:absolute before:inset-x-0 before:-inset-y-2 before:content-['']"
+              className="relative flex shrink-0 items-center gap-1 rounded-full bg-white/14 px-2.5 py-1.5 text-[11px] font-semibold text-white/85 hover:bg-white/24 hover:text-white before:absolute before:inset-x-0 before:-inset-y-2 before:content-['']"
             >
               Change
               <Chevron size={11} strokeWidth={2} />
@@ -502,7 +502,7 @@ export default function Home({
               <button
                 type="button"
                 onClick={onChangeGoal}
-                className="relative mt-3.5 inline-flex items-center gap-[5px] rounded-full bg-white px-3.5 py-2 text-[12px] font-semibold text-accent before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-['']"
+                className="relative mt-3.5 inline-flex items-center gap-[5px] rounded-full bg-white px-3.5 py-2 text-[12px] font-semibold text-accent before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-[''] hover:bg-accent-soft"
               >
                 Set a {view.word} goal
                 <Chevron size={11} strokeWidth={2} />

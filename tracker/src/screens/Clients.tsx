@@ -157,7 +157,7 @@ function ClientDetail({
   const since = parseISODate(client.since);
   const prize = prizes.find((p) => p.monthly_draw === month);
   const validCaption = month === current ? "valid for this draw" : `counted in the ${month} draw`;
-  const action = "flex flex-1 items-center justify-center gap-1.5 rounded-[11px] bg-white/16 py-2.5 text-[13px] font-semibold text-white";
+  const action = "flex flex-1 items-center justify-center gap-1.5 rounded-[11px] bg-white/16 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-white/26 active:bg-white/30";
   return (
     <div className="slide-in">
       <div className="rounded-b-[26px] bg-accent px-4 pb-[22px] pt-2 text-white">

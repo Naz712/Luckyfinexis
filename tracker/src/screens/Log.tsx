@@ -312,7 +312,7 @@ export default function Log({
               )}
             </div>
 
-            <button type="submit" className="mt-[13px] block w-full rounded-xl bg-accent p-3.5 text-center text-[15px] font-semibold text-white hover:bg-ink">
+            <button type="submit" className="btn-primary mt-[13px] block w-full rounded-xl p-3.5 text-center text-[15px] font-semibold">
               Log case
             </button>
             <div className="mt-[9px] text-pretty text-center text-[11px] leading-[1.5] text-muted">

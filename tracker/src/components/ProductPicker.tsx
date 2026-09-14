@@ -139,7 +139,7 @@ export function ProductPicker({
                   onPick(p);
                 }}
                 aria-pressed={selected}
-                className={`flex w-full items-center justify-between gap-2.5 border-b border-line py-[13px] text-left ${selected ? "bg-accent-soft/55" : "bg-white"}`}
+                className={`flex w-full items-center justify-between gap-2.5 border-b border-line py-[13px] text-left ${selected ? "bg-accent-soft/55" : "bg-white hover:bg-canvas"}`}
               >
                 <span className="block min-w-0">
                   <span className="block text-[14px] font-semibold text-ink">{p.name}</span>

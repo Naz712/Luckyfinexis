@@ -333,7 +333,7 @@ export default function Calculator({
         <button
           type="button"
           onClick={() => setPicker({ mode: "add" })}
-          className="flex w-full items-center justify-center gap-[7px] rounded-2xl border border-dashed border-accent/45 bg-accent-soft/50 p-3.5 text-[14px] font-semibold text-accent"
+          className="flex w-full items-center justify-center gap-[7px] rounded-2xl border border-dashed border-accent/45 bg-accent-soft/50 p-3.5 text-[14px] font-semibold text-accent hover:border-accent hover:bg-accent-soft"
         >
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -344,7 +344,7 @@ export default function Calculator({
         <Card className="mt-0.5">
           <div className="flex items-baseline justify-between gap-2.5">
             <Label>How far this gets you</Label>
-            <button type="button" onClick={onGoToGoals} className="-my-1.5 flex shrink-0 items-center gap-[3px] py-1.5 text-[11px] font-semibold text-accent">
+            <button type="button" onClick={onGoToGoals} className="-my-1.5 flex shrink-0 items-center gap-[3px] py-1.5 text-[11px] font-semibold text-accent hover:underline underline-offset-2">
               Set in Goals
               <ChevronIcon />
             </button>

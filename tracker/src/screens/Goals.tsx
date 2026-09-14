@@ -670,7 +670,7 @@ function AimCard({ name, hint, progress, selected, onPick }: { name: string; hin
       role="radio"
       aria-checked={selected}
       onClick={onPick}
-      className={`block rounded-xl border-[1.5px] px-3 py-[11px] text-left transition-colors duration-200 ${selected ? "border-accent bg-accent-soft" : "border-line bg-white"}`}
+      className={`btn-lift block rounded-xl border-[1.5px] px-3 py-[11px] text-left ${selected ? "border-accent bg-accent-soft" : "border-line bg-white hover:border-accent/50"}`}
     >
       <div className="flex items-center justify-between gap-1.5">
         <span className={`text-[14px] font-bold ${selected ? "text-accent" : "text-ink"}`}>{name}</span>
