@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { advisors, bandings, cases as seedCases, TODAY, type Advisor, type BandingCode, type Case, type Tier } from "./mock/data";
+import { advisors, bandings, cases as seedCases, DEFAULT_USER_ID, MANAGER_USER_ID, TODAY, type BandingCode, type Case, type Tier } from "./mock/data";
 import { advisorById, casesForAdvisor, clientsForAdvisor, defaultGoalSet, periodBounds, weeksLeftIn, withAdvisorTier, type GoalSet, type PrimaryGoal } from "./lib/calc";
 import { pct } from "./lib/format";
 import Calculator from "./screens/Calculator";
@@ -8,7 +8,6 @@ import Log from "./screens/Log";
 import Team from "./screens/Team";
 import Clients from "./screens/Clients";
 import Goals from "./screens/Goals";
-import Login from "./screens/Login";
 
 type Tab = "home" | "goals" | "calculator" | "log" | "team" | "clients";
 
@@ -88,19 +87,8 @@ function TabIcon({ tab, active }: { tab: Tab; active: boolean }) {
   }
 }
 
-/** Who is signed in is the one thing kept on the device, so an installed app reopens on the right person. */
-const USER_KEY = "finexis-tracker:user";
-function storedUser(): string | null {
-  try {
-    const id = localStorage.getItem(USER_KEY);
-    return id && advisorById(id) ? id : null;
-  } catch {
-    return null;
-  }
-}
-
 export default function App() {
-  const [userId, setUserId] = useState<string | null>(storedUser);
+  const [userId, setUserId] = useState(DEFAULT_USER_ID);
   const [tab, setTab] = useState<Tab>("home");
   // Set by the Clients screen's "Case" action; cleared when leaving Log so the next visit starts blank.
   const [logClient, setLogClient] = useState<string | null>(null);
@@ -118,29 +106,6 @@ export default function App() {
   // The Calculator's band lives in the header strip, so the shell holds it.
   const [band, setBand] = useState<BandingCode | null>(null);
 
-  const login = (advisor: Advisor, remember: boolean) => {
-    setUserId(advisor.id);
-    setTab("home");
-    setPrimaryGoal({ kind: "tier" });
-    setBand(null);
-    try {
-      if (remember) localStorage.setItem(USER_KEY, advisor.id);
-      else localStorage.removeItem(USER_KEY);
-    } catch {
-      /* private mode: stay signed in for this visit only */
-    }
-  };
-  const logout = () => {
-    setUserId(null);
-    setTab("home");
-    try {
-      localStorage.removeItem(USER_KEY);
-    } catch {
-      /* nothing stored */
-    }
-  };
-  if (!userId) return <Login onLogin={login} />;
-
   const me = advisorById(userId)!;
   const isManager = advisors.some((a) => a.manager_id === me.id);
   const myCases = casesForAdvisor(me.id, cases);
@@ -148,13 +113,20 @@ export default function App() {
   const activeTab = visibleTabs.some((t) => t.id === tab) ? tab : "home";
   const bandInUse = band ?? me.banding_code;
   const setTier = (tier: Tier) => setGoalSet((set) => withAdvisorTier(set, me.id, TODAY.getFullYear(), tier));
-  const logoutPill: ReactNode = (
+  /** Mockup only: flips between the FC and their manager so every screen can be reviewed. */
+  const switchUser = () => {
+    setPrimaryGoal({ kind: "tier" });
+    setBand(null);
+    setUserId(isManager ? DEFAULT_USER_ID : MANAGER_USER_ID);
+  };
+  const viewSwitch: ReactNode = (
     <button
       type="button"
-      onClick={logout}
+      onClick={switchUser}
       className={`whitespace-nowrap rounded-full border border-dashed px-2 py-1 text-[10px] font-medium ${activeTab === "home" ? "border-white/40 text-white/80 hover:bg-white/15" : "border-line text-muted hover:border-accent hover:text-accent"}`}
+      title="Mockup only: switch between the FC and manager views"
     >
-      Log out
+      {isManager ? "FC view" : "Manager view"}
     </button>
   );
 
@@ -190,7 +162,7 @@ export default function App() {
               <div className="mt-0.5 text-[22px] font-bold leading-tight tracking-[-.015em] text-ink">{TABS.find((t) => t.id === activeTab)?.label}</div>
             </div>
             <div className="flex shrink-0 items-end gap-2">
-              {logoutPill}
+              {viewSwitch}
               <div className="tnum whitespace-nowrap text-right text-[11px] leading-[1.45] text-muted">{headerNote[activeTab]}</div>
             </div>
           </div>
@@ -221,7 +193,7 @@ export default function App() {
       )}
 
       <main className="flex-1 pb-[calc(84px+env(safe-area-inset-bottom))]">
-        {activeTab === "home" && <Home key={me.id} advisor={me} cases={cases} goalSet={goalSet} primary={primaryGoal} onChangeGoal={() => goTo("goals")} identityExtra={logoutPill} />}
+        {activeTab === "home" && <Home key={me.id} advisor={me} cases={cases} goalSet={goalSet} primary={primaryGoal} onChangeGoal={() => goTo("goals")} identityExtra={viewSwitch} />}
         {activeTab === "goals" && (
           <Goals key={me.id} advisor={me} cases={cases} goalSet={goalSet} onGoalSetChange={setGoalSet} primary={primaryGoal} onPrimaryChange={setPrimaryGoal} onTierChange={setTier} />
         )}
