@@ -60,11 +60,10 @@ phone or an email attachment without a server.
 ## Placeholders to replace before go-live
 
 All in Section 1 of `src/mock/data.ts`: insurers, products and their `comm_rate`,
-banding rates, typical premiums, credit rates, MDRT thresholds (labelled for 2027
-membership because 2026 production counts toward it; the Singapore values are
-still the 2026-chart figures until the 2027 row is entered and
-`MDRT_THRESHOLDS_CONFIRMED` flipped), and each metric's period type. `TODAY` is
-pinned for stable demos.
+banding rates, typical premiums, credit rates, and each metric's period type.
+The MDRT thresholds are no longer placeholders: they are the Singapore row of
+MDRT's 2027 membership chart (2026 production), entered on 14 Sep 2026, and
+`MDRT_THRESHOLDS_CONFIRMED` is true. `TODAY` is pinned for stable demos.
 
 ## Trying it on a phone
 

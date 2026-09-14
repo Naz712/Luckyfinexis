@@ -132,8 +132,13 @@ export const bandings: Banding[] = [
   { code: "B5", label: "Band 5", commission_rate: 0.7 },
 ];
 
-// PLACEHOLDER — replace with business-supplied values.
-// Seeded from these rules (one row per product × metric):
+// PLACEHOLDER — the MDRT rates follow MDRT's "Eligible Products and Credit"
+// table (2027 Membership Information, page 4): 100% of first-year commission
+// for every product; premium credit 100% of first-year premium for regular
+// life / CI / health / endowment, 6% for single premium and new money into
+// funds. WAPE rates are Finexis's own and still to be supplied. What is still
+// an assumption is which MDRT row each Finexis product maps to (one row per
+// product × metric):
 //   regular life / health / endowment → mdrt_premium 1.00, mdrt_commission 1.00, wape 1.00
 //   single premium                    → mdrt_premium 0.06, mdrt_commission 1.00, wape 0.10
 //   funds                             → mdrt_premium 0.06, mdrt_commission 1.00, wape 0
@@ -201,30 +206,31 @@ export const credit_rates: CreditRate[] = [
 /**
  * MDRT qualifies on the previous calendar year's production: what an FC
  * writes in MDRT_PRODUCTION_YEAR counts toward membership in
- * MDRT_MEMBERSHIP_YEAR, so the thresholds below must be that membership
+ * MDRT_MEMBERSHIP_YEAR, so the thresholds below are that membership
  * year's chart (confirmed by marketing, 9 Sep 2026).
  */
 export const MDRT_PRODUCTION_YEAR = 2026;
 export const MDRT_MEMBERSHIP_YEAR = 2027;
 /**
- * PLACEHOLDER — false until the Singapore row of the MDRT 2027 chart
- * (assets.mdrt.org/download/27498d3c2c7411f191876ed115eea297) has been
- * copied into metric_thresholds. The UI shows a "to confirm" note while false.
+ * True once metric_thresholds holds the Singapore row of the membership
+ * year's chart. Flipped 14 Sep 2026 from "Membership Information for the
+ * 2027 Million Dollar Round Table" (MDRT, Global edition dated 3/14/2026,
+ * page 12). The UI shows a "to confirm" note while false.
  */
-export const MDRT_THRESHOLDS_CONFIRMED = false;
+export const MDRT_THRESHOLDS_CONFIRMED = true;
 
-// PLACEHOLDER — the Singapore figures below are the 2026-membership chart
-// (2025 production). Marketing has said the 2027 levels are higher; replace
-// each value with the 2027 Singapore row (MDRT / COT / TOT at 1x / 3x / 6x)
-// and flip MDRT_THRESHOLDS_CONFIRMED to true. Only the commission and
-// premium routes are modelled; the chart's income route is not.
+// Singapore, SGD, 2027 membership (2026 production), from page 12 of the
+// document above: MDRT / COT / TOT at 1x / 3x / 6x. Only the commission and
+// premium routes are modelled; the chart's income route (131,300 / 393,900 /
+// 787,800) is not. MDRT's conversion factors (0.8239 commission, 1.2358
+// premium) only matter when reporting to MDRT in USD, so they are not used.
 export const metric_thresholds: MetricThreshold[] = [
-  { metric: "mdrt_commission", tier: "mdrt", value: 72400 },
-  { metric: "mdrt_commission", tier: "cot", value: 217200 },
-  { metric: "mdrt_commission", tier: "tot", value: 434400 },
-  { metric: "mdrt_premium", tier: "mdrt", value: 217200 },
-  { metric: "mdrt_premium", tier: "cot", value: 651600 },
-  { metric: "mdrt_premium", tier: "tot", value: 1303200 },
+  { metric: "mdrt_commission", tier: "mdrt", value: 75800 },
+  { metric: "mdrt_commission", tier: "cot", value: 227400 },
+  { metric: "mdrt_commission", tier: "tot", value: 454800 },
+  { metric: "mdrt_premium", tier: "mdrt", value: 227400 },
+  { metric: "mdrt_premium", tier: "cot", value: 682200 },
+  { metric: "mdrt_premium", tier: "tot", value: 1364400 },
 ];
 
 // PLACEHOLDER — replace with business-supplied values.
