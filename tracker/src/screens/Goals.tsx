@@ -629,8 +629,8 @@ export default function Goals({
               >
                 <div className="flex items-baseline justify-between gap-2.5">
                   <span className="flex min-w-0 items-baseline gap-1.5">
-                    <span className="text-[13px] font-semibold text-ink">{m.label}</span>
-                    <span className="whitespace-nowrap text-[10px] text-muted">
+                    <span className="whitespace-nowrap text-[13px] font-semibold text-ink">{m.label}</span>
+                    <span className="min-w-0 truncate text-[10px] text-muted">
                       {CADENCE_LABEL[v.cadence]} · {periodLabel(v.period)}
                     </span>
                   </span>

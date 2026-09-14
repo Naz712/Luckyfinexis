@@ -189,8 +189,8 @@ function MetricRow({
       <button type="button" onClick={onToggle} aria-expanded={expanded} className="block w-full px-4 pb-[13px] pt-3 text-left">
         <div className="flex items-center justify-between gap-2.5">
           <div className="flex min-w-0 items-center gap-[7px]">
-            <span className="text-[13px] font-semibold text-ink">{def.label}</span>
-            <span className="truncate text-[10px] text-muted">{periodLabel(period)}</span>
+            <span className="whitespace-nowrap text-[13px] font-semibold text-ink">{def.label}</span>
+            <span className="min-w-0 truncate text-[10px] text-muted">{periodLabel(period)}</span>
           </div>
           <div className="flex shrink-0 items-center gap-[7px]">
             <span className="tnum text-[16px] font-bold text-ink">{fmtMetric(achieved, unit)}</span>
