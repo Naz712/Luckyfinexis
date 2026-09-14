@@ -480,7 +480,7 @@ export default function Home({
               {toConfirm && <span className="shrink-0 text-[11px] text-white/60">to confirm</span>}
             </div>
 
-            <div className="relative mx-auto h-[170px] w-[350px] max-w-full">
+            <div className="relative mx-auto mt-3 h-[170px] w-[350px] max-w-full">
               <svg width="350" height="180" viewBox="0 0 350 180" className="pointer-events-none absolute left-1/2 top-0 -translate-x-1/2" aria-hidden="true">
                 <path d={ARC_PATH} fill="none" strokeWidth="14" strokeLinecap="round" className="stroke-white/18" />
                 <path d={ARC_PATH} fill="none" strokeWidth="14" strokeLinecap="round" className="stroke-white/45" strokeDasharray={arcDash(projectedFrac)} style={ARC_TRANSITION} />
