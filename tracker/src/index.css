@@ -42,3 +42,12 @@ input[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+
+/* Client detail is pushed in place: a short slide from the right. */
+@keyframes slideIn {
+  from { transform: translateX(16px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.slide-in {
+  animation: slideIn 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+}

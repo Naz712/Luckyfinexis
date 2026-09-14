@@ -35,6 +35,12 @@ const SHOW_USER_SWITCH = import.meta.env.DEV || import.meta.env.VITE_USER_SWITCH
 export default function App() {
   const [userId, setUserId] = useState(DEFAULT_USER_ID);
   const [tab, setTab] = useState<Tab>("home");
+  // Set by the Clients screen's "Case" action; cleared when leaving Log so the next visit starts blank.
+  const [logClient, setLogClient] = useState<string | null>(null);
+  const goTo = (t: Tab) => {
+    setTab(t);
+    if (t !== "log") setLogClient(null);
+  };
   // Cases live in memory only; the Log screen appends pending manual cases here.
   const [cases, setCases] = useState(seedCases);
   const addCase = (c: Case) => setCases((cs) => [...cs, c]);
@@ -114,9 +120,19 @@ export default function App() {
             />
           ))}
         {activeTab === "calculator" && <Calculator key={me.id} advisor={me} cases={myCases} goalSet={goalSet} />}
-        {activeTab === "log" && <Log key={me.id} advisor={me} cases={cases} onAdd={addCase} onRemove={removePendingCase} />}
+        {activeTab === "log" && <Log key={`${me.id}:${logClient ?? ""}`} advisor={me} cases={cases} onAdd={addCase} onRemove={removePendingCase} initialClient={logClient ?? undefined} />}
         {activeTab === "team" && isManager && <Team key={me.id} manager={me} cases={cases} goalSet={goalSet} />}
-        {activeTab === "clients" && <Clients key={me.id} advisor={me} cases={cases} />}
+        {activeTab === "clients" && (
+          <Clients
+            key={me.id}
+            advisor={me}
+            cases={cases}
+            onLogCase={(client) => {
+              setLogClient(client.name);
+              setTab("log");
+            }}
+          />
+        )}
       </main>
 
       <nav className="fixed inset-x-0 bottom-0 z-10 mx-auto w-full max-w-[430px] border-t border-line bg-white pb-[env(safe-area-inset-bottom)]" aria-label="Sections">
@@ -127,7 +143,7 @@ export default function App() {
               <li key={t.id}>
                 <button
                   type="button"
-                  onClick={() => setTab(t.id)}
+                  onClick={() => goTo(t.id)}
                   aria-current={active ? "page" : undefined}
                   className={`flex w-full flex-col items-center gap-1 py-2.5 text-[10px] font-semibold ${active ? "text-accent" : "text-muted"}`}
                 >

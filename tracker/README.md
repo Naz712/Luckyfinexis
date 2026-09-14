@@ -48,9 +48,12 @@ phone or an email attachment without a server.
 - **Log** — record a closed case as pending until Merlin confirms it.
 - **Team** (manager only) — each FC's commission, goal, MDRT route and pace, with a
   read-only drill-down.
-- **Clients** — every client with their plans and Around The World passes for the
-  selected draw month (gold and blue, broken down by how they were earned), with a
-  prominent "passes as of" cut-off and prize wins.
+- **Clients** — the draw in view heads the screen ("September draw · Current", with
+  past draws one tap away and their totals), then a searchable client list ordered
+  recently-viewed first with gold and blue pass tickets per client. A client's page
+  pushes in with Call, Email and Case actions, pass cards for this draw and the
+  campaign, the prize if they won, a dated "How they earned it" timeline, and their
+  plans. Case opens Log with the client's name filled in.
 
 ## Placeholders to replace before go-live
 

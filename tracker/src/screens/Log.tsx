@@ -43,13 +43,16 @@ export default function Log({
   cases,
   onAdd,
   onRemove,
+  initialClient,
 }: {
   advisor: Advisor;
   cases: Case[];
   onAdd: (c: Case) => void;
   onRemove: (id: string) => void;
+  /** Pre-fills the client name when the screen is opened from a client's page. */
+  initialClient?: string;
 }) {
-  const [draft, setDraft] = useState<Draft>(emptyDraft);
+  const [draft, setDraft] = useState<Draft>(() => ({ ...emptyDraft(), clientName: initialClient ?? "" }));
   const [errors, setErrors] = useState<Partial<Record<keyof Draft, string>>>({});
   const [attempted, setAttempted] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
