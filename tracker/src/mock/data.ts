@@ -254,6 +254,8 @@ export type CaseSource = "manual" | "merlin";
 export interface Advisor {
   id: string;
   name: string;
+  /** PLACEHOLDER — sign-in identity for the trial; real accounts come with production auth. */
+  email: string;
   fc_code: string;
   banding_code: BandingCode;
   /** null for the manager; otherwise the manager's advisor id. */
@@ -301,17 +303,24 @@ export interface MdrtTierGoal {
 }
 
 export const advisors: Advisor[] = [
-  { id: "adv_mgr", name: "Jonathan Koh", fc_code: "FC000", banding_code: "B5", manager_id: null },
-  { id: "adv_01", name: "Tan Wei Lun", fc_code: "FC001", banding_code: "B3", manager_id: "adv_mgr" },
-  { id: "adv_02", name: "Nur Aisyah Rahim", fc_code: "FC002", banding_code: "B2", manager_id: "adv_mgr" },
-  { id: "adv_03", name: "Rachel Lim", fc_code: "FC003", banding_code: "B4", manager_id: "adv_mgr" },
-  { id: "adv_04", name: "Marcus Ong", fc_code: "FC004", banding_code: "B1", manager_id: "adv_mgr" },
-  { id: "adv_05", name: "Devi Rajan", fc_code: "FC005", banding_code: "B3", manager_id: "adv_mgr" },
+  { id: "adv_mgr", name: "Jonathan Koh", email: "jonathan.koh@finexis.com.sg", fc_code: "FC000", banding_code: "B5", manager_id: null },
+  { id: "adv_01", name: "Tan Wei Lun", email: "tan.weilun@finexis.com.sg", fc_code: "FC001", banding_code: "B3", manager_id: "adv_mgr" },
+  { id: "adv_02", name: "Nur Aisyah Rahim", email: "nur.aisyah@finexis.com.sg", fc_code: "FC002", banding_code: "B2", manager_id: "adv_mgr" },
+  { id: "adv_03", name: "Rachel Lim", email: "rachel.lim@finexis.com.sg", fc_code: "FC003", banding_code: "B4", manager_id: "adv_mgr" },
+  { id: "adv_04", name: "Marcus Ong", email: "marcus.ong@finexis.com.sg", fc_code: "FC004", banding_code: "B1", manager_id: "adv_mgr" },
+  { id: "adv_05", name: "Devi Rajan", email: "devi.rajan@finexis.com.sg", fc_code: "FC005", banding_code: "B3", manager_id: "adv_mgr" },
 ];
 
-/** The signed-in FC for the mockup (a non-manager). The dev toggle switches to the manager. */
+/** Handy ids for tests and demos: a non-manager FC and their manager. */
 export const DEFAULT_USER_ID = "adv_01";
 export const MANAGER_USER_ID = "adv_mgr";
+
+/**
+ * PLACEHOLDER — one shared password for the trial so anyone with the link can
+ * sign in as any demo account. Production replaces this screen with real
+ * authentication (Supabase Auth or finexis SSO); nothing here is a secret.
+ */
+export const DEMO_PASSWORD = "finexis";
 
 /** "Today" for the mockup, pinned so pace and week counts stay stable in screenshots. Last set 6 Sep 2026. */
 export const TODAY = new Date("2026-09-06T00:00:00");

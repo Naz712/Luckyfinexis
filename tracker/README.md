@@ -33,6 +33,11 @@ phone or an email attachment without a server.
 
 ## Screens
 
+- **Sign in** — each consultant signs in with their email or FC code and lands on
+  their own pages; the manager's account adds the Team tab. The password is a
+  placeholder shared by every demo account (listed on the sign-in page) until
+  real authentication exists. Who is signed in is remembered on the device;
+  everything else resets on reload.
 - **Home** — a blue hero that answers "am I on pace for the goal I set?": the aim
   from Goals (MDRT/COT/TOT 2027 or your own commission goal), a Commission /
   Premium route switch, a progress arc (confirmed, pending, target), a verdict
@@ -65,3 +70,16 @@ membership because 2026 production counts toward it; the Singapore values are
 still the 2026-chart figures until the 2027 row is entered and
 `MDRT_THRESHOLDS_CONFIRMED` flipped), and each metric's period type. `TODAY` is
 pinned for stable demos.
+
+## Trying it on a phone
+
+Every push to the tracker branch (or main) runs `.github/workflows/tracker-pages.yml`,
+which builds the app and publishes it to GitHub Pages at
+https://naz712.github.io/Luckyfinexis/ (Pages must be switched to "GitHub Actions"
+once in the repository settings). Open that link on a phone and add it to the home
+screen: it installs with its own icon, opens full screen, and keeps working without
+a connection thanks to a small service worker. Sign in with any demo account.
+
+The same build can be wrapped as a native app later (Capacitor for iOS and Android)
+once there is a backend to sign in against; that needs a Mac and developer accounts
+for TestFlight and Play testing.
