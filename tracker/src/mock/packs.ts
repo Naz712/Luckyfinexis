@@ -1,6 +1,7 @@
 // Meeting Pack mock data. Shapes mirror the tables the feature would use
 // (see tracker/README.md "Meeting Pack"); values are fixed sample data for
-// one draft pack (Serene Wee, 15 Sep 2026) and two approved ones.
+// one draft pack (Serene Wee, 5 Sep 2026, the day before the pinned TODAY) and
+// two approved ones earlier that week.
 //
 // Everything here is PLACEHOLDER content: in the app it would come from the
 // pack record and the extractions the backend produces from the recap,
@@ -162,9 +163,9 @@ export const PACK_ASSET = {
 } as const;
 
 export const packs: Pack[] = [
-  { id: "pack_03", advisor_id: "adv_01", client_id: "cli_014", client_name: "Serene Wee", kind: "Review", met_on: "2026-09-15", duration_min: 47, status: "draft", approved_at: null, recording_deleted_at: "12:41", cases_logged: 0 },
-  { id: "pack_02", advisor_id: "adv_01", client_id: "cli_019", client_name: "Oliver Yeo", kind: "First meeting", met_on: "2026-09-12", duration_min: 38, status: "approved", approved_at: "2026-09-12T15:20:00", recording_deleted_at: "14:52", cases_logged: 0 },
-  { id: "pack_01", advisor_id: "adv_01", client_id: "cli_015", client_name: "Ravi Nathan", kind: "Closing", met_on: "2026-09-09", duration_min: 25, status: "approved", approved_at: "2026-09-09T11:05:00", recording_deleted_at: "10:44", cases_logged: 1 },
+  { id: "pack_03", advisor_id: "adv_01", client_id: "cli_014", client_name: "Serene Wee", kind: "Review", met_on: "2026-09-05", duration_min: 47, status: "draft", approved_at: null, recording_deleted_at: "12:41", cases_logged: 0 },
+  { id: "pack_02", advisor_id: "adv_01", client_id: "cli_019", client_name: "Oliver Yeo", kind: "First meeting", met_on: "2026-09-02", duration_min: 38, status: "approved", approved_at: "2026-09-02T15:20:00", recording_deleted_at: "14:52", cases_logged: 0 },
+  { id: "pack_01", advisor_id: "adv_01", client_id: "cli_015", client_name: "Ravi Nathan", kind: "Closing", met_on: "2026-08-31", duration_min: 25, status: "approved", approved_at: "2026-08-31T11:05:00", recording_deleted_at: "10:44", cases_logged: 1 },
 ];
 
 export const pack_inputs: PackInput[] = [
@@ -189,7 +190,7 @@ const sereneReport: ReportContent = {
   },
   attachments: {
     items: [
-      { kind: "photo", title: "Whiteboard photo", caption: "15 Sep, 12:38 · read, 3 numbers", urls: [PACK_ASSET.whiteboard], chips: ["3 numbers read", "Kept with this report"] },
+      { kind: "photo", title: "Whiteboard photo", caption: "5 Sep, 12:38 · read, 3 numbers", urls: [PACK_ASSET.whiteboard], chips: ["3 numbers read", "Kept with this report"] },
       { kind: "document", title: "Fact-find notes", caption: "PDF · 2 pages", urls: [PACK_ASSET.notes1, PACK_ASSET.notes2], chips: ["2 pages", "Kept with this report"] },
     ],
     sources: ["photo", "document"],
@@ -312,7 +313,7 @@ const oliverReport: ReportContent = {
     sources: ["recap"],
   },
   questions: { items: [{ quote: "Is term enough, or should it be whole life?", answer: "Term covers the mortgage years for the least premium. Whole life was the one you preferred for the cash value, so that is the quote I sent." }], sources: ["recap"] },
-  next: { items: [{ date: "Mon 14 Sep", text: "Proposal signed · pending with Merlin" }], sources: ["recap"] },
+  next: { items: [{ date: "Fri 4 Sep", text: "Proposal signed · pending with Merlin" }], sources: ["recap"] },
   private: { referrals: [], testimonial: null },
 };
 
@@ -333,7 +334,7 @@ const raviReport: ReportContent = {
   cashflow: { total: 8100, totalLabel: "S$8,100", rows: [{ label: "Expenses", amount: 5900, kind: "neutral" }, { label: "Savings", amount: 1400, kind: "set" }, { label: "Protection", amount: 392, kind: "set" }], sources: ["recap"] },
   options: { items: [{ name: "Singlife Term", detail: "S$400k · 10 years", premium: "S$392", reaction: "liked", reactionText: "Signed today", log: { product_id: "prd_01", premium: 4700, term_years: 10 } }], note: null, sources: ["recap"] },
   questions: { items: [], sources: [] },
-  next: { items: [{ date: "Wed 23 Sep", text: "Underwriting decision expected" }], sources: ["recap"] },
+  next: { items: [{ date: "Mon 14 Sep", text: "Underwriting decision expected" }], sources: ["recap"] },
   private: { referrals: [], testimonial: null },
 };
 
