@@ -67,6 +67,9 @@ export default function Log({
   onAdd,
   onRemove,
   initialClient,
+  initialProductId,
+  initialPremium,
+  initialTerm,
 }: {
   advisor: Advisor;
   cases: Case[];
@@ -74,8 +77,19 @@ export default function Log({
   onRemove: (id: string) => void;
   /** Pre-fills the client name when the screen is opened from a client's page. */
   initialClient?: string;
+  /** Prefilled by a Meeting Pack's "Log the … case". */
+  initialProductId?: string;
+  initialPremium?: number;
+  initialTerm?: number;
 }) {
-  const [draft, setDraft] = useState<Draft>(() => ({ ...emptyDraft(), clientName: initialClient ?? "" }));
+  const [draft, setDraft] = useState<Draft>(() => ({
+    ...emptyDraft(),
+    clientName: initialClient ?? "",
+    productId: initialProductId ?? "",
+    premium: initialPremium ? String(initialPremium) : "",
+    premiumTouched: !!initialPremium,
+    term: initialTerm ? String(initialTerm) : "10",
+  }));
   const [attempted, setAttempted] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
   const [picker, setPicker] = useState(false);

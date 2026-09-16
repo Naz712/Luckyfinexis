@@ -8,8 +8,9 @@ import Log from "./screens/Log";
 import Team from "./screens/Team";
 import Clients from "./screens/Clients";
 import Goals from "./screens/Goals";
+import Packs, { type LogPrefill } from "./screens/packs/Packs";
 
-type Tab = "home" | "goals" | "calculator" | "log" | "team" | "clients";
+type Tab = "home" | "goals" | "calculator" | "log" | "team" | "clients" | "packs";
 
 const TABS: { id: Tab; label: string; managerOnly?: boolean }[] = [
   { id: "home", label: "Home" },
@@ -18,6 +19,7 @@ const TABS: { id: Tab; label: string; managerOnly?: boolean }[] = [
   { id: "log", label: "Log" },
   { id: "team", label: "Team", managerOnly: true },
   { id: "clients", label: "Clients" },
+  { id: "packs", label: "Packs" },
 ];
 
 /** Tab icons from the handoff: an outline at rest, a filled version when active. 23px on a 24 grid. */
@@ -75,6 +77,14 @@ function TabIcon({ tab, active }: { tab: Tab; active: boolean }) {
           <path d="M15.4 16.4a4.3 4.3 0 0 1 5.2 3.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
         </svg>
       );
+    case "packs":
+      return (
+        <svg {...p}>
+          <path d="M7 6.5V4.2a.7.7 0 0 1 .7-.7h8.6l3.2 3.2v2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          <path d="M4.5 9.2a.7.7 0 0 1 .7-.7h8.4l3.4 3.4v8.4a.7.7 0 0 1-.7.7H5.2a.7.7 0 0 1-.7-.7V9.2Z" fill={active ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+          <path d="M7.6 14.6h6.2M7.6 17.6h4.4" stroke={active ? "var(--color-accent-soft)" : "currentColor"} strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      );
     case "team":
       return (
         <svg {...p}>
@@ -92,9 +102,14 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("home");
   // Set by the Clients screen's "Case" action; cleared when leaving Log so the next visit starts blank.
   const [logClient, setLogClient] = useState<string | null>(null);
+  // Set by a Meeting Pack's "Log the … case": client, product and premium prefilled.
+  const [logPrefill, setLogPrefill] = useState<LogPrefill | null>(null);
   const goTo = (t: Tab) => {
     setTab(t);
-    if (t !== "log") setLogClient(null);
+    if (t !== "log") {
+      setLogClient(null);
+      setLogPrefill(null);
+    }
   };
   // Cases live in memory only; the Log screen appends pending manual cases here.
   const [cases, setCases] = useState(seedCases);
@@ -132,7 +147,7 @@ export default function App() {
 
   const pendingCount = myCases.filter((c) => c.status === "pending").length;
   const weeksLeft = weeksLeftIn(periodBounds("jan_dec", TODAY), TODAY);
-  const headerNote: Record<Exclude<Tab, "home">, ReactNode> = {
+  const headerNote: Record<Exclude<Tab, "home" | "packs">, ReactNode> = {
     goals: `${weeksLeft} weeks left in ${TODAY.getFullYear()}`,
     calculator: (
       <>
@@ -154,7 +169,7 @@ export default function App() {
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-canvas sm:border-x sm:border-line">
-      {activeTab !== "home" && (
+      {activeTab !== "home" && activeTab !== "packs" && (
         <header className="sticky top-0 z-10 border-b border-line bg-surface px-5 pb-3 pt-[max(6px,env(safe-area-inset-top))]">
           <div className="flex items-end justify-between gap-2.5">
             <div className="min-w-0">
@@ -198,7 +213,30 @@ export default function App() {
           <Goals key={me.id} advisor={me} cases={cases} goalSet={goalSet} onGoalSetChange={setGoalSet} primary={primaryGoal} onPrimaryChange={setPrimaryGoal} onTierChange={setTier} />
         )}
         {activeTab === "calculator" && <Calculator key={me.id} advisor={me} cases={myCases} goalSet={goalSet} primary={primaryGoal} band={bandInUse} onGoToGoals={() => goTo("goals")} />}
-        {activeTab === "log" && <Log key={`${me.id}:${logClient ?? ""}`} advisor={me} cases={cases} onAdd={addCase} onRemove={removePendingCase} initialClient={logClient ?? undefined} />}
+        {activeTab === "log" && (
+          <Log
+            key={`${me.id}:${logClient ?? ""}:${logPrefill?.productId ?? ""}`}
+            advisor={me}
+            cases={cases}
+            onAdd={addCase}
+            onRemove={removePendingCase}
+            initialClient={logPrefill?.clientName ?? logClient ?? undefined}
+            initialProductId={logPrefill?.productId}
+            initialPremium={logPrefill?.premium}
+            initialTerm={logPrefill?.termYears}
+          />
+        )}
+        {activeTab === "packs" && (
+          <Packs
+            key={me.id}
+            advisor={me}
+            extra={viewSwitch}
+            onLogCase={(p) => {
+              setLogPrefill(p);
+              setTab("log");
+            }}
+          />
+        )}
         {activeTab === "team" && isManager && <Team key={me.id} manager={me} cases={cases} goalSet={goalSet} />}
         {activeTab === "clients" && (
           <Clients
@@ -213,14 +251,14 @@ export default function App() {
         )}
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-10 mx-auto w-full max-w-[430px] border-t border-line bg-surface px-1.5 pb-[max(20px,env(safe-area-inset-bottom))] pt-1.5" aria-label="Sections">
+      <nav className="fixed inset-x-0 bottom-0 z-10 mx-auto w-full max-w-[430px] border-t border-line bg-surface px-1 pb-[max(20px,env(safe-area-inset-bottom))] pt-1.5" aria-label="Sections">
         <ul className="grid" style={{ gridTemplateColumns: `repeat(${visibleTabs.length}, minmax(0, 1fr))` }}>
           {visibleTabs.map((t) => {
             const active = t.id === activeTab;
             return (
               <li key={t.id}>
                 <button type="button" onClick={() => goTo(t.id)} aria-current={active ? "page" : undefined} className="flex w-full flex-col items-center gap-[3px] py-[5px]">
-                  <span key={active ? "on" : "off"} className={`grid h-7 w-12 place-items-center rounded-[10px] ${active ? "tab-pop bg-accent-soft text-accent" : "text-faint"}`}>
+                  <span key={active ? "on" : "off"} className={`grid h-7 w-11 place-items-center rounded-[10px] ${active ? "tab-pop bg-accent-soft text-accent" : "text-faint"}`}>
                     <TabIcon tab={t.id} active={active} />
                   </span>
                   <span className={`text-[10px] ${active ? "font-bold text-accent" : "font-medium text-muted"}`}>{t.label}</span>

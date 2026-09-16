@@ -14,6 +14,7 @@ npm run build      # typecheck + production build into dist/
 
 | Path | What |
 | --- | --- |
+| `src/mock/packs.ts` | Meeting Pack sample data: packs, inputs, numbers to confirm, report content per pack. |
 | `src/mock/data.ts` | All mock tables. Section 1 holds every `PLACEHOLDER` reference value; Section 2 holds fake advisors, cases and goals; Section 3 mirrors the lucky-draw tables the importer writes (challenge types, draws, clients, pass ledger, prizes). |
 | `src/lib/calc.ts` | Pure calculations: `commissionForCase`, `metricsForCase`, `aggregate`, `pace`, `clientsNeeded`, period helpers, MDRT tiers. |
 | `src/lib/format.ts` | Display formatting only (`S$12,345`, no decimals). |
@@ -56,6 +57,16 @@ phone or an email attachment without a server.
   pushes in with Call, Email and Case actions, pass cards for this draw and the
   campaign, the prize if they won, a dated "How they earned it" timeline, and their
   plans. Case opens Log with the client's name filled in.
+- **Packs** — Meeting Pack. After a consultation the FC drops in a voice recap, a
+  photo of the whiteboard, a fact-find PDF or a few typed lines; a stand-in
+  pipeline turns them into one report they go through with the client. A
+  dashboard of packs (draft / approved), New pack with a processing state,
+  the report (source markers on every card, simple bars, tap-a-card notes with
+  red flags and "Rework all", a consultant-only "Just for you" card, attachment
+  viewer), and Check numbers, where each extracted figure is confirmed against
+  a crop of its original before the pack can be approved. Only the recording is
+  deleted; photos and PDFs stay attached. "Log the term case" hands off to Log
+  with client, product and premium prefilled.
 
 ## Placeholders to replace before go-live
 
@@ -89,6 +100,18 @@ Global edition dated 14 Mar 2026):
 - **Not modelled.** Regular endowments of 15 years or less get only 6% premium
   credit (a term rule, not a product rule); the 5% cap on business written on
   the advisor's own family; replacements; group business.
+
+## Meeting Pack: what is real and what is a stand-in
+
+The screens under `src/screens/packs/` follow the Claude Design handoff
+(`design_handoff_meeting_pack`). What runs today is the flow, not the
+pipeline: "Make report" ticks through the inputs on a timer and opens the
+sample report; "Rework all" shows the reworking and reworked states without
+changing content; "Share as PDF" is a notice. The real version needs a small
+backend that holds the speech-to-text and report-model keys, runs extract,
+compose and rework, deletes the recording once transcribed, and stores the
+approved report and its attachments. Nothing about the screens has to change
+for that; `Packs.tsx` is the one place the stand-ins live.
 
 ## Light and dark
 
