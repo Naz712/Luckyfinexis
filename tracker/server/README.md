@@ -9,6 +9,6 @@ newer, no dependencies.
     npm start                 # http://localhost:8787
     npm run mock              # canned answers, no keys
 
-Routes: `GET /health`, `POST /packs/make`, `POST /packs/rework`. The app side
+Routes: `GET /health`, `POST /packs/make`, `POST /packs/rework`, `POST /ask` (the in-app assistant: one model turn with the app's tool definitions; the tools run in the app). The app side
 is `../src/lib/packsApi.ts`. Setup on a laptop, a phone and through a tunnel
 is in `../README.md` under "Running the real pipeline".

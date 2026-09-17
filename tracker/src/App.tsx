@@ -9,6 +9,7 @@ import Team from "./screens/Team";
 import Clients from "./screens/Clients";
 import Goals from "./screens/Goals";
 import Packs, { type LogPrefill } from "./screens/packs/Packs";
+import AskSheet, { AskButton } from "./components/Ask";
 
 type Tab = "home" | "goals" | "calculator" | "log" | "team" | "clients" | "packs";
 
@@ -136,6 +137,7 @@ export default function App() {
     setBand(null);
     setUserId(isManager ? DEFAULT_USER_ID : MANAGER_USER_ID);
   };
+  const [askOpen, setAskOpen] = useState(false);
   const viewSwitch: ReactNode = (
     <button
       type="button"
@@ -145,6 +147,18 @@ export default function App() {
     >
       {isManager ? "FC view" : "Manager view"}
     </button>
+  );
+  const headerExtra: ReactNode = (
+    <>
+      {viewSwitch}
+      <AskButton onClick={() => setAskOpen(true)} />
+    </>
+  );
+  const heroExtra: ReactNode = (
+    <>
+      {viewSwitch}
+      <AskButton onClick={() => setAskOpen(true)} tone="dark" />
+    </>
   );
 
   const pendingCount = myCases.filter((c) => c.status === "pending").length;
@@ -179,7 +193,7 @@ export default function App() {
               <div className="mt-0.5 text-[22px] font-bold leading-tight tracking-[-.015em] text-ink">{TABS.find((t) => t.id === activeTab)?.label}</div>
             </div>
             <div className="flex shrink-0 items-end gap-2">
-              {viewSwitch}
+              {headerExtra}
               <div className="tnum whitespace-nowrap text-right text-[11px] leading-[1.45] text-muted">{headerNote[activeTab]}</div>
             </div>
           </div>
@@ -210,7 +224,7 @@ export default function App() {
       )}
 
       <main className="flex-1 pb-[calc(84px+env(safe-area-inset-bottom))]">
-        {activeTab === "home" && <Home key={me.id} advisor={me} cases={cases} goalSet={goalSet} primary={primaryGoal} onChangeGoal={() => goTo("goals")} identityExtra={viewSwitch} />}
+        {activeTab === "home" && <Home key={me.id} advisor={me} cases={cases} goalSet={goalSet} primary={primaryGoal} onChangeGoal={() => goTo("goals")} identityExtra={heroExtra} />}
         {activeTab === "goals" && (
           <Goals key={me.id} advisor={me} cases={cases} goalSet={goalSet} onGoalSetChange={setGoalSet} primary={primaryGoal} onPrimaryChange={setPrimaryGoal} onTierChange={setTier} />
         )}
@@ -232,7 +246,7 @@ export default function App() {
           <Packs
             key={me.id}
             advisor={me}
-            extra={viewSwitch}
+            extra={headerExtra}
             resetKey={packsReset}
             onLogCase={(p) => {
               setLogPrefill(p);
@@ -253,6 +267,7 @@ export default function App() {
           />
         )}
       </main>
+      <AskSheet open={askOpen} onClose={() => setAskOpen(false)} ctx={{ advisor: me, cases, goalSet }} />
 
       <nav className="fixed inset-x-0 bottom-0 z-10 mx-auto w-full max-w-[430px] border-t border-line bg-surface px-1 pb-[max(20px,env(safe-area-inset-bottom))] pt-1.5" aria-label="Sections">
         <ul className="grid" style={{ gridTemplateColumns: `repeat(${visibleTabs.length}, minmax(0, 1fr))` }}>

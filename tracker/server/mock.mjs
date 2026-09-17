@@ -113,3 +113,28 @@ export async function rework({ report, notes }) {
   for (const [code, note] of Object.entries(notes)) if (report?.[code]) cards[code] = markFirst(report[code], note);
   return cards;
 }
+
+/** The assistant in mock mode: a keyword router that returns one tool call, then turns the tool's result into the answer card. */
+export async function ask({ messages }) {
+  await wait(500);
+  const last = messages[messages.length - 1];
+  if (last?.role === "tool") {
+    let r = null;
+    try {
+      r = JSON.parse(last.content);
+    } catch {}
+    const rows = Array.isArray(r?.rows) ? r.rows.map((x) => ({ label: String(x.label), value: String(x.value), sub: x.sub ? String(x.sub) : null })) : [];
+    return { role: "assistant", content: JSON.stringify({ title: r?.label ?? "Answer", summary: r?.summary ?? "", rows, note: r?.note ?? null }) };
+  }
+  const q = String(last?.content ?? "").toLowerCase();
+  const amount = q.match(/(?:s\$|\$)\s*(\d[\d,]*)\s*(k)?|\b(\d[\d,]*)\s*(k)\b|\b(\d{3,})\b/);
+  const premium = amount ? Number((amount[1] ?? amount[3] ?? amount[5] ?? "0").replace(/,/g, "")) * (amount[2] || amount[4] ? 1000 : 1) : 0;
+  const call = (name, args) => ({ role: "assistant", content: null, tool_calls: [{ id: `call_mock_${Date.now()}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] });
+  if (/what if|if i (sell|close|log)|one more/.test(q) && premium > 0) return call("what_if", { premium, product: /term|ci|critical|ilp|endowment|hospital|whole life|fund/.exec(q)?.[0] ?? "", term_years: 0, when: "" });
+  if (/best|top|biggest/.test(q)) return call("top_clients", { by: /commission/.test(q) ? "commission" : "premium", period: "year", limit: 5 });
+  if (/not talked|haven|quiet|while|long time/.test(q)) return call("quiet_clients", { days: 60, limit: 6 });
+  if (/pending|pipeline/.test(q)) return call("pipeline", {});
+  if (/recent|this month|this week/.test(q)) return call("recent_cases", { days: 30 });
+  if (/pace|track|progress|mdrt|goal/.test(q)) return call("pace_status", {});
+  return { role: "assistant", content: JSON.stringify({ title: "Not in the app", summary: "I can only answer about the clients, cases and pace in this app.", rows: [], note: null }) };
+}

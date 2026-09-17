@@ -105,3 +105,11 @@ export const REPORT_SCHEMA = obj({
 });
 
 export const REWORK_SCHEMA = obj(Object.fromEntries(REWORKABLE.map((code) => [code, d(nullable(CARDS[code]), `The revised ${code} card, or null when it was not asked for.`)])));
+
+/** What the assistant answers with once it has what it needs from the tools: a card the app renders. */
+export const ANSWER_SCHEMA = obj({
+  title: d(str, "Short heading, e.g. 'Top clients by premium, this year' or 'If you sell FWD Term at S$5,000/yr'."),
+  summary: d(str, "One or two sentences with the figures that matter, to the advisor in the second person."),
+  rows: d(arr(obj({ label: str, value: d(str, "The figure or short value, e.g. S$12,400 or 84 days."), sub: d(nstr, "Optional one-line detail under the label, else null.") })), "Up to eight rows. Empty when a sentence is enough."),
+  note: d(nstr, "A caveat worth stating (what 'contact' means, an assumption), else null."),
+});

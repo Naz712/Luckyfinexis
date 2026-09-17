@@ -20,8 +20,9 @@ npm run build      # typecheck + production build into dist/
 | `src/lib/format.ts` | Display formatting only (`S$12,345`, no decimals). |
 | `src/screens/` | One file per bottom tab (Home, Goals + GoalsEditor, Calculator, Log, Team, Draw). Screens read only through `calc.ts` and `data.ts`. |
 | `src/screens/packs/` | The Meeting Pack tab: `Packs.tsx` (container, both pipelines), `PacksHome`, `NewPack` (real capture), `PackReport`, `CheckNumbers`, `AttachmentViewer`. |
-| `src/lib/packsApi.ts` | The app's client for the pipeline server: where it is (build-time default, the Connect box, or `?api=`), the two calls, and the media helpers (downscale, base64, recorder format). |
-| `server/` | The pipeline server: holds the keys, transcribes the recap (Valsea), writes and reworks the report (OpenAI), drops the audio. Node 22, no dependencies. `.env` is gitignored. |
+| `src/lib/packsApi.ts` | The app's client for the pipeline server: where it is (build-time default, the Connect box, or `?api=`), the calls, and the media helpers (downscale, base64, recorder format). |
+| `src/lib/ask.ts`, `src/components/Ask.tsx` | The assistant: its tools over the advisor's own book (ranked clients, quiet clients, one client, pace, what-if, pending, recent), the stand-in keyword router, and the sheet that renders the answer card. |
+| `server/` | The pipeline server: holds the keys, transcribes the recap (Valsea), writes and reworks the report and runs the assistant's model turns (OpenAI), drops the audio. Node 22, no dependencies. `.env` is gitignored. |
 | `src/components/ui.tsx` | Small shared pieces (card, select, money input, segmented control). |
 | `src/components/BarChart.tsx` | Dependency-free SVG column chart used by the Home progress card. |
 
@@ -176,6 +177,32 @@ with Claude (`CLAUDE_MODEL`, default `claude-opus-5`) with server-side refusal
 fallbacks on by default (`CLAUDE_FALLBACKS=off` to turn them off). The Claude
 path is written to the API docs but has not been run here; the OpenAI path
 is the one to start with.
+
+## Ask: the assistant
+
+The speech-bubble button in every header opens "Ask about your book", a
+bottom sheet that answers questions about this advisor's own data: best
+clients, clients gone quiet, one client's cases, pace against the MDRT aim,
+what one more case would do, pending and recent cases. It is restricted by
+construction: every figure comes from the tools in `src/lib/ask.ts`, which
+run inside the app over the same in-memory cases and the same `calc.ts` the
+screens use. The model never receives the book; it receives the question,
+decides which tools to call, and phrases what they return. Anything the
+tools cannot answer comes back as "Not in the app".
+
+- **With the pipeline server connected** (same server as Meeting Pack, `POST
+  /ask`), the question goes to OpenAI with the tool definitions; the tool
+  calls come back to the app, run here, and their results go back for the
+  answer card. Follow-up questions keep the last few turns.
+- **Without a server**, a keyword router in `ask.ts` understands the
+  suggested kinds of question (best, quiet, what-if with an amount, pace,
+  pending, recent, a client by name) and shows the tool's result directly.
+  This is what the GitHub Pages link does.
+
+"Contact" means the last case logged; the app has no call or meeting log
+yet, and the answer says so. What-ifs assume the case is confirmed on the
+date given (today when none), at the advisor's band, with the product's
+placeholder revenue rate, like the Calculator.
 
 ## Light and dark
 

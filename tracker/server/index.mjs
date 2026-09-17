@@ -3,13 +3,15 @@
 //   GET  /health        what is configured (service and model names, never keys)
 //   POST /packs/make    inputs in → transcript (recording dropped) → report + numbers out
 //   POST /packs/rework  report + card notes in → revised cards out
+//   POST /ask           the assistant: conversation + tool definitions in → tool calls or the answer card out
 //
 // Keys come from ./.env (gitignored) or the environment. Nothing is written
 // to disk: the recap audio lives in this process only until it is
 // transcribed, and the request body is gone when the response is sent.
 import http from "node:http";
 import { fileURLToPath } from "node:url";
-import { ApiError, compose, config, describe, rework, transcribe } from "./providers.mjs";
+import { ApiError, ask, compose, config, describe, rework, transcribe } from "./providers.mjs";
+import { askSystem } from "./prompt.mjs";
 import * as mock from "./mock.mjs";
 
 try {
@@ -144,6 +146,24 @@ async function reworkPack(body) {
   return { cards: out };
 }
 
+async function askTurn(body) {
+  const raw = Array.isArray(body.messages) ? body.messages : [];
+  if (raw.length === 0 || raw.length > 40) throw new ApiError(400, "The conversation is empty or too long.");
+  const messages = raw
+    .filter((m) => m && ["user", "assistant", "tool"].includes(m.role))
+    .map((m) => {
+      const out = { role: m.role, content: typeof m.content === "string" ? m.content.slice(0, 20000) : null };
+      if (m.role === "assistant" && Array.isArray(m.tool_calls)) out.tool_calls = m.tool_calls.map((t) => ({ id: String(t.id), type: "function", function: { name: String(t.function?.name ?? ""), arguments: String(t.function?.arguments ?? "{}") } }));
+      if (m.role === "tool") out.tool_call_id = String(m.tool_call_id ?? "");
+      return out;
+    });
+  const tools = Array.isArray(body.tools) ? body.tools.slice(0, 20) : [];
+  const advisor = String(body.advisor?.name ?? "the consultant").slice(0, 80);
+  const today = /^\d{4}-\d{2}-\d{2}$/.test(String(body.today)) ? String(body.today) : new Date().toISOString().slice(0, 10);
+  const message = MOCK ? await mock.ask({ messages }) : await ask(cfg.report, { system: askSystem(advisor, today), messages, tools });
+  return { message };
+}
+
 const server = http.createServer(async (req, res) => {
   const started = Date.now();
   const origin = req.headers.origin;
@@ -176,10 +196,10 @@ const server = http.createServer(async (req, res) => {
       send(res, 200, { ok: true, mock: MOCK, transcribe: MOCK ? "mock" : describe(cfg.transcribe), report: MOCK ? "mock" : describe(cfg.report), access_code: ACCESS_CODE !== "" }, cors);
       return;
     }
-    if (req.method !== "POST" || (path !== "/packs/make" && path !== "/packs/rework")) throw new ApiError(404, "Not found.");
+    if (req.method !== "POST" || !["/packs/make", "/packs/rework", "/ask"].includes(path)) throw new ApiError(404, "Not found.");
     if (ACCESS_CODE && req.headers["x-access-code"] !== ACCESS_CODE) throw new ApiError(401, "Wrong or missing access code.");
     const body = await readJson(req);
-    const result = path === "/packs/make" ? await makePack(body) : await reworkPack(body);
+    const result = path === "/packs/make" ? await makePack(body) : path === "/ask" ? await askTurn(body) : await reworkPack(body);
     send(res, 200, result, cors);
     log(`${req.method} ${path} → 200 · ${Date.now() - started} ms`);
   } catch (e) {

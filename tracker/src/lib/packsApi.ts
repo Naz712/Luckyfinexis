@@ -161,6 +161,25 @@ export async function reworkPack(settings: ApiSettings, report: ReportContent, n
   return res.cards ?? {};
 }
 
+// ── Ask: the assistant's tool loop runs in the app; the server only talks to the model ──
+
+export interface ToolCall {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant" | "tool";
+  content: string | null;
+  tool_calls?: ToolCall[];
+  tool_call_id?: string;
+}
+
+export function askServer(settings: ApiSettings, body: { advisor: { name: string }; today: string; messages: ChatMessage[]; tools: readonly unknown[] }): Promise<{ message: ChatMessage }> {
+  return call<{ message: ChatMessage }>(settings, "/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+}
+
 // ── Media helpers for the New pack screen ──
 
 export function blobToBase64(blob: Blob): Promise<string> {

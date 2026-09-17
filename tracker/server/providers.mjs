@@ -3,7 +3,7 @@
 // report model (OpenAI by default, Claude as an option). Plain fetch, no SDKs.
 // Keys are read from the config once and only ever go into request headers.
 import { REPORT_SYSTEM, REWORK_SYSTEM, inputCaption, reportIntro, reworkUser } from "./prompt.mjs";
-import { REPORT_SCHEMA, REWORKABLE, REWORK_SCHEMA } from "./schema.mjs";
+import { ANSWER_SCHEMA, REPORT_SCHEMA, REWORKABLE, REWORK_SCHEMA } from "./schema.mjs";
 
 export class ApiError extends Error {
   constructor(status, message) {
@@ -232,4 +232,35 @@ export async function rework(cfg, report, notes) {
   for (const code of REWORKABLE) if (notes[code] !== undefined && raw?.[code] && typeof raw[code] === "object") cards[code] = mapCard(code, raw[code]);
   if (Object.keys(cards).length === 0) throw new ApiError(502, "The model returned no revised cards.");
   return cards;
+}
+
+/** One model turn of the assistant: the conversation so far plus the app's tool definitions; back comes either tool calls (the app runs them) or the answer card as JSON. OpenAI only for now. */
+export async function ask(cfg, { system, messages, tools }) {
+  if (!cfg) throw new ApiError(400, "No report key is set on the server (OPENAI_API_KEY in .env).");
+  if (cfg.provider !== "openai") throw new ApiError(400, "Ask needs OpenAI as the report provider for now (REPORT_PROVIDER=openai).");
+  const body = await post(
+    `${cfg.base}/chat/completions`,
+    {
+      headers: { Authorization: `Bearer ${cfg.key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: cfg.model,
+        messages: [{ role: "system", content: system }, ...messages],
+        tools,
+        tool_choice: "auto",
+        parallel_tool_calls: true,
+        response_format: { type: "json_schema", json_schema: { name: "answer", strict: true, schema: ANSWER_SCHEMA } },
+      }),
+    },
+    "OpenAI",
+  );
+  const json = parseJson(body, "OpenAI");
+  const choice = json.choices?.[0];
+  if (!choice?.message) throw new ApiError(502, "OpenAI returned no answer.");
+  if (choice.message.refusal) throw new ApiError(502, `The model declined: ${choice.message.refusal}`);
+  const m = choice.message;
+  const message = { role: "assistant", content: typeof m.content === "string" ? m.content : null };
+  if (Array.isArray(m.tool_calls) && m.tool_calls.length > 0) {
+    message.tool_calls = m.tool_calls.map((t) => ({ id: String(t.id), type: "function", function: { name: String(t.function?.name ?? ""), arguments: String(t.function?.arguments ?? "{}") } }));
+  }
+  return message;
 }
