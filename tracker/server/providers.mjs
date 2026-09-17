@@ -38,11 +38,13 @@ export function config(env = process.env) {
         service: "Valsea",
         key: valseaKey,
         url: trim(env.VALSEA_TRANSCRIBE_URL) || `${stripSlash(trim(env.VALSEA_BASE_URL) || "https://api.valsea.ai/v1")}/audio/transcriptions`,
-        model: trim(env.VALSEA_MODEL),
+        // Valsea's docs: -F model=valsea-transcribe -F language=english (a word, not a code). VALSEA_LANGUAGE=auto sends none.
+        model: trim(env.VALSEA_MODEL) || "valsea-transcribe",
+        language: (trim(env.VALSEA_LANGUAGE) || "english").toLowerCase() === "auto" ? "" : trim(env.VALSEA_LANGUAGE) || "english",
         extra: parseExtra(env.VALSEA_EXTRA),
       }
     : openaiKey
-      ? { service: "OpenAI", key: openaiKey, url: `${stripSlash(trim(env.OPENAI_BASE_URL) || OPENAI_BASE)}/audio/transcriptions`, model: trim(env.TRANSCRIBE_MODEL) || "gpt-4o-transcribe" }
+      ? { service: "OpenAI", key: openaiKey, url: `${stripSlash(trim(env.OPENAI_BASE_URL) || OPENAI_BASE)}/audio/transcriptions`, model: trim(env.TRANSCRIBE_MODEL) || "gpt-4o-transcribe", language: trim(env.TRANSCRIBE_LANGUAGE) }
       : null;
   const provider = trim(env.REPORT_PROVIDER).toLowerCase() === "claude" ? "claude" : "openai";
   const report =
@@ -53,7 +55,7 @@ export function config(env = process.env) {
       : openaiKey
         ? { provider, service: "OpenAI", key: openaiKey, model: trim(env.OPENAI_MODEL) || "gpt-4.1", base: stripSlash(trim(env.OPENAI_BASE_URL) || OPENAI_BASE) }
         : null;
-  return { transcribe, report, language: trim(env.TRANSCRIBE_LANGUAGE) };
+  return { transcribe, report };
 }
 
 /** What /health may say about a service: its name and model, never its key. */
@@ -89,14 +91,13 @@ async function post(url, init, service) {
 
 // ── Speech-to-text ──
 
-export async function transcribe(cfg, { data, media_type, filename }, language) {
+export async function transcribe(cfg, { data, media_type, filename }) {
   if (!cfg) throw new ApiError(400, "No speech-to-text key is set on the server (VALSEA_API_KEY, or OPENAI_API_KEY as the fallback).");
-  if (cfg.service === "OpenAI" && !cfg.model) throw new ApiError(400, "OpenAI needs a speech-to-text model name on the server (TRANSCRIBE_MODEL in .env).");
   // Only the fields each service documents: a strict validator rejects extras with "Invalid request body".
   const form = new FormData();
   form.append("file", new Blob([data], { type: media_type }), filename);
-  if (cfg.model) form.append("model", cfg.model); // Valsea does not need one; OpenAI does.
-  if (language) form.append("language", language);
+  form.append("model", cfg.model);
+  if (cfg.language) form.append("language", cfg.language);
   if (cfg.service === "OpenAI") {
     form.append("response_format", "json");
     form.append("prompt", VOCAB);

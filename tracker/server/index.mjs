@@ -116,7 +116,7 @@ async function makePack(body) {
   const recap = inputs.find((i) => i.kind === "recap");
   if (recap) {
     const t0 = Date.now();
-    transcript = await transcribe(cfg.transcribe, { data: recap.data, media_type: recap.media_type, filename: recap.filename || "recap.webm" }, cfg.language);
+    transcript = await transcribe(cfg.transcribe, { data: recap.data, media_type: recap.media_type, filename: recap.filename || "recap.webm" });
     recap.data = null; // The audio is not needed again and is not kept.
     recording_deleted_at = hhmm();
     recap.text = transcript;
