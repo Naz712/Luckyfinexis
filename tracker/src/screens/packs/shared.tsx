@@ -138,7 +138,7 @@ export function initials(name: string): string {
 export function Toast({ message }: { message: string | null }) {
   if (!message) return null;
   return (
-    <div role="status" className="drop-in fixed inset-x-0 bottom-[calc(96px+env(safe-area-inset-bottom))] z-30 mx-auto w-fit max-w-[calc(100%-32px)] rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[12.5px] text-body shadow-[0_10px_30px_-14px_rgba(20,35,94,.45)]">
+    <div role="status" className="drop-in fixed inset-x-0 bottom-[calc(176px+env(safe-area-inset-bottom))] z-30 mx-auto w-fit max-w-[calc(100%-32px)] rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[12.5px] text-body shadow-[0_10px_30px_-14px_rgba(20,35,94,.45)]">
       {message}
     </div>
   );

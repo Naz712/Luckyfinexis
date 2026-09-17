@@ -644,7 +644,7 @@ export default function PackReport({ pack, content, inputs, numbersConfirmed, un
           <div>
             {content.next.items.map((n) => (
               <div key={`${n.date} ${n.text}`} className="flex items-start gap-3 border-t border-well py-3 last:pb-0">
-                <span className="tnum w-[58px] shrink-0 whitespace-nowrap text-[12px] font-bold leading-[1.45] text-accent">{n.date}</span>
+                <span className="tnum min-w-[58px] shrink-0 whitespace-nowrap text-[12px] font-bold leading-[1.45] text-accent">{n.date}</span>
                 <span className="min-w-0 text-pretty text-[14px] leading-[1.45] text-ink">{n.text}</span>
               </div>
             ))}

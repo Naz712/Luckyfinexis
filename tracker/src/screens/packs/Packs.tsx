@@ -37,7 +37,18 @@ let newSeq = 1;
 
 const byNewest = (a: Pack, b: Pack) => (a.met_on < b.met_on ? 1 : a.met_on > b.met_on ? -1 : 0);
 
-export default function Packs({ advisor, extra, onLogCase }: { advisor: Advisor; extra?: ReactNode; onLogCase: (p: LogPrefill) => void }) {
+export default function Packs({
+  advisor,
+  extra,
+  resetKey = 0,
+  onLogCase,
+}: {
+  advisor: Advisor;
+  extra?: ReactNode;
+  /** Bumped by the shell when the Packs tab is tapped while already active: return to the list. */
+  resetKey?: number;
+  onLogCase: (p: LogPrefill) => void;
+}) {
   const [packs, setPacks] = useState<Pack[]>(() => seedPacks.filter((p) => p.advisor_id === advisor.id).sort(byNewest));
   const [inputs, setInputs] = useState<Record<string, PackInput[]>>(() => {
     const m: Record<string, PackInput[]> = {};
@@ -64,6 +75,14 @@ export default function Packs({ advisor, extra, onLogCase }: { advisor: Advisor;
     toastTimer.current = window.setTimeout(() => setToast(null), 3400);
   };
   useEffect(() => () => window.clearTimeout(toastTimer.current), []);
+  const firstReset = useRef(true);
+  useEffect(() => {
+    if (firstReset.current) {
+      firstReset.current = false;
+      return;
+    }
+    setView({ kind: "list" });
+  }, [resetKey]);
 
   // ── New pack ──
   const startNew = () => {

@@ -104,7 +104,9 @@ export default function App() {
   const [logClient, setLogClient] = useState<string | null>(null);
   // Set by a Meeting Pack's "Log the … case": client, product and premium prefilled.
   const [logPrefill, setLogPrefill] = useState<LogPrefill | null>(null);
+  const [packsReset, setPacksReset] = useState(0);
   const goTo = (t: Tab) => {
+    if (t === "packs" && tab === "packs") setPacksReset((n) => n + 1);
     setTab(t);
     if (t !== "log") {
       setLogClient(null);
@@ -226,17 +228,18 @@ export default function App() {
             initialTerm={logPrefill?.termYears}
           />
         )}
-        {activeTab === "packs" && (
+        <div hidden={activeTab !== "packs"}>
           <Packs
             key={me.id}
             advisor={me}
             extra={viewSwitch}
+            resetKey={packsReset}
             onLogCase={(p) => {
               setLogPrefill(p);
               setTab("log");
             }}
           />
-        )}
+        </div>
         {activeTab === "team" && isManager && <Team key={me.id} manager={me} cases={cases} goalSet={goalSet} />}
         {activeTab === "clients" && (
           <Clients
