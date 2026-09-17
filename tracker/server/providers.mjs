@@ -47,7 +47,7 @@ export function config(env = process.env) {
 
 /** What /health may say about a service: its name and model, never its key. */
 export function describe(service) {
-  return service ? `${service.service} · ${service.model || "model not set"}` : null;
+  return service ? (service.model ? `${service.service} · ${service.model}` : service.service) : null;
 }
 
 /** The useful part of an error body: the service's message, else the first 200 characters. */
@@ -76,10 +76,10 @@ async function post(url, init, service) {
 
 export async function transcribe(cfg, { data, media_type, filename }, language) {
   if (!cfg) throw new ApiError(400, "No speech-to-text key is set on the server (VALSEA_API_KEY, or OPENAI_API_KEY as the fallback).");
-  if (!cfg.model) throw new ApiError(400, `${cfg.service} needs a model name on the server (VALSEA_MODEL in .env).`);
+  if (cfg.service === "OpenAI" && !cfg.model) throw new ApiError(400, "OpenAI needs a speech-to-text model name on the server (TRANSCRIBE_MODEL in .env).");
   const form = new FormData();
   form.append("file", new Blob([data], { type: media_type }), filename);
-  form.append("model", cfg.model);
+  if (cfg.model) form.append("model", cfg.model); // Valsea does not need one; OpenAI does.
   form.append("response_format", "json");
   if (language) form.append("language", language);
   if (cfg.service === "OpenAI") form.append("prompt", VOCAB);
