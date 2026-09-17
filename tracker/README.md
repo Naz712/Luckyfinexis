@@ -155,6 +155,14 @@ reports service and model names.
    once on the phone. The setting sticks; Change and Disconnect are on the
    New pack screen.
 
+6. Without the laptop at all: host the server. `render.yaml` at the repo
+   root is a Render blueprint for it. On render.com: New → Blueprint, pick
+   this repo and branch, enter the three secrets it asks for (OpenAI key,
+   Valsea key, access code), deploy. It gives an `https://….onrender.com`
+   address; use it in step 5 in place of the tunnel. The free plan sleeps
+   after 15 idle minutes and takes about half a minute to wake, so open the
+   app a minute before a demo.
+
 `VITE_PACKS_API=http://…` at build time bakes a default server into a build.
 The server accepts calls from localhost, private-LAN addresses and the Pages
 origin (`ALLOW_ORIGINS` adds more), and only with the access code when one is

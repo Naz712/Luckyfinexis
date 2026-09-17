@@ -1,0 +1,23 @@
+# Render blueprint for the Meeting Pack pipeline server (tracker/server), so
+# the phone works without the laptop. Keys are entered in Render's dashboard
+# when the blueprint is applied (sync: false); they never enter the repo.
+services:
+  - type: web
+    name: finexis-packs-api
+    runtime: node
+    plan: free
+    rootDir: tracker/server
+    buildCommand: "echo no build"
+    startCommand: node index.mjs
+    healthCheckPath: /health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: VALSEA_API_KEY
+        sync: false
+      - key: ACCESS_CODE
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4.1
+      - key: VALSEA_BASE_URL
+        value: https://api.valsea.ai/v1
