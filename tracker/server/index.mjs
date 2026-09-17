@@ -19,7 +19,7 @@ try {
 }
 
 const PORT = Number(process.env.PORT) || 8787;
-const MOCK = process.env.PACKS_MOCK === "1";
+const MOCK = process.env.PACKS_MOCK === "1" || process.argv.includes("--mock");
 const ACCESS_CODE = (process.env.ACCESS_CODE ?? "").trim();
 const EXTRA_ORIGINS = (process.env.ALLOW_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 const BODY_LIMIT = 64 * 1024 * 1024;

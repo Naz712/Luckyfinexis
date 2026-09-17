@@ -7,7 +7,7 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "start": "node index.mjs",
-    "mock": "PACKS_MOCK=1 node index.mjs",
+    "mock": "node index.mjs --mock",
     "check": "node --check index.mjs && node --check providers.mjs && node --check schema.mjs && node --check prompt.mjs && node --check mock.mjs"
   }
 }
