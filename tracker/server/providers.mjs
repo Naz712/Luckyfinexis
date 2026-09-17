@@ -38,9 +38,10 @@ export function config(env = process.env) {
         service: "Valsea",
         key: valseaKey,
         url: trim(env.VALSEA_TRANSCRIBE_URL) || `${stripSlash(trim(env.VALSEA_BASE_URL) || "https://api.valsea.ai/v1")}/audio/transcriptions`,
-        // Valsea's docs: -F model=valsea-transcribe -F language=english (a word, not a code). VALSEA_LANGUAGE=auto sends none.
+        // Valsea's docs: -F model=valsea-transcribe, optionally -F language=english (a word, not a code).
+        // No language means Valsea detects it, which suits a recap that mixes languages. VALSEA_LANGUAGE=english pins it.
         model: trim(env.VALSEA_MODEL) || "valsea-transcribe",
-        language: (trim(env.VALSEA_LANGUAGE) || "english").toLowerCase() === "auto" ? "" : trim(env.VALSEA_LANGUAGE) || "english",
+        language: trim(env.VALSEA_LANGUAGE).toLowerCase() === "auto" ? "" : trim(env.VALSEA_LANGUAGE),
         extra: parseExtra(env.VALSEA_EXTRA),
       }
     : openaiKey
