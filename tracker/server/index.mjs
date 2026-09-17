@@ -168,6 +168,10 @@ const server = http.createServer(async (req, res) => {
   }
   const path = (req.url ?? "/").split("?")[0];
   try {
+    if (req.method === "GET" && path === "/") {
+      send(res, 200, { ok: true, this_is: "the Meeting Pack server", next: "Open the app (npm run dev, http://localhost:5173), go to Packs → New pack → Connect, and enter this address there." }, cors);
+      return;
+    }
     if (req.method === "GET" && path === "/health") {
       send(res, 200, { ok: true, mock: MOCK, transcribe: MOCK ? "mock" : describe(cfg.transcribe), report: MOCK ? "mock" : describe(cfg.report), access_code: ACCESS_CODE !== "" }, cors);
       return;
