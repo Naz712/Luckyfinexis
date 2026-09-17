@@ -3,7 +3,7 @@
 // original; the consultant confirms each one, and only then can the report
 // be approved. Pure view: the container owns the numbers and the approval.
 import { SOURCE_LABEL, type PackNumber, type PackSource } from "../../mock/packs";
-import { PackHeader, PinnedBar, SourceGlyph } from "./shared";
+import { assetUrl, PackHeader, PinnedBar, SourceGlyph } from "./shared";
 import type { CheckNumbersProps } from "./types";
 
 /** How the intro names each element, in the handoff's order. */
@@ -35,13 +35,14 @@ function NumberCard({ number, onToggle }: { number: PackNumber; onToggle: () => 
   return (
     <li className={`rounded-2xl border-[1.5px] bg-surface p-3.5 transition-colors duration-200 ${on ? "border-ok/45" : "border-line"}`}>
       <div className="flex items-center gap-3">
-        <img
-          src={`${import.meta.env.BASE_URL}${number.crop_url}`}
-          alt={`Crop of the original for ${number.label}`}
-          width={72}
-          height={54}
-          className="h-[54px] w-[72px] shrink-0 rounded-[10px] border border-line object-cover"
-        />
+        {number.crop_url ? (
+          <img src={assetUrl(number.crop_url)} alt={`Crop of the original for ${number.label}`} width={72} height={54} className="h-[54px] w-[72px] shrink-0 rounded-[10px] border border-line object-cover" />
+        ) : (
+          // Heard or typed, so there is no original to crop: the source glyph stands in.
+          <span className="grid h-[54px] w-[72px] shrink-0 place-items-center rounded-[10px] border border-line bg-canvas text-muted" aria-hidden="true">
+            <SourceGlyph source={number.source} size={20} />
+          </span>
+        )}
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[11px] font-bold uppercase tracking-[.06em] text-muted">{number.label}</span>
           <span className="tnum mt-0.5 block text-[19px] font-bold leading-tight tracking-[-.01em] text-ink">{number.value}</span>

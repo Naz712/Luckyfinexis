@@ -1,16 +1,18 @@
 // Meeting Pack, screen 2: New pack. Pick the client, drop in what you have
 // (recap, photo, PDF, typed lines), then "Make report" ticks the inputs off
 // in the processing state. Pure view: the container owns the draft and the
-// stand-in pipeline.
-import { useRef, useState } from "react";
+// pipeline. With a server connected the four tiles really record, open the
+// camera, pick a file and take typed lines; without one they add samples.
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import type { Client } from "../../mock/data";
 import type { PackInput, PackSource } from "../../mock/packs";
 import { parseISODate } from "../../lib/calc";
 import { shortDate } from "../../lib/format";
+import { canRecord, checkHealth, clock, downscaleImage, formatBytes, formatDuration, hostLabel, normaliseUrl, pickRecorderMime, recapFilename, type ApiSettings } from "../../lib/packsApi";
 import { Card, Label } from "../../components/ui";
 import Sheet from "../../components/Sheet";
 import { PackHeader, PinnedBar, SourceGlyph, Spinner, initials } from "./shared";
-import type { NewPackProps } from "./types";
+import type { DraftInput, NewPackProps } from "./types";
 
 /** The four tiles, in the handoff's order. */
 const TILES: { kind: PackSource; line1: string; line2: string }[] = [
@@ -34,9 +36,9 @@ function listJoin(items: string[]): string {
 }
 
 /** "Recording deleted at 12:41, right after transcription. The whiteboard photo, notes PDF and typed lines stay with the report." — only the kinds present. */
-function processingNote(inputs: PackInput[]): string {
+function processingNote(inputs: PackInput[], live: boolean): string {
   const sentences: string[] = [];
-  if (inputs.some((i) => i.kind === "recap")) sentences.push(`Recording deleted at ${DELETED_AT}, right after transcription.`);
+  if (inputs.some((i) => i.kind === "recap")) sentences.push(live ? "The recording is deleted the moment it is transcribed; only the transcript comes back." : `Recording deleted at ${DELETED_AT}, right after transcription.`);
   const kept = KEPT_ORDER.filter((k) => inputs.some((i) => i.kind === k));
   if (kept.length > 0) {
     const plural = kept.length > 1 || kept[0] === "typed";
@@ -170,13 +172,251 @@ function ClientPicker({ open, clients, selected, onPick, onClose }: { open: bool
   );
 }
 
-export default function NewPack({ clients, draft, onChange, stage, processingIndex, onMakeReport, onAddInput, onBack, extra }: NewPackProps) {
+const newId = () => `draft_${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`;
+
+/** Live capture: the microphone, the camera and file pickers, and a typing box. Everything lands in onCapture as a DraftInput. */
+function useCapture(onCapture: (input: DraftInput) => void) {
+  const photoRef = useRef<HTMLInputElement>(null);
+  const docRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLInputElement>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const discardRef = useRef(false);
+  const [recording, setRecording] = useState<{ start: number; elapsed: number } | null>(null);
+  const [typing, setTyping] = useState<string | null>(null);
+  const [hint, setHint] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!recording) return;
+    const t = window.setInterval(() => setRecording((r) => (r ? { ...r, elapsed: (Date.now() - r.start) / 1000 } : r)), 500);
+    return () => window.clearInterval(t);
+  }, [recording?.start]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const stopTracks = () => recorderRef.current?.stream.getTracks().forEach((t) => t.stop());
+  useEffect(() => () => stopTracks(), []);
+
+  const startRecording = async () => {
+    if (!canRecord()) {
+      setHint("The microphone needs HTTPS or localhost, so pick a recording from your phone instead.");
+      audioRef.current?.click();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = pickRecorderMime();
+      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      chunksRef.current = [];
+      discardRef.current = false;
+      rec.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      const start = Date.now();
+      rec.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        recorderRef.current = null;
+        setRecording(null);
+        if (discardRef.current) return;
+        const type = rec.mimeType || mime || "audio/webm";
+        const blob = new Blob(chunksRef.current, { type });
+        chunksRef.current = [];
+        const sec = Math.max(1, Math.round((Date.now() - start) / 1000));
+        if (blob.size === 0) {
+          setHint("Nothing was recorded. Try again.");
+          return;
+        }
+        onCapture({
+          id: newId(),
+          pack_id: "draft",
+          kind: "recap",
+          label: "Recap",
+          detail: `${formatDuration(sec)} · ready to transcribe`,
+          duration_sec: sec,
+          pages: null,
+          file_url: null,
+          body: null,
+          retained: false,
+          blob,
+          media_type: type.split(";")[0],
+          filename: recapFilename(type),
+        });
+      };
+      recorderRef.current = rec;
+      rec.start(1000);
+      setHint(null);
+      setRecording({ start, elapsed: 0 });
+    } catch (e) {
+      setHint(`Microphone not available${e instanceof Error && e.name ? ` (${e.name})` : ""}. Pick a recording instead.`);
+      audioRef.current?.click();
+    }
+  };
+  const stopRecording = () => recorderRef.current?.stop();
+  const cancelRecording = () => {
+    discardRef.current = true;
+    recorderRef.current?.stop();
+  };
+
+  const onAudioFile = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    onCapture({ id: newId(), pack_id: "draft", kind: "recap", label: "Recap", detail: `${formatBytes(file.size)} · ready to transcribe`, duration_sec: null, pages: null, file_url: null, body: null, retained: false, blob: file, media_type: file.type || "audio/mp4", filename: file.name || recapFilename(file.type) });
+  };
+  const onPhotoFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const small = await downscaleImage(file);
+    onCapture({ id: newId(), pack_id: "draft", kind: "photo", label: "Sketch · photo", detail: `${small.type === "image/png" ? "PNG" : "JPEG"} · ${formatBytes(small.size)}`, duration_sec: null, pages: null, file_url: URL.createObjectURL(small), body: null, retained: true, blob: small, media_type: small.type, filename: file.name || "photo.jpg" });
+  };
+  const onDocFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const pdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+    const blob = pdf ? file : await downscaleImage(file);
+    onCapture({
+      id: newId(),
+      pack_id: "draft",
+      kind: "document",
+      label: pdf ? "Notes · PDF" : "Notes · photo",
+      detail: `${pdf ? "PDF" : "Image"} · ${formatBytes(blob.size)}`,
+      duration_sec: null,
+      pages: null,
+      file_url: URL.createObjectURL(blob),
+      body: null,
+      retained: true,
+      blob,
+      media_type: pdf ? "application/pdf" : blob.type,
+      filename: file.name || (pdf ? "notes.pdf" : "notes.jpg"),
+    });
+  };
+  const addTyped = () => {
+    const body = (typing ?? "").trim();
+    if (!body) return setTyping(null);
+    const lines = body.split(/\n+/).filter((l) => l.trim()).length;
+    onCapture({ id: newId(), pack_id: "draft", kind: "typed", label: "Typed", detail: lines === 1 ? "1 line" : `${lines} lines`, duration_sec: null, pages: null, file_url: null, body, retained: true });
+    setTyping(null);
+  };
+
+  const capture = (kind: PackSource) => {
+    switch (kind) {
+      case "recap":
+        return void startRecording();
+      case "photo":
+        return photoRef.current?.click();
+      case "document":
+        return docRef.current?.click();
+      case "typed":
+        return setTyping("");
+    }
+  };
+
+  const inputs = (
+    <>
+      <input ref={photoRef} type="file" accept="image/*" capture="environment" hidden onChange={onPhotoFile} aria-label="Take a photo" />
+      <input ref={docRef} type="file" accept="application/pdf,image/*" hidden onChange={onDocFile} aria-label="Attach notes" />
+      <input ref={audioRef} type="file" accept="audio/*" hidden onChange={onAudioFile} aria-label="Pick a recording" />
+    </>
+  );
+  return { capture, inputs, recording, stopRecording, cancelRecording, typing, setTyping, addTyped, hint, setHint };
+}
+
+/** "Pipeline · live · 192.168.1.20:8787" with a Connect/Change box for the server URL and access code. */
+function ApiBox({ api, onApiChange }: { api: ApiSettings; onApiChange: (api: ApiSettings) => void }) {
+  const live = api.url !== "";
+  const [open, setOpen] = useState(false);
+  const [url, setUrl] = useState(api.url);
+  const [code, setCode] = useState(api.code);
+  const [status, setStatus] = useState<string | null>(null);
+  const save = async () => {
+    const next = { url: normaliseUrl(url), code: code.trim() };
+    onApiChange(next);
+    if (!next.url) {
+      setStatus(null);
+      setOpen(false);
+      return;
+    }
+    setStatus("Checking…");
+    try {
+      const h = await checkHealth(next);
+      setStatus(h.mock ? "Connected · mock mode (canned answers, no keys used)" : `Connected · recap: ${h.transcribe ?? "not set"} · report: ${h.report ?? "not set"}`);
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : "Could not reach the server.");
+    }
+  };
+  const disconnect = () => {
+    setUrl("");
+    setCode("");
+    setStatus(null);
+    onApiChange({ url: "", code: "" });
+    setOpen(false);
+  };
+  return (
+    <div className="rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[11.5px] leading-[1.5] text-muted">
+      <div className="flex items-center justify-between gap-2">
+        <span className="min-w-0 truncate">
+          <span className="font-bold text-body">Pipeline</span> · {live ? `live · ${hostLabel(api.url)}` : "stand-in · sample report"}
+        </span>
+        <button type="button" onClick={() => setOpen((o) => !o)} className="shrink-0 font-semibold text-accent">
+          {open ? "Close" : live ? "Change" : "Connect"}
+        </button>
+      </div>
+      {open && (
+        <div className="mt-2.5 flex flex-col gap-2">
+          <input
+            type="url"
+            inputMode="url"
+            autoComplete="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="http://192.168.1.20:8787"
+            aria-label="Server URL"
+            className="tnum w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px] text-ink placeholder:text-faint focus:border-accent focus:outline-none"
+          />
+          <input
+            type="password"
+            autoComplete="off"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="Access code, if the server has one"
+            aria-label="Access code"
+            className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px] text-ink placeholder:text-faint focus:border-accent focus:outline-none"
+          />
+          <div className="flex gap-2">
+            <button type="button" onClick={() => void save()} className="btn-primary rounded-lg px-3.5 py-2 text-[12.5px] font-semibold">
+              Save
+            </button>
+            {live && (
+              <button type="button" onClick={disconnect} className="rounded-lg border border-line px-3.5 py-2 text-[12.5px] font-semibold text-body">
+                Disconnect
+              </button>
+            )}
+          </div>
+          {status && <p role="status">{status}</p>}
+          <p>
+            On the laptop: put the keys in <span className="tnum">tracker/server/.env</span>, run <span className="tnum">npm run api</span>, and enter the laptop's address here. Details in the README.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function NewPack({ clients, draft, onChange, stage, processingIndex, onMakeReport, onAddInput, onCapture, api, onApiChange, onBack, extra }: NewPackProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const tilesRef = useRef<HTMLDivElement>(null);
   const processing = stage === "processing";
+  const live = api.url !== "";
   const added = new Set(draft.inputs.map((i) => i.kind));
+  const cap = useCapture(onCapture);
 
-  const remove = (id: string) => onChange({ ...draft, inputs: draft.inputs.filter((i) => i.id !== id) });
+  const remove = (id: string) => {
+    const gone = draft.inputs.find((i) => i.id === id);
+    if (gone?.file_url?.startsWith("blob:")) URL.revokeObjectURL(gone.file_url);
+    onChange({ ...draft, inputs: draft.inputs.filter((i) => i.id !== id) });
+  };
   // "Add another" brings the tiles back into view and hands focus to the first one still available.
   const focusTiles = () => {
     const tiles = tilesRef.current;
@@ -224,7 +464,7 @@ export default function NewPack({ clients, draft, onChange, stage, processingInd
               <Spinner />
               <div className="min-w-0">
                 <div className="text-[17px] font-bold tracking-[-.01em] text-ink">Making your report…</div>
-                <div className="mt-0.5 text-[12px] text-muted">About 20 seconds. Stay on this screen.</div>
+                <div className="mt-0.5 text-[12px] text-muted">{live ? "Up to a minute or two. Stay on this screen." : "About 20 seconds. Stay on this screen."}</div>
               </div>
             </div>
             <ul className="mt-3.5" aria-live="polite">
@@ -251,7 +491,7 @@ export default function NewPack({ clients, draft, onChange, stage, processingInd
                 );
               })}
             </ul>
-            <p className="mt-1.5 rounded-xl bg-canvas px-[13px] py-[11px] text-[11.5px] leading-[1.5] text-muted">{processingNote(draft.inputs)}</p>
+            <p className="mt-1.5 rounded-xl bg-canvas px-[13px] py-[11px] text-[11.5px] leading-[1.5] text-muted">{processingNote(draft.inputs, live)}</p>
           </Card>
         ) : (
           <>
@@ -267,9 +507,9 @@ export default function NewPack({ clients, draft, onChange, stage, processingInd
                     <button
                       key={t.kind}
                       type="button"
-                      disabled={done}
+                      disabled={done || cap.recording !== null}
                       aria-label={done ? `${t.line1} ${t.line2}, already added` : undefined}
-                      onClick={() => onAddInput(t.kind)}
+                      onClick={() => (live ? cap.capture(t.kind) : onAddInput(t.kind))}
                       className="flex flex-col items-center gap-[7px] rounded-[14px] border border-line bg-surface px-1.5 pb-3 pt-3.5 text-center hover:bg-canvas disabled:opacity-45 disabled:hover:bg-surface"
                     >
                       <span className="grid h-[34px] w-[34px] place-items-center rounded-[11px] bg-accent-soft text-accent" aria-hidden="true">
@@ -284,6 +524,50 @@ export default function NewPack({ clients, draft, onChange, stage, processingInd
                   );
                 })}
               </div>
+              {live && cap.inputs}
+              {cap.recording && (
+                <div className="mt-3 flex items-center gap-3 rounded-[14px] border border-line bg-canvas px-3.5 py-3" role="status" aria-live="polite">
+                  <span className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded-full bg-flag/12 text-flag" aria-hidden="true">
+                    <span className="pulse-dot block h-[9px] w-[9px] rounded-full bg-current" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-semibold text-ink">Recording recap</span>
+                    <span className="tnum mt-0.5 block text-[11.5px] text-muted">{clock(cap.recording.elapsed)} · say what was discussed and agreed</span>
+                  </span>
+                  <button type="button" onClick={cap.cancelRecording} className="shrink-0 rounded-lg px-2 py-2 text-[12.5px] font-semibold text-muted">
+                    Cancel
+                  </button>
+                  <button type="button" onClick={cap.stopRecording} className="btn-primary shrink-0 rounded-lg px-3.5 py-2 text-[12.5px] font-semibold">
+                    Stop
+                  </button>
+                </div>
+              )}
+              {cap.typing !== null && (
+                <div className="mt-3 rounded-[14px] border border-line bg-canvas p-3">
+                  <textarea
+                    autoFocus
+                    value={cap.typing}
+                    onChange={(e) => cap.setTyping(e.target.value)}
+                    rows={4}
+                    placeholder={"budget 400/mth\ncompare CI with FWD\nwants to retire at 60"}
+                    aria-label="Typed lines"
+                    className="w-full resize-none rounded-lg border border-line bg-surface px-3 py-2 text-[14px] leading-[1.45] text-ink placeholder:text-faint focus:border-accent focus:outline-none"
+                  />
+                  <div className="mt-2 flex justify-end gap-2">
+                    <button type="button" onClick={() => cap.setTyping(null)} className="rounded-lg px-3 py-2 text-[12.5px] font-semibold text-muted">
+                      Cancel
+                    </button>
+                    <button type="button" onClick={cap.addTyped} className="btn-primary rounded-lg px-3.5 py-2 text-[12.5px] font-semibold">
+                      Add lines
+                    </button>
+                  </div>
+                </div>
+              )}
+              {cap.hint && (
+                <p className="mt-2.5 text-[11.5px] leading-[1.5] text-warn" role="status">
+                  {cap.hint}
+                </p>
+              )}
             </Card>
 
             {draft.inputs.length > 0 && (
@@ -322,6 +606,7 @@ export default function NewPack({ clients, draft, onChange, stage, processingInd
             <p className="px-1 text-[11px] leading-[1.5] text-muted [text-wrap:pretty]">
               The recording is deleted as soon as it is transcribed. Everything else — photo, PDF, typed lines — stays attached, so any number can be checked against its original.
             </p>
+            <ApiBox api={api} onApiChange={onApiChange} />
           </>
         )}
       </div>
@@ -339,7 +624,7 @@ export default function NewPack({ clients, draft, onChange, stage, processingInd
           </button>
           <button
             type="button"
-            disabled={processing}
+            disabled={processing || cap.recording !== null}
             onClick={onMakeReport}
             className={`flex-1 rounded-xl py-3.5 text-center text-[15px] font-semibold ${processing ? "bg-accent-soft text-accent" : "btn-primary"}`}
           >

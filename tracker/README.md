@@ -19,6 +19,9 @@ npm run build      # typecheck + production build into dist/
 | `src/lib/calc.ts` | Pure calculations: `commissionForCase`, `metricsForCase`, `aggregate`, `pace`, `clientsNeeded`, period helpers, MDRT tiers. |
 | `src/lib/format.ts` | Display formatting only (`S$12,345`, no decimals). |
 | `src/screens/` | One file per bottom tab (Home, Goals + GoalsEditor, Calculator, Log, Team, Draw). Screens read only through `calc.ts` and `data.ts`. |
+| `src/screens/packs/` | The Meeting Pack tab: `Packs.tsx` (container, both pipelines), `PacksHome`, `NewPack` (real capture), `PackReport`, `CheckNumbers`, `AttachmentViewer`. |
+| `src/lib/packsApi.ts` | The app's client for the pipeline server: where it is (build-time default, the Connect box, or `?api=`), the two calls, and the media helpers (downscale, base64, recorder format). |
+| `server/` | The pipeline server: holds the keys, transcribes the recap (Valsea), writes and reworks the report (OpenAI), drops the audio. Node 22, no dependencies. `.env` is gitignored. |
 | `src/components/ui.tsx` | Small shared pieces (card, select, money input, segmented control). |
 | `src/components/BarChart.tsx` | Dependency-free SVG column chart used by the Home progress card. |
 
@@ -101,17 +104,78 @@ Global edition dated 14 Mar 2026):
   credit (a term rule, not a product rule); the 5% cap on business written on
   the advisor's own family; replacements; group business.
 
-## Meeting Pack: what is real and what is a stand-in
+## Meeting Pack: the real pipeline and the stand-in
 
 The screens under `src/screens/packs/` follow the Claude Design handoff
-(`design_handoff_meeting_pack`). What runs today is the flow, not the
-pipeline: "Make report" ticks through the inputs on a timer and opens the
-sample report; "Rework all" shows the reworking and reworked states without
-changing content; "Share as PDF" is a notice. The real version needs a small
-backend that holds the speech-to-text and report-model keys, runs extract,
-compose and rework, deletes the recording once transcribed, and stores the
-approved report and its attachments. Nothing about the screens has to change
-for that; `Packs.tsx` is the one place the stand-ins live.
+(`design_handoff_meeting_pack`). The tab runs in one of two modes, shown and
+changed at the bottom of the New pack screen ("Pipeline · …"):
+
+- **Stand-in** (no server connected). The four tiles add sample inputs,
+  "Make report" ticks through them on a timer and opens the sample report,
+  "Rework all" animates without changing content. This is what the GitHub
+  Pages link does out of the box.
+- **Live** (server connected). "Record recap" records with the microphone,
+  "Take photo" opens the camera, "Attach PDF" picks a file, "Type a few lines"
+  takes text. "Make report" sends them to `server/`, which has Valsea
+  transcribe the recap and drops the audio, then has OpenAI read the photo and
+  the PDF and write the report as strict JSON, with the figures to confirm.
+  The report renders exactly as the sample does, with the phone's own photo
+  and PDF as the attachments and the crops. "Rework all" sends the flagged
+  cards' notes and swaps in the revised cards. Approval is still in memory
+  only, and "Share as PDF" is still a notice: there is no store yet.
+
+### Running the real pipeline
+
+The keys live in `server/.env`, which is gitignored. The app never sees them,
+and they never appear in the repo, in logs or on screen; the server only
+reports service and model names.
+
+1. `cp server/.env.example server/.env` and fill in `VALSEA_API_KEY`,
+   `VALSEA_BASE_URL` and `VALSEA_MODEL` from the Valsea dashboard, and
+   `OPENAI_API_KEY`. Leave the Valsea lines blank to have OpenAI transcribe
+   as well (`TRANSCRIBE_MODEL`).
+2. `npm run api` (Node 22 or newer; nothing to install). It prints what is
+   configured. `npm run api:mock` runs it with canned answers and no keys,
+   which is enough to try the whole flow.
+3. On the laptop: `npm run dev`, open http://localhost:5173, Packs → New pack
+   → Connect → `http://localhost:8787`. The microphone works here because
+   localhost counts as a secure context.
+4. On a phone on the same Wi-Fi: `npm run dev -- --host`, open
+   `http://<laptop-ip>:5173` on the phone, connect to
+   `http://<laptop-ip>:8787`. Camera, PDF and typed lines work. The
+   microphone does not over plain HTTP (browsers insist on HTTPS), so
+   "Record recap" offers to pick a recording from the phone's voice memo app
+   instead.
+5. For the microphone on the phone, or to use the GitHub Pages link: set
+   `ACCESS_CODE` in `.env`, restart the server, expose it over HTTPS with a
+   tunnel (`cloudflared tunnel --url http://localhost:8787` or
+   `ngrok http 8787`), then open
+   `https://naz712.github.io/Luckyfinexis/?api=https://<tunnel-host>&code=<access code>`
+   once on the phone. The setting sticks; Change and Disconnect are on the
+   New pack screen.
+
+`VITE_PACKS_API=http://…` at build time bakes a default server into a build.
+The server accepts calls from localhost, private-LAN addresses and the Pages
+origin (`ALLOW_ORIGINS` adds more), and only with the access code when one is
+set.
+
+### What happens to the data
+
+- Nothing is written to disk. The recap audio exists in the server process
+  only until Valsea returns the transcript; the response carries the time it
+  was dropped, and the report shows it in the small print.
+- The photo and the PDF go to OpenAI for the one report call and stay on the
+  phone as the report's attachments and crops. The server keeps nothing
+  between requests.
+- What Valsea and OpenAI retain is governed by their own terms; check both
+  before using this with a real client's meeting.
+
+Model choices: `OPENAI_MODEL` defaults to `gpt-4.1`; `gpt-5` works and is
+slower. `REPORT_PROVIDER=claude` with `ANTHROPIC_API_KEY` writes the report
+with Claude (`CLAUDE_MODEL`, default `claude-opus-5`) with server-side refusal
+fallbacks on by default (`CLAUDE_FALLBACKS=off` to turn them off). The Claude
+path is written to the API docs but has not been run here; the OpenAI path
+is the one to start with.
 
 ## Light and dark
 

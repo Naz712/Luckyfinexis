@@ -143,3 +143,8 @@ export function Toast({ message }: { message: string | null }) {
     </div>
   );
 }
+
+/** Attachment and crop paths are relative to the app's base URL; live packs use blob: URLs, which pass through. */
+export function assetUrl(u: string): string {
+  return /^(blob:|data:|https?:)/.test(u) ? u : import.meta.env.BASE_URL + u;
+}

@@ -8,7 +8,9 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "share": "tsc --noEmit && vite build && node scripts/single-file.mjs"
+    "share": "tsc --noEmit && vite build && node scripts/single-file.mjs",
+    "api": "npm --prefix server start",
+    "api:mock": "npm --prefix server run mock"
   },
   "dependencies": {
     "react": "^19.2.0",

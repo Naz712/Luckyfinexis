@@ -4,9 +4,7 @@
 // and stays inside, dismissed by Close, the scrim or Escape.
 import { useEffect, useRef } from "react";
 import type { Attachment } from "../../mock/packs";
-
-/** Attachment paths are relative to the app's base URL (which ends with "/"). */
-const BASE = import.meta.env.BASE_URL;
+import { assetUrl } from "./shared";
 
 export default function AttachmentViewer({ open, attachment, onClose }: { open: boolean; attachment: Attachment | null; onClose: () => void }) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -78,12 +76,20 @@ export default function AttachmentViewer({ open, attachment, onClose }: { open: 
         <div className="flex min-h-0 flex-1 items-center px-3">
           {attachment.kind === "photo" ? (
             <div className="scale-in pointer-events-auto h-[62dvh] max-h-full w-full overflow-hidden rounded-[14px] bg-white/6">
-              <img src={BASE + (attachment.urls[0] ?? "")} alt={attachment.title} className="block h-full w-full object-contain" />
+              <img src={assetUrl(attachment.urls[0] ?? "")} alt={attachment.title} className="block h-full w-full object-contain" />
+            </div>
+          ) : attachment.mime === "application/pdf" ? (
+            // A live pack keeps the PDF itself; the browser's viewer shows it, with a plain link for browsers that will not.
+            <div className="scale-in pointer-events-auto flex h-[62dvh] max-h-full w-full flex-col overflow-hidden rounded-[14px] bg-white">
+              <iframe src={assetUrl(attachment.urls[0] ?? "")} title={attachment.title} className="block h-full w-full flex-1 border-0" />
+              <a href={assetUrl(attachment.urls[0] ?? "")} target="_blank" rel="noreferrer" className="shrink-0 bg-ink px-3 py-2 text-center text-[12px] font-semibold text-surface">
+                Open the PDF in a new tab
+              </a>
             </div>
           ) : (
             <div className="scale-in pointer-events-auto flex h-[62dvh] max-h-full w-full flex-col gap-2 overflow-y-auto rounded-[14px] bg-white/6 p-2">
               {attachment.urls.map((url, i) => (
-                <img key={url} src={BASE + url} alt={`${attachment.title}, page ${i + 1}`} className="block w-full rounded-lg bg-white/6" />
+                <img key={url} src={assetUrl(url)} alt={`${attachment.title}, page ${i + 1}`} className="block w-full rounded-lg bg-white/6" />
               ))}
             </div>
           )}

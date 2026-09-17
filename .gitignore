@@ -13,3 +13,6 @@ venv/
 .DS_Store
 .idea/
 .vscode/
+
+# Meeting Pack server keys (tracker/server/.env is also ignored by its own .gitignore)
+tracker/server/.env

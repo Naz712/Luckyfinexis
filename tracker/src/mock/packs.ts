@@ -72,8 +72,10 @@ export interface Attachment {
   title: string;
   /** "15 Sep, 12:38 · read, 3 numbers" */
   caption: string;
-  /** Full-size original (the page images for a PDF). */
+  /** Full-size original (the page images for a PDF; for a live pack, one blob: URL). */
   urls: string[];
+  /** "application/pdf" when urls[0] is a PDF file rather than page images (live packs). */
+  mime?: string;
   /** Chips under the viewer: "3 numbers read", "Kept with this report". */
   chips: string[];
 }

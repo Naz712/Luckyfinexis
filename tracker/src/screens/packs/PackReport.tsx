@@ -8,12 +8,11 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, 
 import { CARD_TITLE, type Attachment, type CardCode, type PackKind, type PackSource } from "../../mock/packs";
 import { Label } from "../../components/ui";
 import { sgd, shortDate } from "../../lib/format";
-import { initials, SourceGlyph, SourceLegend, SourceMarker } from "./shared";
+import { assetUrl, initials, SourceGlyph, SourceLegend, SourceMarker } from "./shared";
 import AttachmentViewer from "./AttachmentViewer";
-import type { PackReportProps } from "./types";
+import type { PackReportProps, ReworkNotes } from "./types";
 
 /** Attachment paths are relative to the app's base URL (which ends with "/"). */
-const BASE = import.meta.env.BASE_URL;
 
 /** Cards that take a note. Attachments and "Just for you" do not. */
 type NoteCode = Exclude<CardCode, "attachments" | "private">;
@@ -251,7 +250,7 @@ function PagePreview() {
 
 // ───────────────────────── The report ─────────────────────────
 
-export default function PackReport({ pack, content, inputs, numbersConfirmed, unconfirmedCount, onApprove, onLogCase, onShare, onClose, notify }: PackReportProps) {
+export default function PackReport({ pack, content, inputs, numbersConfirmed, unconfirmedCount, onApprove, onLogCase, onShare, onRework, onClose, notify }: PackReportProps) {
   const approved = pack.status === "approved";
 
   // Notes and flags: a card is flagged while it holds a note. Rework moves a
@@ -320,7 +319,7 @@ export default function PackReport({ pack, content, inputs, numbersConfirmed, un
     setNotes({});
     setEditing(null);
   };
-  /** Stand-in for sending every flagged card at once: staggered 400 ms apart, each "done" 1.4–2 s later, the tick shown for 6 s. */
+  /** Sends every flagged card at once. Live: one request, all cards done together. Stand-in: staggered 400 ms apart, each "done" 1.4–2 s later. The tick shows for 6 s either way. */
   const reworkAll = () => {
     const current: Partial<Record<NoteCode, string>> = { ...notes };
     const e = editingRef.current;
@@ -332,7 +331,40 @@ export default function PackReport({ pack, content, inputs, numbersConfirmed, un
     }
     const flagged = NOTE_ORDER.filter((c) => current[c] !== undefined && work[c] !== "running");
     if (flagged.length === 0) return;
-    notify(`Reworking ${flagged.length} card${flagged.length === 1 ? "" : "s"}. In the app this sends your notes to be redone.`);
+    const plural = `${flagged.length} card${flagged.length === 1 ? "" : "s"}`;
+    if (onRework) {
+      // Live: every flagged card runs until the server answers; then all of them are done together.
+      const notes: ReworkNotes = {};
+      for (const code of flagged) notes[code] = current[code]!;
+      setWork((w) => ({ ...w, ...Object.fromEntries(flagged.map((c) => [c, "running" as const])) }));
+      notify(`Reworking ${plural}…`);
+      onRework(notes)
+        .then(() => {
+          setWork((w) => ({ ...w, ...Object.fromEntries(flagged.map((c) => [c, "done" as const])) }));
+          setNotes((n) => {
+            const next = { ...n };
+            for (const code of flagged) delete next[code];
+            return next;
+          });
+          schedule(6000, () =>
+            setWork((w) => {
+              const next = { ...w };
+              for (const code of flagged) if (next[code] === "done") delete next[code];
+              return next;
+            }),
+          );
+        })
+        .catch((e: unknown) => {
+          setWork((w) => {
+            const next = { ...w };
+            for (const code of flagged) delete next[code];
+            return next;
+          });
+          notify(e instanceof Error ? e.message : "The rework did not come back. Your notes are still here.");
+        });
+      return;
+    }
+    notify(`Reworking ${plural}. In the app this sends your notes to be redone.`);
     flagged.forEach((code, i) => {
       const start = i * 400;
       const finish = start + 1400 + Math.round(Math.random() * 600);
@@ -480,7 +512,7 @@ export default function PackReport({ pack, content, inputs, numbersConfirmed, un
                   onClick={() => setViewing(a)}
                   className="btn-lift block min-w-0 rounded-[11px] text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
                 >
-                  {a.kind === "photo" ? <img src={BASE + (a.urls[0] ?? "")} alt="" className="block h-[92px] w-full rounded-[11px] bg-canvas object-cover" /> : <PagePreview />}
+                  {a.kind === "photo" ? <img src={assetUrl(a.urls[0] ?? "")} alt="" className="block h-[92px] w-full rounded-[11px] bg-canvas object-cover" /> : <PagePreview />}
                   <span className="mt-[7px] block text-[12px] font-semibold text-ink">{a.title}</span>
                   <span className="tnum mt-0.5 block text-[11px] leading-[1.4] text-muted">{a.caption}</span>
                 </button>

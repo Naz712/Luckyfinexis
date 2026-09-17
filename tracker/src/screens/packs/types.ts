@@ -3,13 +3,25 @@
 // what it is given plus the callbacks below.
 import type { ReactNode } from "react";
 import type { Advisor, Client } from "../../mock/data";
-import type { Pack, PackInput, PackNumber, PackSource, ReportContent } from "../../mock/packs";
+import type { CardCode, Pack, PackInput, PackNumber, PackSource, ReportContent } from "../../mock/packs";
+import type { ApiSettings } from "../../lib/packsApi";
+
+/** A PackInput while it is still on the New pack screen: with the file behind it, when there is one. */
+export interface DraftInput extends PackInput {
+  /** The recording, photo or PDF to send. Absent for typed lines and for the stand-in samples. */
+  blob?: Blob;
+  media_type?: string;
+  filename?: string;
+}
 
 /** What the FC is building on the New pack screen before it becomes a Pack. */
 export interface NewPackDraft {
   client: Client | null;
-  inputs: PackInput[];
+  inputs: DraftInput[];
 }
+
+/** Card code → the consultant's note, for "Rework all". */
+export type ReworkNotes = Partial<Record<Exclude<CardCode, "attachments" | "private">, string>>;
 
 export interface PacksHomeProps {
   advisor: Advisor;
@@ -32,8 +44,13 @@ export interface NewPackProps {
   /** Index of the input currently being processed while stage is "processing" (earlier ones are done, later ones queued). */
   processingIndex: number;
   onMakeReport: () => void;
-  /** Add a sample input of this kind (mockup stand-in for recording, camera, file picker, typing). */
+  /** Stand-in pipeline: add a sample input of this kind. */
   onAddInput: (kind: PackSource) => void;
+  /** Live pipeline: add something the FC just recorded, photographed, attached or typed. Replaces an input of the same kind. */
+  onCapture: (input: DraftInput) => void;
+  /** Where the pipeline server is; url "" means the stand-in. */
+  api: ApiSettings;
+  onApiChange: (api: ApiSettings) => void;
   onBack: () => void;
   extra?: ReactNode;
 }
@@ -62,6 +79,8 @@ export interface PackReportProps {
   onLogCase: (opt: { client_name: string; product_id: string; premium: number; term_years: number }) => void;
   /** Stand-in for the PDF export. */
   onShare: () => void;
+  /** Live pipeline: send the flagged cards' notes to the server and replace the cards. Absent for the stand-in, which only animates. Rejects with a message to show. */
+  onRework?: (notes: ReworkNotes) => Promise<void>;
   onClose: () => void;
   /** Stand-in notice channel ("In the app this…"). */
   notify: (message: string) => void;

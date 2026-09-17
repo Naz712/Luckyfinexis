@@ -1,0 +1,13 @@
+{
+  "name": "finexis-packs-api",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Meeting Pack pipeline: holds the API keys, transcribes the recap, composes and reworks the report. No dependencies; Node 22+.",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node index.mjs",
+    "mock": "PACKS_MOCK=1 node index.mjs",
+    "check": "node --check index.mjs && node --check providers.mjs && node --check schema.mjs && node --check prompt.mjs && node --check mock.mjs"
+  }
+}
