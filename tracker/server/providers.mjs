@@ -19,6 +19,16 @@ const stripSlash = (u) => u.replace(/\/+$/, "");
 /** Words the recap is likely to contain, so the transcriber spells them right (OpenAI honours this field). */
 const VOCAB = "Singapore financial planning recap: CPF, MediShield Life, Integrated Shield Plan, term plan, whole life, critical illness, TPD, ILP, endowment, sum assured, premium, S$, Singlife, Manulife, HSBC Life, Tokio Marine, FWD, Etiqa, Prudential, AIA, Great Eastern.";
 
+/** VALSEA_EXTRA is JSON of extra form fields, e.g. {"diarize":"false"}; anything unparseable is ignored. */
+function parseExtra(raw) {
+  try {
+    const v = JSON.parse(trim(raw) || "{}");
+    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
+  }
+}
+
 /** Reads the environment into the two service configs. Never returns a key to a caller that prints. */
 export function config(env = process.env) {
   const valseaKey = trim(env.VALSEA_API_KEY);
@@ -29,6 +39,7 @@ export function config(env = process.env) {
         key: valseaKey,
         url: trim(env.VALSEA_TRANSCRIBE_URL) || `${stripSlash(trim(env.VALSEA_BASE_URL) || "https://api.valsea.ai/v1")}/audio/transcriptions`,
         model: trim(env.VALSEA_MODEL),
+        extra: parseExtra(env.VALSEA_EXTRA),
       }
     : openaiKey
       ? { service: "OpenAI", key: openaiKey, url: `${stripSlash(trim(env.OPENAI_BASE_URL) || OPENAI_BASE)}/audio/transcriptions`, model: trim(env.TRANSCRIBE_MODEL) || "gpt-4o-transcribe" }
@@ -68,7 +79,11 @@ async function post(url, init, service) {
     throw new ApiError(502, `Could not reach ${service}: ${e?.cause?.message ?? e.message}`);
   }
   const body = await res.text();
-  if (!res.ok) throw new ApiError(502, `${service} replied ${res.status}: ${errorText(body)}`);
+  if (!res.ok) {
+    // The full reply goes to the server's own terminal (it never contains our key); the app gets the short message.
+    console.error(`  ${service} replied ${res.status}: ${String(body).replace(/\s+/g, " ").slice(0, 600)}`);
+    throw new ApiError(502, `${service} replied ${res.status}: ${errorText(body)}`);
+  }
   return body;
 }
 
@@ -77,12 +92,16 @@ async function post(url, init, service) {
 export async function transcribe(cfg, { data, media_type, filename }, language) {
   if (!cfg) throw new ApiError(400, "No speech-to-text key is set on the server (VALSEA_API_KEY, or OPENAI_API_KEY as the fallback).");
   if (cfg.service === "OpenAI" && !cfg.model) throw new ApiError(400, "OpenAI needs a speech-to-text model name on the server (TRANSCRIBE_MODEL in .env).");
+  // Only the fields each service documents: a strict validator rejects extras with "Invalid request body".
   const form = new FormData();
   form.append("file", new Blob([data], { type: media_type }), filename);
   if (cfg.model) form.append("model", cfg.model); // Valsea does not need one; OpenAI does.
-  form.append("response_format", "json");
   if (language) form.append("language", language);
-  if (cfg.service === "OpenAI") form.append("prompt", VOCAB);
+  if (cfg.service === "OpenAI") {
+    form.append("response_format", "json");
+    form.append("prompt", VOCAB);
+  }
+  for (const [k, v] of Object.entries(cfg.extra ?? {})) form.append(k, String(v)); // VALSEA_EXTRA, for fields their docs ask for
   const body = await post(cfg.url, { headers: { Authorization: `Bearer ${cfg.key}` }, body: form, timeout: 240_000 }, `${cfg.service} speech-to-text`);
   let text;
   try {
