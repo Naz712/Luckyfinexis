@@ -95,16 +95,29 @@ async function post(url, init, service) {
 export async function transcribe(cfg, { data, media_type, filename }) {
   if (!cfg) throw new ApiError(400, "No speech-to-text key is set on the server (VALSEA_API_KEY, or OPENAI_API_KEY as the fallback).");
   // Only the fields each service documents: a strict validator rejects extras with "Invalid request body".
-  const form = new FormData();
-  form.append("file", new Blob([data], { type: media_type }), filename);
-  form.append("model", cfg.model);
-  if (cfg.language) form.append("language", cfg.language);
-  if (cfg.service === "OpenAI") {
-    form.append("response_format", "json");
-    form.append("prompt", VOCAB);
+  const build = (language) => {
+    const form = new FormData();
+    form.append("file", new Blob([data], { type: media_type }), filename);
+    form.append("model", cfg.model);
+    if (language) form.append("language", language);
+    if (cfg.service === "OpenAI") {
+      form.append("response_format", "json");
+      form.append("prompt", VOCAB);
+    }
+    for (const [k, v] of Object.entries(cfg.extra ?? {})) form.append(k, String(v)); // VALSEA_EXTRA, for fields their docs ask for
+    return form;
+  };
+  const send = (language) => post(cfg.url, { headers: { Authorization: `Bearer ${cfg.key}` }, body: build(language), timeout: 240_000 }, `${cfg.service} speech-to-text`);
+  let body;
+  try {
+    body = await send(cfg.language);
+  } catch (e) {
+    // Valsea's example always carries a language. If it rejects a request without one, send it again as English rather than fail.
+    if (cfg.service === "Valsea" && !cfg.language && e instanceof ApiError && /replied 400/.test(e.message)) {
+      console.error("  Valsea rejected the request without a language; retrying with language=english. Set VALSEA_LANGUAGE in .env to choose.");
+      body = await send("english");
+    } else throw e;
   }
-  for (const [k, v] of Object.entries(cfg.extra ?? {})) form.append(k, String(v)); // VALSEA_EXTRA, for fields their docs ask for
-  const body = await post(cfg.url, { headers: { Authorization: `Bearer ${cfg.key}` }, body: form, timeout: 240_000 }, `${cfg.service} speech-to-text`);
   let text;
   try {
     text = JSON.parse(body).text;

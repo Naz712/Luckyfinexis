@@ -130,6 +130,9 @@ export async function ask({ messages }) {
   const amount = q.match(/(?:s\$|\$)\s*(\d[\d,]*)\s*(k)?|\b(\d[\d,]*)\s*(k)\b|\b(\d{3,})\b/);
   const premium = amount ? Number((amount[1] ?? amount[3] ?? amount[5] ?? "0").replace(/,/g, "")) * (amount[2] || amount[4] ? 1000 : 1) : 0;
   const call = (name, args) => ({ role: "assistant", content: null, tool_calls: [{ id: `call_mock_${Date.now()}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] });
+  if (/\bpass(es)?\b|\bdraws?\b|lucky|prize/.test(q)) return /prize|when|next|status/.test(q) ? call("draw_status", {}) : call("draw_passes", { month: /all|whole|campaign/.test(q) ? "all" : "current", limit: 6 });
+  if (/\bteam\b|my advisors/.test(q)) return call("team_status", {});
+  if (/\bgoals\b|\btargets?\b|wape|referral|testimonial/.test(q)) return call("goals_status", {});
   if (/what if|if i (sell|close|log)|one more/.test(q) && premium > 0) return call("what_if", { premium, product: /term|ci|critical|ilp|endowment|hospital|whole life|fund/.exec(q)?.[0] ?? "", term_years: 0, when: "" });
   if (/best|top|biggest/.test(q)) return call("top_clients", { by: /commission/.test(q) ? "commission" : "premium", period: "year", limit: 5 });
   if (/not talked|haven|quiet|while|long time/.test(q)) return call("quiet_clients", { days: 60, limit: 6 });

@@ -3,26 +3,35 @@
 // in-memory cases. The model (or, with no server, the keyword router at the
 // bottom) only decides which tool to call and how to phrase the result. The
 // tools never see anything beyond this advisor's own book.
-import { TODAY, products, type Advisor, type Case, type Client, type Product, type Tier } from "../mock/data";
+import { TODAY, advisors, metric_definitions, products, type Advisor, type Case, type Client, type Product, type Tier } from "../mock/data";
 import {
   casesForAdvisor,
   casesForClient,
+  challengeByCode,
   clientsForAdvisor,
   commissionForCase,
+  currentDrawMonth,
+  drawMonths,
   estimateGrossRevenue,
+  goalFor,
   mdrtSnapshot,
   metricSnapshot,
   metricsForCase,
   parseISODate,
+  passesForAdvisor,
+  passesForClient,
+  passTotals,
   periodBounds,
+  prizesForClient,
   productById,
   ROUTE_LABEL,
   toISODate,
+  UNTRACKED_METRICS,
   weeksLeftInYear,
   type GoalSet,
   type MdrtRoute,
 } from "./calc";
-import { paceText, sgd, shortDate } from "./format";
+import { CADENCE_PER, fmtMetric, paceText, sgd, shortDate } from "./format";
 
 export interface AnswerRow {
   label: string;
@@ -140,6 +149,43 @@ export const TOOL_DEFS = [
       name: "recent_cases",
       description: "Cases submitted in the last N days, newest first, with totals.",
       parameters: { type: "object", properties: { days: { type: "integer", description: "How far back to look. 30 when unsure." } }, required: ["days"], additionalProperties: false },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "draw_passes",
+      description: "The lucky draw campaign: clients ranked by the passes they hold (gold from purchases and referral purchases, blue from referrals, events, guests, testimonials, app downloads), for the current draw month or the whole campaign. Use for 'lucky draw', 'passes', 'who has the most passes'.",
+      parameters: {
+        type: "object",
+        properties: { month: { type: "string", enum: ["current", "all"], description: "The draw month coming up, or the whole campaign." }, limit: { type: "integer", description: "How many clients to list, 1 to 10." } },
+        required: ["month", "limit"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "draw_status",
+      description: "The lucky draw campaign overall: the next draw and its date, passes the advisor's clients hold per month, draws already held, and prizes the advisor's clients have won. Use for 'when is the draw', 'prizes', 'how is the campaign going'.",
+      parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "goals_status",
+      description: "Every goal the advisor has set this year (commission, gross revenue, WAPE, new clients, referrals, testimonials, Elite) with achieved, target and pace, plus the MDRT tier they aim for. Use for 'my goals', 'my targets', or any of those metrics by name.",
+      parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "team_status",
+      description: "For a manager: each advisor on their team with progress toward the MDRT tier they aim for, credit counted and pending, and pace. Says so when the user manages no team.",
+      parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
     },
   },
 ] as const;
@@ -367,6 +413,109 @@ function recentCases(ctx: AskContext, args: Record<string, unknown>): ToolResult
   };
 }
 
+const passWord = (n: number) => plural(n, "pass").replace("passs", "passes");
+
+function drawPasses(ctx: AskContext, args: Record<string, unknown>): ToolResult {
+  const month = args.month === "all" ? null : currentDrawMonth();
+  const limit = clip(args.limit, 1, 10, 6);
+  const ranked = clientsForAdvisor(ctx.advisor.id)
+    .map((cl) => {
+      const rows = passesForClient(cl.id, month);
+      const t = passTotals(rows);
+      const byChallenge = new Map<string, number>();
+      for (const r of rows) byChallenge.set(r.challenge_code, (byChallenge.get(r.challenge_code) ?? 0) + r.passes);
+      const top = [...byChallenge.entries()].sort((a, b) => b[1] - a[1])[0];
+      return { name: cl.name, gold: t.gold, blue: t.blue, total: t.gold + t.blue, top: top ? `${challengeByCode(top[0])?.label ?? top[0]} ×${top[1]}` : "" };
+    })
+    .filter((c) => c.total > 0)
+    .sort((a, b) => b.total - a.total || b.gold - a.gold);
+  const shown = ranked.slice(0, limit);
+  const mine = passTotals(passesForAdvisor(ctx.advisor.id, month));
+  const scope = month ? `the ${month} draw` : "the whole campaign";
+  return {
+    label: month ? `Most passes for the ${month} draw` : "Most passes across the campaign",
+    summary: ranked.length === 0 ? `None of your clients holds a pass for ${scope} yet.` : `${shown[0]!.name} has the most with ${passWord(shown[0]!.total)} (${shown[0]!.gold} gold, ${shown[0]!.blue} blue). Your clients hold ${mine.gold} gold and ${mine.blue} blue in ${scope}.`,
+    rows: shown.map((c) => ({ label: c.name, value: passWord(c.total), sub: `${c.gold} gold · ${c.blue} blue${c.top ? ` · ${c.top}` : ""}` })),
+    note: "Gold passes come from qualifying purchases and referral purchases; blue from referrals, events, guests, testimonials and app downloads.",
+    facts: { month: month ?? "all", advisor_gold: mine.gold, advisor_blue: mine.blue, clients: shown.map((c) => ({ name: c.name, gold: c.gold, blue: c.blue, total: c.total, mostly_from: c.top })) },
+  };
+}
+
+function drawStatus(ctx: AskContext): ToolResult {
+  const months = drawMonths();
+  const current = currentDrawMonth();
+  const next = months.find((m) => m.monthly_draw === current)!;
+  const rows: AnswerRow[] = months
+    .slice()
+    .reverse()
+    .map((m) => {
+      const t = passTotals(passesForAdvisor(ctx.advisor.id, m.monthly_draw));
+      return { label: `${m.monthly_draw} draw`, value: `${t.gold} gold · ${t.blue} blue`, sub: m.is_drawn ? `drawn ${dayOf(m.draw_date)}` : `draw on ${dayOf(m.draw_date)}` };
+    });
+  const prizes = clientsForAdvisor(ctx.advisor.id).flatMap((cl) => prizesForClient(cl.id).map((p) => ({ client: cl.name, ...p })));
+  for (const p of prizes) rows.push({ label: `${p.client} won ${p.prize_won}`, value: p.monthly_draw, sub: `${p.pass_type} draw` });
+  const all = passTotals(passesForAdvisor(ctx.advisor.id, null));
+  return {
+    label: "Lucky draw campaign",
+    summary: `${next.is_drawn ? `The last draw was ${current}` : `The ${current} draw is on ${dayOf(next.draw_date)}`}; your clients hold ${passTotals(passesForAdvisor(ctx.advisor.id, current)).gold} gold and ${passTotals(passesForAdvisor(ctx.advisor.id, current)).blue} blue passes for it, ${all.gold} gold and ${all.blue} blue across the campaign. ${prizes.length === 0 ? "No prizes won yet." : `${plural(prizes.length, "prize")} won so far.`}`,
+    rows,
+    facts: { next_draw: current, next_draw_date: next.draw_date, drawn: next.is_drawn, campaign_gold: all.gold, campaign_blue: all.blue, prizes: prizes.map((p) => ({ client: p.client, month: p.monthly_draw, prize: p.prize_won, pass_type: p.pass_type })) },
+  };
+}
+
+function goalsStatus(ctx: AskContext): ToolResult {
+  const cs = mine(ctx);
+  const year = TODAY.getFullYear();
+  const mdrt = mdrtSnapshot(ctx.advisor.id, cs, TODAY, ctx.goalSet);
+  const route = routeOf(mdrt);
+  const rows: AnswerRow[] = [{ label: "MDRT aim", value: `${TIER_LABEL[mdrt.goalTier]} 2027`, sub: `${pctOf(route)} there on the ${ROUTE_LABEL[route.metric].toLowerCase()} route · ${paceText(route.pace, "sgd", route.goalReached)}` }];
+  const facts: Record<string, unknown>[] = [];
+  let onTrack = 0;
+  let set = 0;
+  for (const def of metric_definitions) {
+    if (def.code === "mdrt_commission" || def.code === "mdrt_premium") continue;
+    const goal = goalFor(ctx.advisor.id, def.code, year, ctx.goalSet.targets);
+    if (!goal) continue;
+    set++;
+    const snap = metricSnapshot(ctx.advisor.id, cs, def.code, TODAY, ctx.goalSet);
+    const tracked = !UNTRACKED_METRICS.has(def.code);
+    const reached = snap.target !== null && snap.achieved >= snap.target;
+    if (tracked && (reached || snap.pace?.onTrack)) onTrack++;
+    rows.push({
+      label: def.label,
+      value: tracked ? `${fmtMetric(snap.achieved, def.unit)} of ${fmtMetric(snap.target ?? goal.target_value, def.unit)}` : `target ${fmtMetric(goal.target_value, def.unit)}`,
+      sub: tracked ? `${CADENCE_PER[goal.cadence]} · ${paceText(snap.pace, def.unit, reached)}` : `${CADENCE_PER[goal.cadence]} · not tracked in the app yet`,
+    });
+    facts.push({ metric: def.code, label: def.label, cadence: goal.cadence, target: snap.target ?? goal.target_value, achieved: tracked ? Math.round(snap.achieved) : null, projected: tracked ? Math.round(snap.projected) : null, on_track: tracked ? reached || !!snap.pace?.onTrack : null, tracked });
+  }
+  return {
+    label: "Your goals",
+    summary: set === 0 ? `Only the MDRT aim is set: ${TIER_LABEL[mdrt.goalTier]}, ${pctOf(route)} there on the ${ROUTE_LABEL[route.metric].toLowerCase()} route.` : `${plural(set, "goal")} set besides the MDRT aim; ${onTrack} on track or reached. MDRT: ${pctOf(route)} there on the ${ROUTE_LABEL[route.metric].toLowerCase()} route.`,
+    rows,
+    note: rows.some((r) => r.sub?.includes("not tracked")) ? "Referrals, testimonials and Elite are not tracked in the app yet, so only their targets show." : undefined,
+    facts: { mdrt_tier: mdrt.goalTier, mdrt_route: route.metric, mdrt_progress: route.projected / route.goalThreshold, goals: facts },
+  };
+}
+
+function teamStatus(ctx: AskContext): ToolResult {
+  const team = advisors.filter((a) => a.manager_id === ctx.advisor.id);
+  if (team.length === 0) return { label: "Team", summary: "You don't manage a team in this app, so there is no team view for you.", rows: [], facts: { manager: false } };
+  const rows = team
+    .map((a) => {
+      const snap = mdrtSnapshot(a.id, ctx.cases, TODAY, ctx.goalSet);
+      const route = routeOf(snap);
+      return { name: a.name, tier: snap.goalTier, route: route.metric, progress: route.projected / route.goalThreshold, counted: route.achieved, pending: route.projected - route.achieved, pace: paceText(route.pace, "sgd", route.goalReached), onTrack: route.goalReached || route.pace.onTrack };
+    })
+    .sort((a, b) => b.progress - a.progress);
+  const lead = rows[0]!;
+  return {
+    label: "Your team",
+    summary: `${plural(rows.length, "advisor")}; ${lead.name} is furthest along at ${Math.round(Math.min(1, lead.progress) * 100)}% of ${TIER_LABEL[lead.tier]} on the ${ROUTE_LABEL[lead.route].toLowerCase()} route. ${rows.filter((r) => r.onTrack).length} on track.`,
+    rows: rows.map((r) => ({ label: r.name, value: `${Math.round(Math.min(1, r.progress) * 100)}% of ${TIER_LABEL[r.tier]}`, sub: `${ROUTE_LABEL[r.route]} route · ${sgd(r.counted)} counted${r.pending > 0 ? ` + ${sgd(r.pending)} pending` : ""} · ${r.pace}` })),
+    facts: { manager: true, advisors: rows.map((r) => ({ name: r.name, tier: r.tier, route: r.route, progress: r.progress, counted: Math.round(r.counted), pending: Math.round(r.pending), on_track: r.onTrack })) },
+  };
+}
+
 export function runTool(name: string, args: Record<string, unknown>, ctx: AskContext): ToolResult {
   switch (name) {
     case "top_clients":
@@ -383,6 +532,14 @@ export function runTool(name: string, args: Record<string, unknown>, ctx: AskCon
       return pipeline(ctx);
     case "recent_cases":
       return recentCases(ctx, args);
+    case "draw_passes":
+      return drawPasses(ctx, args);
+    case "draw_status":
+      return drawStatus(ctx);
+    case "goals_status":
+      return goalsStatus(ctx);
+    case "team_status":
+      return teamStatus(ctx);
     default:
       return { label: "Unknown tool", summary: `There is no tool called ${name}.`, rows: [], facts: { error: "unknown tool" } };
   }
@@ -421,6 +578,12 @@ export function localAnswer(question: string, ctx: AskContext): Answer {
     const term = q.match(/(\d+)\s*(?:years?|yrs?)/i);
     return toAnswer(runTool("what_if", { premium: amount, product: ql, term_years: term ? Number(term[1]) : 0, when: "" }, ctx));
   }
+  if (/\bpass(es)?\b|\bdraws?\b|lucky|prize|raffle|campaign/.test(ql)) {
+    if (/prize|won|when|next|status|how is|going|date/.test(ql)) return toAnswer(runTool("draw_status", {}, ctx));
+    return toAnswer(runTool("draw_passes", { month: /all|whole|overall|total|campaign|ever/.test(ql) ? "all" : "current", limit: 6 }, ctx));
+  }
+  if (/\bteam\b|my advisors|my fcs|\bagency\b|who.s (ahead|behind)/.test(ql)) return toAnswer(runTool("team_status", {}, ctx));
+  if (/\bgoals\b|\btargets?\b|\bwape\b|referral|testimonial|new clients|gross revenue|\belite\b/.test(ql)) return toAnswer(runTool("goals_status", {}, ctx));
   if (/best|top|biggest|largest|most valuable|highest/.test(ql)) {
     const by = /commission/.test(ql) ? "commission" : /mdrt|credit/.test(ql) ? "mdrt" : /most cases|number of cases/.test(ql) ? "cases" : "premium";
     return toAnswer(runTool("top_clients", { by, period: /all time|ever|whole book|overall/.test(ql) ? "all" : "year", limit: 5 }, ctx));
@@ -432,7 +595,7 @@ export function localAnswer(question: string, ctx: AskContext): Answer {
   if (named) return toAnswer(runTool("client_detail", { name: named }, ctx));
   return {
     title: "Not sure what to look up",
-    summary: "Without the server I only understand a few kinds of question: best clients, quiet clients, what-ifs with an amount, pace, pending and recent cases, or a client by name.",
+    summary: "Without the server I only understand a few kinds of question: best clients, quiet clients, what-ifs with an amount, pace, goals, lucky draw passes, pending and recent cases, your team, or a client by name.",
     rows: [],
     note: "Connect the pipeline server on Packs → New pack to ask anything in your own words.",
     basis: [],
