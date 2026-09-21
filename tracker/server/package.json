@@ -2,12 +2,14 @@
   "name": "finexis-packs-api",
   "private": true,
   "version": "0.1.0",
-  "description": "Meeting Pack pipeline: holds the API keys, transcribes the recap, composes and reworks the report. No dependencies; Node 22+.",
+  "description": "The tracker's server: holds the OpenAI key and runs one model turn per question (the tools run in the app), and holds the firm's monthly production import, serving each FA their own rows. No dependencies; Node 22+.",
   "type": "module",
   "engines": { "node": ">=22" },
   "scripts": {
     "start": "node index.mjs",
     "mock": "node index.mjs --mock",
-    "check": "node --check index.mjs && node --check providers.mjs && node --check schema.mjs && node --check prompt.mjs && node --check mock.mjs"
+    "import": "node import.mjs",
+    "links": "node import.mjs --links",
+    "check": "node --check index.mjs && node --check store.mjs && node --check import.mjs && node --check providers.mjs && node --check schema.mjs && node --check prompt.mjs && node --check mock.mjs"
   }
 }

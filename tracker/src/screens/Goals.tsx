@@ -46,7 +46,7 @@ const TIER_LABEL: Record<Tier, string> = { mdrt: "MDRT", cot: "COT", tot: "TOT" 
 const TIERS: Tier[] = ["mdrt", "cot", "tot"];
 const CADENCES: GoalCadence[] = ["year", "half", "quarter", "month"];
 const CADENCE_SHORT: Record<GoalCadence, string> = { year: "Year", half: "Half", quarter: "Quarter", month: "Month" };
-/** The seven metrics an FC sets their own targets on: everything except the MDRT routes, which the tier aims cover. */
+/** The metrics an FC sets their own targets on: everything except the two MDRT routes, which the tier aims cover. */
 const OWN_METRICS = metric_definitions.filter((m) => m.code !== "mdrt_commission" && m.code !== "mdrt_premium");
 const DAY = 86_400_000;
 
@@ -378,11 +378,8 @@ export default function Goals({
   // ── Blue card + chart: the one aim in force ──
   const closest = mdrt.routes.find((r) => r.metric === mdrt.closer)!;
   const others = mdrt.routes.filter((r) => r.metric !== mdrt.closer);
-  /** How far a route is toward a tier, held back by any minimum inside the route that is not met (income route). */
-  const routeRatio = (r: MdrtRoute, t: Tier) => {
-    const gate = r.credit.newBusiness ? Math.min(r.credit.risk / r.credit.riskFloor, r.credit.newBusiness.value / r.credit.newBusiness.floor) : 1;
-    return Math.min(r.achieved / thresholdFor(r.metric, t), gate, 1);
-  };
+  /** How far a route's counted credit is toward a tier. */
+  const routeRatio = (r: MdrtRoute, t: Tier) => Math.min(r.achieved / thresholdFor(r.metric, t), 1);
   const cv = view(customMetric);
   const cvFmt = (v: number) => fmtMetric(v, cv.definition.unit);
   const cvWord = metricWord(cv.definition.label);
@@ -394,17 +391,17 @@ export default function Goals({
   if (!isCustom) {
     heroLabel = `Distance to ${TIER_LABEL[tier]} ${MDRT_MEMBERSHIP_YEAR}`;
     heroPeriod = `${periodLabel(mdrt.period)} · ${weeksLeftIn(mdrt.period, TODAY)} weeks left`;
-    heroBlurb = `Any of the three routes qualifies. You are closest on the ${closest.label.toLowerCase()} route.`;
+    heroBlurb = `Either route qualifies. You are closest on the ${closest.label.toLowerCase()} route.`;
   } else {
     heroPeriod = `${CADENCE_LABEL[cv.cadence]} · ${periodLabel(cv.period)}`;
     if (cv.target === null) {
       heroLabel = `Your own ${cvWord} goal`;
-      heroBlurb = cv.tracked ? `Nothing set yet for ${cvWord}.` : "This metric has no data source in the mockup yet, so nothing accrues against it.";
+      heroBlurb = cv.tracked ? `Nothing set yet for ${cvWord}.` : "This metric is not in the monthly import yet, so nothing accrues against it.";
     } else {
       heroLabel = `Distance to ${cvFmt(cv.target)} ${cvWord}`;
       heroBlurb = cv.tracked
         ? `Your own target. It resets at the end of each ${CADENCE_LABEL[cv.cadence].toLowerCase()} period.`
-        : "Your own target. This metric has no data source in the mockup yet, so nothing accrues against it.";
+        : "Your own target. This metric is not in the monthly import yet, so nothing accrues against it.";
     }
   }
 
@@ -606,7 +603,7 @@ export default function Goals({
             <p className="tnum mt-[9px] text-pretty text-[11px] leading-[1.5] text-muted">
               {cv.tracked
                 ? `${cv.definition.label} counts over ${periodLabel(cv.period)} (${dateRange(cv.period)}). Achieved so far ${cvFmt(cv.achieved)}.`
-                : `${cv.definition.label} counts over ${periodLabel(cv.period)}, but has no data source in the mockup yet.`}
+                : `${cv.definition.label} counts over ${periodLabel(cv.period)}, but is not in the monthly import yet.`}
             </p>
           </div>
         )}
@@ -628,7 +625,7 @@ export default function Goals({
             const tone: Tone = !set || !v.tracked ? "none" : v.reached ? "ok" : v.pace?.onTrack ? "accent" : "warn";
             const fill = target !== null ? Math.min(v.achieved / target, 1) : 0;
             const pendingFill = target !== null ? Math.min((v.projected - v.achieved) / target, Math.max(1 - v.achieved / target, 0)) : 0;
-            const paceLine = !set ? "No target set" : !v.tracked ? "No data source yet" : paceText(v.pace, v.definition.unit, v.reached);
+            const paceLine = !set ? "No target set" : !v.tracked ? "Not in the monthly import yet" : paceText(v.pace, v.definition.unit, v.reached);
             return (
               <button
                 key={m.code}
@@ -668,9 +665,7 @@ export default function Goals({
           MDRT_THRESHOLDS_CONFIRMED ? "" : ` Singapore figures still to be confirmed against the ${MDRT_MEMBERSHIP_YEAR} chart.`
         } Other Products credit (hospital plans, funds, portfolios) counts only once Risk-Protection credit reaches ${sgd(floorsFor("mdrt_commission").risk)} of commission or ${sgd(
           floorsFor("mdrt_premium").risk,
-        )} of premium. The income route adds renewals and other production income but needs ${sgd(floorsFor("mdrt_income").newBusiness ?? 0)} of new business and ${sgd(
-          floorsFor("mdrt_income").risk,
-        )} from Risk-Protection products. Custom goals are yours and reset each period.`}
+        )} of premium. Custom goals are yours and reset each period.`}
       </p>
     </div>
   );

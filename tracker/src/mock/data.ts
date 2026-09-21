@@ -1,32 +1,26 @@
-// Mock data for the Finexis production tracker mockup.
+// Mock data for the Finexis production tracker.
 //
-// Everything a screen displays comes from the tables in this file (via
-// src/lib/calc.ts). The shapes mirror the intended Supabase tables so the
-// whole file can be swapped for real queries later.
+// Section 1 holds reference values: the product panel, banding rates, MDRT
+// thresholds and the in-house Elite scheme. Rows marked PLACEHOLDER are
+// guesses to be replaced by the business's own figures (see
+// src/private/README for how the confidential ones are loaded).
 //
-// ─────────────────────────────────────────────────────────────────────────
-// SECTION 1 — PLACEHOLDER REFERENCE TABLES
-// Every value in this section is made up. Search for "PLACEHOLDER" to find
-// what must be replaced with business-supplied values before go-live.
-// ─────────────────────────────────────────────────────────────────────────
+// Section 2 holds fake advisers and their monthly production import, which
+// is the app's data source: each row is one FA's year-to-date figures as of
+// a month end, the way the backend import supplies them. Nothing here is real.
 
-export type ProductCategory = "life" | "ilp" | "health" | "endowment" | "fund";
+// ─────────────────────────────────────────────────────────────────
+// SECTION 1 — REFERENCE DATA
+// ─────────────────────────────────────────────────────────────────
+
+export type ProductCategory = "life" | "ilp" | "health" | "endowment";
 export type PremiumType = "regular" | "single";
 export type MdrtCategory = "risk_protection" | "other";
 export type BandingCode = "B1" | "B2" | "B3" | "B4" | "B5";
 export type CreditMetric = "mdrt_premium" | "mdrt_commission" | "wape";
 export type Tier = "mdrt" | "cot" | "tot";
 export type PeriodType = "jan_dec" | "jan_jun" | "feb_jan" | "apr_mar";
-export type MetricCode =
-  | "commission"
-  | "gross_revenue"
-  | "mdrt_premium"
-  | "mdrt_commission"
-  | "wape"
-  | "elite"
-  | "new_clients"
-  | "referrals"
-  | "testimonials";
+export type MetricCode = "commission" | "premium" | "mdrt_premium" | "mdrt_commission" | "elite" | "wape";
 export type MetricUnit = "sgd" | "count";
 
 export interface Insurer {
@@ -40,30 +34,16 @@ export interface Product {
   name: string;
   category: ProductCategory;
   premium_type: PremiumType;
-  /**
-   * Which of MDRT's two product categories the product falls in, from the
-   * "Eligible Products and Credit" table (2027 Membership Information, page 4):
-   * life, ILPs, endowments, annuities, critical illness, disability and
-   * long-term care are Risk-Protection; hospital and other health plans,
-   * unit trusts, portfolios and advice fees are Other Products. Half the MDRT
-   * requirement must come from Risk-Protection before Other Products credit
-   * counts (see mdrt_floors).
-   */
+  /** How MDRT classes the product: Risk-Protection or Other Products. */
   mdrt_category: MdrtCategory;
-  /**
-   * PLACEHOLDER — the insurer's commission rate for this product, as gross
-   * revenue per dollar of premium (annual premium for regular products, lump
-   * sum for single premium). Some product suites use a different formula
-   * altogether; model those as a rule when the business supplies them.
-   */
+  /** PLACEHOLDER — gross revenue as a share of the annual premium (or of the lump sum). */
   comm_rate: number;
-  /**
-   * PLACEHOLDER — a typical case size for this product (annual premium for
-   * regular products, lump sum for single premium, annual contribution for
-   * RSPs). Pre-fills the calculator so gross revenue appears as soon as a
-   * product is chosen; the FC adjusts it to the real case.
-   */
+  /** A typical case, pre-filled in the Calculator. */
   typical_premium: number;
+  /** PLACEHOLDER — Elite credits per S$1,000 of annual premium (lump sum for single premium). The scheme's real rules are still to come. */
+  elite_rate: number;
+  /** Not offered in the product picker (the two import buckets). */
+  hidden?: boolean;
 }
 
 export interface Banding {
@@ -78,8 +58,8 @@ export interface CreditRate {
   rate: number;
 }
 
-/** The three ways to qualify for MDRT: first-year commission, first-year premium, or annual gross income. */
-export type MdrtRouteMetric = "mdrt_commission" | "mdrt_premium" | "mdrt_income";
+/** The two ways the firm tracks MDRT qualification: first-year commission or first-year premium. */
+export type MdrtRouteMetric = "mdrt_commission" | "mdrt_premium";
 
 export interface MetricThreshold {
   metric: MdrtRouteMetric;
@@ -87,17 +67,10 @@ export interface MetricThreshold {
   value: number;
 }
 
-/**
- * MDRT's minimums inside a route. `risk_protection` is the credit that must
- * come from Risk-Protection products before any Other Products credit counts
- * (commission and premium routes) or, on the income route, the income that
- * must be associated with Risk-Protection products. `new_business` applies
- * to the income route only: income from business written this year.
- */
+/** MDRT's minimum inside a route: the credit that must come from Risk-Protection products before any Other Products credit counts. */
 export interface MdrtFloor {
   metric: MdrtRouteMetric;
   risk_protection: number;
-  new_business: number | null;
 }
 
 export interface MetricDefinition {
@@ -107,48 +80,41 @@ export interface MetricDefinition {
   period_type: PeriodType;
 }
 
-// PLACEHOLDER — confirm with the business. These are providers finexis lists
-// publicly as partners (life insurers) plus the two fund platforms FA firms
-// commonly use; the real panel may be longer (e.g. AIA, Income, China Taiping).
+/** PLACEHOLDER — one rung of the in-house Elite scheme (the year-end trips). */
+export interface EliteTier {
+  code: string;
+  name: string;
+  /** Credits needed in the production year. */
+  credits: number;
+}
+
+// The panel this version covers: three insurers, as agreed. Names are generic
+// descriptors of each insurer's product types, not their actual product names.
 export const insurers: Insurer[] = [
-  { id: "ins_a", name: "Singlife" },
-  { id: "ins_b", name: "Manulife" },
-  { id: "ins_c", name: "HSBC Life" },
-  { id: "ins_d", name: "Tokio Marine Life" },
-  { id: "ins_e", name: "Etiqa" },
-  { id: "ins_h", name: "FWD" },
-  { id: "ins_f", name: "iFAST (unit trusts)" },
-  { id: "ins_g", name: "Navigator (portfolios)" },
+  { id: "ins_singlife", name: "Singlife" },
+  { id: "ins_hsbc", name: "HSBC Life" },
+  { id: "ins_fwd", name: "FWD" },
 ];
 
-// PLACEHOLDER — replace with the business's product list and commission rates.
-// Names are generic descriptors of each provider's product types, not the
-// providers' actual product names. For funds, premium_amount is the amount
-// invested (lump sum) or the annual contribution (RSP), and comm_rate is the
-// upfront charge only; ongoing trailer fees are not modelled.
+// PLACEHOLDER — replace with the business's product list, commission rates
+// and Elite credit rates (or load them privately, see src/private/README).
 export const products: Product[] = [
-  { id: "prd_01", insurer_id: "ins_a", name: "Singlife Term", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95, typical_premium: 1800 },
-  { id: "prd_02", insurer_id: "ins_a", name: "Singlife Whole Life (par)", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95, typical_premium: 3600 },
-  { id: "prd_03", insurer_id: "ins_f", name: "Unit trust, lump sum", category: "fund", premium_type: "single", mdrt_category: "other", comm_rate: 0.015, typical_premium: 50000 },
-  { id: "prd_04", insurer_id: "ins_b", name: "Manulife Regular-Premium ILP", category: "ilp", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.7, typical_premium: 6000 },
-  { id: "prd_05", insurer_id: "ins_b", name: "Manulife Single-Premium Endowment", category: "endowment", premium_type: "single", mdrt_category: "risk_protection", comm_rate: 0.03, typical_premium: 50000 },
-  { id: "prd_06", insurer_id: "ins_b", name: "Manulife Hospital Plan", category: "health", premium_type: "regular", mdrt_category: "other", comm_rate: 0.6, typical_premium: 1200 },
-  { id: "prd_07", insurer_id: "ins_c", name: "HSBC Life Critical Illness", category: "health", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95, typical_premium: 2400 },
-  { id: "prd_08", insurer_id: "ins_c", name: "HSBC Life Regular Endowment", category: "endowment", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.45, typical_premium: 6000 },
-  { id: "prd_09", insurer_id: "ins_c", name: "HSBC Life Single-Premium ILP", category: "ilp", premium_type: "single", mdrt_category: "risk_protection", comm_rate: 0.04, typical_premium: 50000 },
-  { id: "prd_10", insurer_id: "ins_d", name: "Tokio Marine Whole Life (par)", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95, typical_premium: 3600 },
-  { id: "prd_11", insurer_id: "ins_d", name: "Tokio Marine Term", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95, typical_premium: 1800 },
-  { id: "prd_12", insurer_id: "ins_e", name: "Etiqa Retirement Income", category: "endowment", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.45, typical_premium: 6000 },
-  { id: "prd_13", insurer_id: "ins_g", name: "Portfolio, lump sum", category: "fund", premium_type: "single", mdrt_category: "other", comm_rate: 0.015, typical_premium: 50000 },
-  { id: "prd_14", insurer_id: "ins_h", name: "FWD Term", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95, typical_premium: 1800 },
-  { id: "prd_15", insurer_id: "ins_h", name: "FWD Critical Illness", category: "health", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95, typical_premium: 2400 },
-  { id: "prd_16", insurer_id: "ins_h", name: "FWD Regular-Premium ILP", category: "ilp", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.7, typical_premium: 6000 },
-  { id: "prd_17", insurer_id: "ins_e", name: "Etiqa Single-Premium Endowment", category: "endowment", premium_type: "single", mdrt_category: "risk_protection", comm_rate: 0.03, typical_premium: 50000 },
-  { id: "prd_18", insurer_id: "ins_f", name: "Unit trust RSP (monthly)", category: "fund", premium_type: "regular", mdrt_category: "other", comm_rate: 0.02, typical_premium: 6000 },
-  { id: "prd_19", insurer_id: "ins_g", name: "Portfolio RSP (monthly)", category: "fund", premium_type: "regular", mdrt_category: "other", comm_rate: 0.02, typical_premium: 6000 },
+  { id: "prd_01", insurer_id: "ins_singlife", name: "Singlife Term", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95, typical_premium: 1800, elite_rate: 10 },
+  { id: "prd_02", insurer_id: "ins_singlife", name: "Singlife Whole Life (par)", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95, typical_premium: 3600, elite_rate: 10 },
+  { id: "prd_20", insurer_id: "ins_singlife", name: "Singlife Hospital Plan", category: "health", premium_type: "regular", mdrt_category: "other", comm_rate: 0.6, typical_premium: 1200, elite_rate: 2 },
+  { id: "prd_07", insurer_id: "ins_hsbc", name: "HSBC Life Critical Illness", category: "health", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95, typical_premium: 2400, elite_rate: 10 },
+  { id: "prd_08", insurer_id: "ins_hsbc", name: "HSBC Life Regular Endowment", category: "endowment", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.45, typical_premium: 6000, elite_rate: 5 },
+  { id: "prd_09", insurer_id: "ins_hsbc", name: "HSBC Life Single-Premium ILP", category: "ilp", premium_type: "single", mdrt_category: "risk_protection", comm_rate: 0.04, typical_premium: 50000, elite_rate: 0.5 },
+  { id: "prd_14", insurer_id: "ins_fwd", name: "FWD Term", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95, typical_premium: 1800, elite_rate: 10 },
+  { id: "prd_15", insurer_id: "ins_fwd", name: "FWD Critical Illness", category: "health", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.95, typical_premium: 2400, elite_rate: 10 },
+  { id: "prd_16", insurer_id: "ins_fwd", name: "FWD Regular-Premium ILP", category: "ilp", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 0.7, typical_premium: 6000, elite_rate: 8 },
+  { id: "prd_21", insurer_id: "ins_fwd", name: "FWD Hospital Plan", category: "health", premium_type: "regular", mdrt_category: "other", comm_rate: 0.6, typical_premium: 1200, elite_rate: 2 },
+  // The two buckets a monthly import row is split into. Their figures come from the import, not from these rates.
+  { id: "import_risk", insurer_id: "", name: "Risk-Protection products", category: "life", premium_type: "regular", mdrt_category: "risk_protection", comm_rate: 1, typical_premium: 0, elite_rate: 0, hidden: true },
+  { id: "import_other", insurer_id: "", name: "Other Products", category: "health", premium_type: "regular", mdrt_category: "other", comm_rate: 1, typical_premium: 0, elite_rate: 0, hidden: true },
 ];
 
-// PLACEHOLDER — replace with business-supplied values (actual banding rates).
+// PLACEHOLDER — confirm the banding table with the business.
 export const bandings: Banding[] = [
   { code: "B1", label: "Band 1", commission_rate: 0.3 },
   { code: "B2", label: "Band 2", commission_rate: 0.4 },
@@ -160,80 +126,26 @@ export const bandings: Banding[] = [
 // PLACEHOLDER — the MDRT rates follow MDRT's "Eligible Products and Credit"
 // table (2027 Membership Information, page 4): 100% of first-year commission
 // for every product; premium credit 100% of first-year premium for regular
-// life / CI / health / endowment, 6% for single premium and new money into
-// funds. WAPE rates are Finexis's own and still to be supplied. Not modelled
-// yet: MDRT gives a regular endowment of 15 years or less only 6% premium
-// credit (100% from 16 years), which depends on the term, not the product.
-// One row per product × metric:
-//   regular life / health / endowment → mdrt_premium 1.00, mdrt_commission 1.00, wape 1.00
-//   single premium                    → mdrt_premium 0.06, mdrt_commission 1.00, wape 0.10
-//   funds                             → mdrt_premium 0.06, mdrt_commission 1.00, wape 0
-// Assumption: regular-premium ILP follows the regular life rule.
-export const credit_rates: CreditRate[] = [
-  { product_id: "prd_01", metric: "mdrt_premium", rate: 1.0 },
-  { product_id: "prd_01", metric: "mdrt_commission", rate: 1.0 },
-  { product_id: "prd_01", metric: "wape", rate: 1.0 },
-  { product_id: "prd_02", metric: "mdrt_premium", rate: 1.0 },
-  { product_id: "prd_02", metric: "mdrt_commission", rate: 1.0 },
-  { product_id: "prd_02", metric: "wape", rate: 1.0 },
-  { product_id: "prd_03", metric: "mdrt_premium", rate: 0.06 },
-  { product_id: "prd_03", metric: "mdrt_commission", rate: 1.0 },
-  { product_id: "prd_03", metric: "wape", rate: 0.0 },
-  { product_id: "prd_04", metric: "mdrt_premium", rate: 1.0 },
-  { product_id: "prd_04", metric: "mdrt_commission", rate: 1.0 },
-  { product_id: "prd_04", metric: "wape", rate: 1.0 },
-  { product_id: "prd_05", metric: "mdrt_premium", rate: 0.06 },
-  { product_id: "prd_05", metric: "mdrt_commission", rate: 1.0 },
-  { product_id: "prd_05", metric: "wape", rate: 0.1 },
-  { product_id: "prd_06", metric: "mdrt_premium", rate: 1.0 },
-  { product_id: "prd_06", metric: "mdrt_commission", rate: 1.0 },
-  { product_id: "prd_06", metric: "wape", rate: 1.0 },
-  { product_id: "prd_07", metric: "mdrt_premium", rate: 1.0 },
-  { product_id: "prd_07", metric: "mdrt_commission", rate: 1.0 },
-  { product_id: "prd_07", metric: "wape", rate: 1.0 },
-  { product_id: "prd_08", metric: "mdrt_premium", rate: 1.0 },
-  { product_id: "prd_08", metric: "mdrt_commission", rate: 1.0 },
-  { product_id: "prd_08", metric: "wape", rate: 1.0 },
-  { product_id: "prd_09", metric: "mdrt_premium", rate: 0.06 },
-  { product_id: "prd_09", metric: "mdrt_commission", rate: 1.0 },
-  { product_id: "prd_09", metric: "wape", rate: 0.1 },
-  { product_id: "prd_10", metric: "mdrt_premium", rate: 1.0 },
-  { product_id: "prd_10", metric: "mdrt_commission", rate: 1.0 },
-  { product_id: "prd_10", metric: "wape", rate: 1.0 },
-  { product_id: "prd_11", metric: "mdrt_premium", rate: 1.0 },
-  { product_id: "prd_11", metric: "mdrt_commission", rate: 1.0 },
-  { product_id: "prd_11", metric: "wape", rate: 1.0 },
-  { product_id: "prd_12", metric: "mdrt_premium", rate: 1.0 },
-  { product_id: "prd_12", metric: "mdrt_commission", rate: 1.0 },
-  { product_id: "prd_12", metric: "wape", rate: 1.0 },
-  { product_id: "prd_13", metric: "mdrt_premium", rate: 0.06 },
-  { product_id: "prd_13", metric: "mdrt_commission", rate: 1.0 },
-  { product_id: "prd_13", metric: "wape", rate: 0.0 },
-  { product_id: "prd_14", metric: "mdrt_premium", rate: 1 },
-  { product_id: "prd_14", metric: "mdrt_commission", rate: 1 },
-  { product_id: "prd_14", metric: "wape", rate: 1 },
-  { product_id: "prd_15", metric: "mdrt_premium", rate: 1 },
-  { product_id: "prd_15", metric: "mdrt_commission", rate: 1 },
-  { product_id: "prd_15", metric: "wape", rate: 1 },
-  { product_id: "prd_16", metric: "mdrt_premium", rate: 1 },
-  { product_id: "prd_16", metric: "mdrt_commission", rate: 1 },
-  { product_id: "prd_16", metric: "wape", rate: 1 },
-  { product_id: "prd_17", metric: "mdrt_premium", rate: 0.06 },
-  { product_id: "prd_17", metric: "mdrt_commission", rate: 1 },
-  { product_id: "prd_17", metric: "wape", rate: 0.1 },
-  { product_id: "prd_18", metric: "mdrt_premium", rate: 0.06 },
-  { product_id: "prd_18", metric: "mdrt_commission", rate: 1 },
-  { product_id: "prd_18", metric: "wape", rate: 0 },
-  { product_id: "prd_19", metric: "mdrt_premium", rate: 0.06 },
-  { product_id: "prd_19", metric: "mdrt_commission", rate: 1 },
-  { product_id: "prd_19", metric: "wape", rate: 0 },
+// life / CI / health / endowment, 6% for single premium. WAPE rates are
+// Finexis's own and still to be supplied. Not modelled yet: MDRT gives a
+// regular endowment of 15 years or less only 6% premium credit (100% from
+// 16 years), which depends on the term, not the product.
+const REGULAR: [CreditMetric, number][] = [
+  ["mdrt_premium", 1.0],
+  ["mdrt_commission", 1.0],
+  ["wape", 1.0],
 ];
+const SINGLE: [CreditMetric, number][] = [
+  ["mdrt_premium", 0.06],
+  ["mdrt_commission", 1.0],
+  ["wape", 0.1],
+];
+export const credit_rates: CreditRate[] = products.flatMap((p) => (p.premium_type === "single" ? SINGLE : REGULAR).map(([metric, rate]) => ({ product_id: p.id, metric, rate })));
 
 /**
- * MDRT qualifies on the previous calendar year's production: what an FC
- * writes in MDRT_PRODUCTION_YEAR counts toward membership in
- * MDRT_MEMBERSHIP_YEAR, so the thresholds below are that membership
- * year's chart (confirmed by marketing, 9 Sep 2026).
+ * MDRT counts a calendar year of production toward the next membership year:
+ * 2026 production qualifies for 2027 membership, judged against the 2027
+ * membership year's chart (confirmed by marketing, 9 Sep 2026).
  */
 export const MDRT_PRODUCTION_YEAR = 2026;
 export const MDRT_MEMBERSHIP_YEAR = 2027;
@@ -246,9 +158,8 @@ export const MDRT_MEMBERSHIP_YEAR = 2027;
 export const MDRT_THRESHOLDS_CONFIRMED = true;
 
 // Singapore, SGD, 2027 membership (2026 production), from pages 12 and 15 of
-// the document above: MDRT / COT / TOT at 1x / 3x / 6x on every route. MDRT's
-// conversion factors (0.8239 commission, 1.2358 premium, 0.8206 income) only
-// matter when reporting to MDRT in USD, so they are not used.
+// the document above: MDRT / COT / TOT at 1x / 3x / 6x on both routes. The
+// income route exists at MDRT but the firm does not track it, so it is left out.
 export const metric_thresholds: MetricThreshold[] = [
   { metric: "mdrt_commission", tier: "mdrt", value: 75800 },
   { metric: "mdrt_commission", tier: "cot", value: 227400 },
@@ -256,66 +167,82 @@ export const metric_thresholds: MetricThreshold[] = [
   { metric: "mdrt_premium", tier: "mdrt", value: 227400 },
   { metric: "mdrt_premium", tier: "cot", value: 682200 },
   { metric: "mdrt_premium", tier: "tot", value: 1364400 },
-  { metric: "mdrt_income", tier: "mdrt", value: 131300 },
-  { metric: "mdrt_income", tier: "cot", value: 393900 },
-  { metric: "mdrt_income", tier: "tot", value: 787800 },
 ];
 
-// Minimums inside each route (same document, section I and page 9). On the
-// commission and premium routes, half the entry-level MDRT requirement must
-// come from Risk-Protection products before any Other Products credit counts,
-// and the same floor applies to COT and TOT. On the income route, USD 46,000
-// of the USD 160,000 must be new-business income and USD 46,000 must be
-// associated with Risk-Protection products: 46/160 of the SGD requirement,
-// 131,300 × 0.2875 = 37,749, rounded to 37,750.
+// Minimums inside each route (same document, section I and page 9): half the
+// entry-level MDRT requirement must come from Risk-Protection products before
+// any Other Products credit counts, and the same floor applies to COT and TOT.
 export const mdrt_floors: MdrtFloor[] = [
-  { metric: "mdrt_commission", risk_protection: 37900, new_business: null },
-  { metric: "mdrt_premium", risk_protection: 113700, new_business: null },
-  { metric: "mdrt_income", risk_protection: 37750, new_business: 37750 },
+  { metric: "mdrt_commission", risk_protection: 37900 },
+  { metric: "mdrt_premium", risk_protection: 113700 },
 ];
 
-// PLACEHOLDER — replace with business-supplied values.
-// period_type is a guess per metric; the business must confirm which window
-// each metric is measured over. "elite" is an internal qualification whose
-// definition is unknown; it is modelled as a count for now.
+// The metrics the app tracks. commission and premium are the import's
+// headline figures; the two MDRT credits are the import's MDRT columns;
+// Elite credits come straight from the import. WAPE is defined but has no
+// column in the import yet. PLACEHOLDER: the Elite period is assumed to be
+// the calendar year until the scheme's rules arrive.
 export const metric_definitions: MetricDefinition[] = [
   { code: "commission", label: "Commission", unit: "sgd", period_type: "jan_dec" },
-  { code: "gross_revenue", label: "Gross revenue", unit: "sgd", period_type: "jan_dec" },
-  { code: "mdrt_premium", label: "MDRT premium", unit: "sgd", period_type: "jan_dec" },
+  { code: "premium", label: "Premium", unit: "sgd", period_type: "jan_dec" },
+  { code: "elite", label: "Elite credits", unit: "count", period_type: "jan_dec" },
   { code: "mdrt_commission", label: "MDRT commission", unit: "sgd", period_type: "jan_dec" },
+  { code: "mdrt_premium", label: "MDRT premium", unit: "sgd", period_type: "jan_dec" },
   { code: "wape", label: "WAPE", unit: "sgd", period_type: "apr_mar" },
-  { code: "elite", label: "Elite", unit: "count", period_type: "jan_jun" },
-  { code: "new_clients", label: "New clients", unit: "count", period_type: "jan_dec" },
-  { code: "referrals", label: "Referrals", unit: "count", period_type: "feb_jan" },
-  { code: "testimonials", label: "Testimonials", unit: "count", period_type: "jan_dec" },
 ];
 
-// ─────────────────────────────────────────────────────────────────────────
-// SECTION 2 — TRANSACTIONAL MOCK DATA
-// Fake people, fake cases. Shapes mirror the future tables.
-// ─────────────────────────────────────────────────────────────────────────
+/**
+ * PLACEHOLDER — the in-house Elite scheme: Finexis's own challenges, with
+ * their own multipliers, that earn trips at the end of the year. Tracked
+ * apart from MDRT. The rungs and the credit rules are guesses until the
+ * business supplies them; ELITE_RULES_CONFIRMED flips when they do.
+ */
+export const ELITE_RULES_CONFIRMED = false;
+export const elite_tiers: EliteTier[] = [
+  { code: "elite", name: "Elite", credits: 120 },
+  { code: "elite_gold", name: "Elite Gold", credits: 240 },
+  { code: "elite_platinum", name: "Elite Platinum", credits: 480 },
+];
+
+// ─────────────────────────────────────────────────────────────────
+// SECTION 2 — ADVISERS AND THEIR PRODUCTION IMPORT
+// Fake people. Shapes mirror the future tables and the import file.
+// ─────────────────────────────────────────────────────────────────
 
 export type CaseStatus = "pending" | "confirmed" | "superseded";
-export type CaseSource = "manual" | "merlin";
+export type CaseSource = "manual" | "merlin" | "import";
 
 export interface Advisor {
   id: string;
   name: string;
   fc_code: string;
   banding_code: BandingCode;
-  /** null for the manager; otherwise the manager's advisor id. */
+  /** null for a manager with no manager above them in the import; otherwise the manager's advisor id. */
   manager_id: string | null;
-  /**
-   * PLACEHOLDER — renewal, trail and other production-based income paid so
-   * far in MDRT_PRODUCTION_YEAR, from commission statements. It cannot be
-   * derived from cases and counts on MDRT's income route only.
-   */
-  income_other_ytd: number;
 }
 
+/** The per-case (or per-import-entry) figures every metric sums. */
+export interface CaseMetricValues {
+  commission: number;
+  gross_revenue: number;
+  /** Annual premium (lump sum for single premium). */
+  premium: number;
+  mdrt_premium: number;
+  mdrt_commission: number;
+  wape: number;
+  /** Elite credits. */
+  elite: number;
+}
+
+/**
+ * One production entry. Hypothetical cases the Calculator builds carry a
+ * product and a premium and their figures are computed from the rates; a
+ * month of imported production carries its figures explicitly in `metrics`.
+ */
 export interface Case {
   id: string;
   advisor_id: string;
+  /** "Imported production" for an import entry. */
   client_name: string;
   product_id: string;
   /** Annual premium for regular-premium products; lump sum for single premium. */
@@ -331,6 +258,41 @@ export interface Case {
   submitted_on: string;
   /** ISO date, or null while pending. */
   confirmed_on: string | null;
+  /** Import entries: the month's figures as imported, overriding anything the rates would compute. */
+  metrics?: Partial<CaseMetricValues>;
+  /** Import entries: "August 2026". */
+  label?: string;
+}
+
+/**
+ * One row of the monthly production import: an FA's year-to-date figures as
+ * of a month end. The backend takes the firm's CSV (see
+ * public/sample-import.csv for the columns); the app receives each FA's own
+ * rows, and a manager's team's rows, from the server.
+ */
+export interface ImportRow {
+  fc_code: string;
+  name: string;
+  banding: BandingCode;
+  /** Empty for the top of the tree. */
+  manager_fc_code: string;
+  /** ISO date, the month end the figures are as of. */
+  as_of: string;
+  /** First-year commission, year to date. */
+  commission_ytd: number;
+  /** First-year premium, year to date. */
+  premium_ytd: number;
+  /** MDRT commission credit, year to date, and the part from Risk-Protection products. */
+  mdrt_commission_ytd: number;
+  mdrt_commission_risk_ytd: number;
+  /** MDRT premium credit, year to date, and the part from Risk-Protection products. */
+  mdrt_premium_ytd: number;
+  mdrt_premium_risk_ytd: number;
+  /** Submitted, not yet confirmed by the insurer. */
+  pending_commission: number;
+  pending_premium: number;
+  /** PLACEHOLDER — Elite credits, year to date, as the scheme counts them. */
+  elite_credits_ytd: number;
 }
 
 /** How often a self-set goal resets. "year" follows the metric's own period_type (e.g. Apr–Mar for WAPE). */
@@ -353,276 +315,89 @@ export interface MdrtTierGoal {
   tier: Tier;
 }
 
-export const advisors: Advisor[] = [
-  { id: "adv_mgr", name: "Jonathan Koh", fc_code: "FC000", banding_code: "B5", manager_id: null, income_other_ytd: 64000 },
-  { id: "adv_01", name: "Tan Wei Lun", fc_code: "FC001", banding_code: "B3", manager_id: "adv_mgr", income_other_ytd: 9600 },
-  { id: "adv_02", name: "Nur Aisyah Rahim", fc_code: "FC002", banding_code: "B2", manager_id: "adv_mgr", income_other_ytd: 4100 },
-  { id: "adv_03", name: "Rachel Lim", fc_code: "FC003", banding_code: "B4", manager_id: "adv_mgr", income_other_ytd: 31500 },
-  { id: "adv_04", name: "Marcus Ong", fc_code: "FC004", banding_code: "B1", manager_id: "adv_mgr", income_other_ytd: 1800 },
-  { id: "adv_05", name: "Devi Rajan", fc_code: "FC005", banding_code: "B3", manager_id: "adv_mgr", income_other_ytd: 12800 },
-];
-
 /** The FC the mockup opens on (a non-manager). The view switch flips to the manager. */
-export const DEFAULT_USER_ID = "adv_01";
-export const MANAGER_USER_ID = "adv_mgr";
+export const DEFAULT_USER_ID = "FC001";
+export const MANAGER_USER_ID = "FC000";
 
-/** "Today" for the mockup, pinned so pace and week counts stay stable in screenshots. Last set 6 Sep 2026. */
+/** Pinned so the mockup reads the same on any day: a Sunday in September, the week after the August import. */
 export const TODAY = new Date("2026-09-06T00:00:00");
 
-export const cases: Case[] = [
-  { id: "case_001", advisor_id: "adv_01", client_name: "Ivan Lim", product_id: "prd_01", premium_amount: 3600, premium_term_years: 15, gross_revenue: 3268, banding_code_at_time: "B2", status: "confirmed", source: "merlin", submitted_on: "2025-01-14", confirmed_on: "2025-02-03" },
-  { id: "case_002", advisor_id: "adv_03", client_name: "Terence Ho", product_id: "prd_10", premium_amount: 16600, premium_term_years: 20, gross_revenue: 16879, banding_code_at_time: "B4", status: "confirmed", source: "merlin", submitted_on: "2025-01-22", confirmed_on: "2025-02-11" },
-  { id: "case_003", advisor_id: "adv_05", client_name: "Alicia Teo", product_id: "prd_08", premium_amount: 16500, premium_term_years: 30, gross_revenue: 7370, banding_code_at_time: "B3", status: "confirmed", source: "merlin", submitted_on: "2025-02-06", confirmed_on: "2025-02-16" },
-  { id: "case_004", advisor_id: "adv_01", client_name: "Hui Ling Ong", product_id: "prd_02", premium_amount: 17800, premium_term_years: 25, gross_revenue: 17721, banding_code_at_time: "B2", status: "confirmed", source: "merlin", submitted_on: "2025-02-20", confirmed_on: "2025-03-05" },
-  { id: "case_005", advisor_id: "adv_02", client_name: "Yusri Hamid", product_id: "prd_01", premium_amount: 3400, premium_term_years: 25, gross_revenue: 2899, banding_code_at_time: "B2", status: "confirmed", source: "merlin", submitted_on: "2025-03-04", confirmed_on: "2025-03-09" },
-  { id: "case_006", advisor_id: "adv_mgr", client_name: "Patricia Neo", product_id: "prd_02", premium_amount: 16700, premium_term_years: 15, gross_revenue: 15376, banding_code_at_time: "B5", status: "confirmed", source: "merlin", submitted_on: "2025-03-19", confirmed_on: "2025-04-02" },
-  { id: "case_007", advisor_id: "adv_01", client_name: "Owen Lim", product_id: "prd_06", premium_amount: 1300, premium_term_years: 15, gross_revenue: 690, banding_code_at_time: "B2", status: "confirmed", source: "merlin", submitted_on: "2025-04-03", confirmed_on: "2025-04-14" },
-  { id: "case_008", advisor_id: "adv_03", client_name: "Qiu Ming", product_id: "prd_05", premium_amount: 95000, premium_term_years: 1, gross_revenue: 2786, banding_code_at_time: "B4", status: "confirmed", source: "merlin", submitted_on: "2025-04-17", confirmed_on: "2025-05-08" },
-  { id: "case_009", advisor_id: "adv_04", client_name: "Benjamin Chua", product_id: "prd_11", premium_amount: 3500, premium_term_years: 25, gross_revenue: 3337, banding_code_at_time: "B1", status: "confirmed", source: "merlin", submitted_on: "2025-05-13", confirmed_on: "2025-05-23" },
-  { id: "case_010", advisor_id: "adv_01", client_name: "Mei Fong Heng", product_id: "prd_05", premium_amount: 105000, premium_term_years: 1, gross_revenue: 2949, banding_code_at_time: "B3", status: "confirmed", source: "merlin", submitted_on: "2025-06-11", confirmed_on: "2025-06-26" },
-  { id: "case_011", advisor_id: "adv_05", client_name: "Wan Ling Tan", product_id: "prd_04", premium_amount: 9600, premium_term_years: 20, gross_revenue: 7143, banding_code_at_time: "B3", status: "confirmed", source: "merlin", submitted_on: "2025-06-24", confirmed_on: "2025-07-09" },
-  { id: "case_012", advisor_id: "adv_02", client_name: "Grace Tan", product_id: "prd_06", premium_amount: 2600, premium_term_years: 30, gross_revenue: 1379, banding_code_at_time: "B2", status: "confirmed", source: "merlin", submitted_on: "2025-07-15", confirmed_on: "2025-07-20" },
-  { id: "case_013", advisor_id: "adv_mgr", client_name: "Daniel Wong", product_id: "prd_05", premium_amount: 95000, premium_term_years: 1, gross_revenue: 3250, banding_code_at_time: "B5", status: "confirmed", source: "merlin", submitted_on: "2025-08-07", confirmed_on: "2025-08-14" },
-  { id: "case_014", advisor_id: "adv_01", client_name: "Elaine Ng", product_id: "prd_08", premium_amount: 21400, premium_term_years: 25, gross_revenue: 8355, banding_code_at_time: "B3", status: "confirmed", source: "merlin", submitted_on: "2025-08-22", confirmed_on: "2025-09-01" },
-  { id: "case_015", advisor_id: "adv_03", client_name: "Priya Menon", product_id: "prd_02", premium_amount: 10700, premium_term_years: 15, gross_revenue: 9298, banding_code_at_time: "B4", status: "confirmed", source: "merlin", submitted_on: "2025-09-03", confirmed_on: "2025-09-23" },
-  { id: "case_016", advisor_id: "adv_04", client_name: "Dinesh Kumar", product_id: "prd_06", premium_amount: 2700, premium_term_years: 30, gross_revenue: 1723, banding_code_at_time: "B1", status: "confirmed", source: "merlin", submitted_on: "2025-09-25", confirmed_on: "2025-10-06" },
-  { id: "case_017", advisor_id: "adv_02", client_name: "Cheryl Goh", product_id: "prd_11", premium_amount: 2700, premium_term_years: 25, gross_revenue: 2357, banding_code_at_time: "B2", status: "confirmed", source: "merlin", submitted_on: "2025-10-09", confirmed_on: "2025-10-27" },
-  { id: "case_018", advisor_id: "adv_01", client_name: "Natalie Koh", product_id: "prd_10", premium_amount: 14200, premium_term_years: 10, gross_revenue: 14222, banding_code_at_time: "B3", status: "confirmed", source: "merlin", submitted_on: "2025-11-05", confirmed_on: "2025-11-10" },
-  { id: "case_019", advisor_id: "adv_05", client_name: "Jasmine Poh", product_id: "prd_12", premium_amount: 15400, premium_term_years: 15, gross_revenue: 6056, banding_code_at_time: "B3", status: "confirmed", source: "merlin", submitted_on: "2025-11-18", confirmed_on: "2025-12-08" },
-  { id: "case_020", advisor_id: "adv_03", client_name: "Hafiz Osman", product_id: "prd_13", premium_amount: 60000, premium_term_years: 1, gross_revenue: 1076, banding_code_at_time: "B4", status: "confirmed", source: "merlin", submitted_on: "2025-12-10", confirmed_on: "2025-12-31" },
-  { id: "case_021", advisor_id: "adv_01", client_name: "Amanda Soh", product_id: "prd_02", premium_amount: 10400, premium_term_years: 25, gross_revenue: 9671, banding_code_at_time: "B3", status: "confirmed", source: "merlin", submitted_on: "2026-01-09", confirmed_on: "2026-01-29" },
-  { id: "case_022", advisor_id: "adv_mgr", client_name: "Melvin Toh", product_id: "prd_10", premium_amount: 16700, premium_term_years: 20, gross_revenue: 14813, banding_code_at_time: "B5", status: "confirmed", source: "merlin", submitted_on: "2026-01-15", confirmed_on: "2026-01-25" },
-  { id: "case_023", advisor_id: "adv_03", client_name: "Liyana Yusof", product_id: "prd_09", premium_amount: 75000, premium_term_years: 1, gross_revenue: 3142, banding_code_at_time: "B4", status: "confirmed", source: "merlin", submitted_on: "2026-01-27", confirmed_on: "2026-02-16" },
-  { id: "case_024", advisor_id: "adv_02", client_name: "Kevin Yap", product_id: "prd_04", premium_amount: 9100, premium_term_years: 25, gross_revenue: 6323, banding_code_at_time: "B2", status: "confirmed", source: "merlin", submitted_on: "2026-02-03", confirmed_on: "2026-02-13" },
-  { id: "case_025", advisor_id: "adv_01", client_name: "Esther Quek", product_id: "prd_07", premium_amount: 5200, premium_term_years: 20, gross_revenue: 5129, banding_code_at_time: "B3", status: "confirmed", source: "merlin", submitted_on: "2026-02-17", confirmed_on: "2026-02-27" },
-  { id: "case_026", advisor_id: "adv_05", client_name: "Rohan Pillai", product_id: "prd_03", premium_amount: 95000, premium_term_years: 1, gross_revenue: 1456, banding_code_at_time: "B3", status: "confirmed", source: "merlin", submitted_on: "2026-02-25", confirmed_on: "2026-03-05" },
-  { id: "case_027", advisor_id: "adv_04", client_name: "Wesley Tay", product_id: "prd_01", premium_amount: 3600, premium_term_years: 25, gross_revenue: 3070, banding_code_at_time: "B1", status: "confirmed", source: "merlin", submitted_on: "2026-03-10", confirmed_on: "2026-03-25" },
-  { id: "case_028", advisor_id: "adv_01", client_name: "Xin Yi Lim", product_id: "prd_04", premium_amount: 5400, premium_term_years: 25, gross_revenue: 4055, banding_code_at_time: "B3", status: "confirmed", source: "merlin", submitted_on: "2026-03-26", confirmed_on: "2026-04-11" },
-  { id: "case_029", advisor_id: "adv_03", client_name: "Gwen Low", product_id: "prd_10", premium_amount: 12200, premium_term_years: 25, gross_revenue: 11554, banding_code_at_time: "B4", status: "confirmed", source: "merlin", submitted_on: "2026-04-14", confirmed_on: "2026-04-27" },
-  { id: "case_030", advisor_id: "adv_01", client_name: "Karen Sim", product_id: "prd_10", premium_amount: 15000, premium_term_years: 30, gross_revenue: 14015, banding_code_at_time: "B3", status: "confirmed", source: "merlin", submitted_on: "2026-04-15", confirmed_on: "2026-05-04" },
-  { id: "case_031", advisor_id: "adv_05", client_name: "Clement Ang", product_id: "prd_10", premium_amount: 13900, premium_term_years: 15, gross_revenue: 13492, banding_code_at_time: "B3", status: "confirmed", source: "merlin", submitted_on: "2026-05-05", confirmed_on: "2026-05-10" },
-  { id: "case_032", advisor_id: "adv_01", client_name: "Xavier Chia", product_id: "prd_03", premium_amount: 150000, premium_term_years: 1, gross_revenue: 2515, banding_code_at_time: "B3", status: "confirmed", source: "merlin", submitted_on: "2026-05-08", confirmed_on: "2026-05-28" },
-  { id: "case_033", advisor_id: "adv_02", client_name: "Valerie Kwek", product_id: "prd_07", premium_amount: 6200, premium_term_years: 25, gross_revenue: 5712, banding_code_at_time: "B2", status: "confirmed", source: "merlin", submitted_on: "2026-05-21", confirmed_on: "2026-05-29" },
-  { id: "case_034", advisor_id: "adv_01", client_name: "Lydia Chng", product_id: "prd_05", premium_amount: 100000, premium_term_years: 1, gross_revenue: 2989, banding_code_at_time: "B3", status: "confirmed", source: "merlin", submitted_on: "2026-05-27", confirmed_on: "2026-06-08" },
-  { id: "case_035", advisor_id: "adv_mgr", client_name: "Bella Seah", product_id: "prd_13", premium_amount: 95000, premium_term_years: 1, gross_revenue: 1147, banding_code_at_time: "B5", status: "confirmed", source: "merlin", submitted_on: "2026-06-09", confirmed_on: "2026-06-16" },
-  { id: "case_036", advisor_id: "adv_01", client_name: "Yasmin Abdullah", product_id: "prd_11", premium_amount: 4700, premium_term_years: 30, gross_revenue: 4772, banding_code_at_time: "B3", status: "confirmed", source: "merlin", submitted_on: "2026-06-19", confirmed_on: "2026-06-30" },
-  { id: "case_037", advisor_id: "adv_03", client_name: "Adrian Foo", product_id: "prd_08", premium_amount: 23500, premium_term_years: 20, gross_revenue: 11024, banding_code_at_time: "B4", status: "confirmed", source: "merlin", submitted_on: "2026-06-30", confirmed_on: "2026-07-05" },
-  { id: "case_038", advisor_id: "adv_01", client_name: "Serene Wee", product_id: "prd_12", premium_amount: 6500, premium_term_years: 10, gross_revenue: 3231, banding_code_at_time: "B3", status: "superseded", source: "manual", submitted_on: "2026-07-02", confirmed_on: null },
-  { id: "case_039", advisor_id: "adv_01", client_name: "Serene Wee", product_id: "prd_12", premium_amount: 6500, premium_term_years: 25, gross_revenue: 2611, banding_code_at_time: "B3", status: "confirmed", source: "merlin", submitted_on: "2026-07-02", confirmed_on: "2026-07-18" },
-  { id: "case_040", advisor_id: "adv_04", client_name: "Irene Lau", product_id: "prd_07", premium_amount: 3400, premium_term_years: 25, gross_revenue: 3407, banding_code_at_time: "B1", status: "confirmed", source: "merlin", submitted_on: "2026-07-16", confirmed_on: "2026-07-23" },
-  { id: "case_041", advisor_id: "adv_01", client_name: "Ravi Nathan", product_id: "prd_01", premium_amount: 4700, premium_term_years: 10, gross_revenue: 4367, banding_code_at_time: "B3", status: "confirmed", source: "merlin", submitted_on: "2026-07-28", confirmed_on: "2026-08-14" },
-  { id: "case_042", advisor_id: "adv_03", client_name: "Zoe Ang", product_id: "prd_02", premium_amount: 17000, premium_term_years: 15, gross_revenue: 16156, banding_code_at_time: "B4", status: "confirmed", source: "merlin", submitted_on: "2026-08-05", confirmed_on: "2026-08-18" },
-  { id: "case_043", advisor_id: "adv_02", client_name: "Jason Lee", product_id: "prd_01", premium_amount: 3400, premium_term_years: 30, gross_revenue: 3553, banding_code_at_time: "B2", status: "confirmed", source: "merlin", submitted_on: "2026-08-11", confirmed_on: "2026-08-21" },
-  { id: "case_044", advisor_id: "adv_05", client_name: "Brandon Lau", product_id: "prd_01", premium_amount: 4400, premium_term_years: 30, gross_revenue: 3963, banding_code_at_time: "B3", status: "confirmed", source: "merlin", submitted_on: "2026-08-19", confirmed_on: "2026-09-09" },
-  { id: "case_045", advisor_id: "adv_01", client_name: "Vanessa Loh", product_id: "prd_06", premium_amount: 2200, premium_term_years: 15, gross_revenue: 1152, banding_code_at_time: "B3", status: "pending", source: "manual", submitted_on: "2026-08-20", confirmed_on: null },
-  { id: "case_046", advisor_id: "adv_01", client_name: "Oliver Yeo", product_id: "prd_02", premium_amount: 17000, premium_term_years: 25, gross_revenue: 17197, banding_code_at_time: "B3", status: "pending", source: "manual", submitted_on: "2026-08-28", confirmed_on: null },
-  { id: "case_047", advisor_id: "adv_03", client_name: "Thomas Goh", product_id: "prd_11", premium_amount: 3200, premium_term_years: 15, gross_revenue: 3061, banding_code_at_time: "B4", status: "pending", source: "manual", submitted_on: "2026-09-01", confirmed_on: null },
-  { id: "case_048", advisor_id: "adv_01", client_name: "Uma Shankar", product_id: "prd_09", premium_amount: 50000, premium_term_years: 1, gross_revenue: 1763, banding_code_at_time: "B3", status: "pending", source: "manual", submitted_on: "2026-09-02", confirmed_on: null },
+/**
+ * The sample import: one manager and five FAs, January to August 2026,
+ * generated from the mockup's earlier case list so the figures stay familiar
+ * (FC001's S$25,062 of commission, S$23,804 of it from Risk-Protection
+ * products, and so on). public/sample-import.csv is the same rows as a file.
+ * Elite credits here are commission ÷ 250, a PLACEHOLDER for the real rule.
+ */
+export const import_rows: ImportRow[] = [
+  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-01-31", commission_ytd: 10369, premium_ytd: 16700, mdrt_commission_ytd: 10369, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 41 },
+  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-02-28", commission_ytd: 10369, premium_ytd: 16700, mdrt_commission_ytd: 10369, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 41 },
+  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-03-31", commission_ytd: 10369, premium_ytd: 16700, mdrt_commission_ytd: 10369, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 41 },
+  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-04-30", commission_ytd: 10369, premium_ytd: 16700, mdrt_commission_ytd: 10369, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 41 },
+  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-05-31", commission_ytd: 10369, premium_ytd: 16700, mdrt_commission_ytd: 10369, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 41 },
+  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-06-30", commission_ytd: 11172, premium_ytd: 111700, mdrt_commission_ytd: 11172, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 22400, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 45 },
+  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-07-31", commission_ytd: 11172, premium_ytd: 111700, mdrt_commission_ytd: 11172, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 22400, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 45 },
+  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-08-31", commission_ytd: 11172, premium_ytd: 111700, mdrt_commission_ytd: 11172, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 22400, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 45 },
+  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-01-31", commission_ytd: 4836, premium_ytd: 10400, mdrt_commission_ytd: 4836, mdrt_commission_risk_ytd: 4836, mdrt_premium_ytd: 10400, mdrt_premium_risk_ytd: 10400, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 19 },
+  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-02-28", commission_ytd: 7400, premium_ytd: 15600, mdrt_commission_ytd: 7400, mdrt_commission_risk_ytd: 7400, mdrt_premium_ytd: 15600, mdrt_premium_risk_ytd: 15600, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 30 },
+  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-03-31", commission_ytd: 7400, premium_ytd: 15600, mdrt_commission_ytd: 7400, mdrt_commission_risk_ytd: 7400, mdrt_premium_ytd: 15600, mdrt_premium_risk_ytd: 15600, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 30 },
+  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-04-30", commission_ytd: 9428, premium_ytd: 21000, mdrt_commission_ytd: 9428, mdrt_commission_risk_ytd: 9428, mdrt_premium_ytd: 21000, mdrt_premium_risk_ytd: 21000, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 38 },
+  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-05-31", commission_ytd: 17692, premium_ytd: 186000, mdrt_commission_ytd: 17692, mdrt_commission_risk_ytd: 16435, mdrt_premium_ytd: 45000, mdrt_premium_risk_ytd: 36000, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 71 },
+  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-06-30", commission_ytd: 21573, premium_ytd: 290700, mdrt_commission_ytd: 21573, mdrt_commission_risk_ytd: 20316, mdrt_premium_ytd: 55700, mdrt_premium_risk_ytd: 46700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 86 },
+  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-07-31", commission_ytd: 22878, premium_ytd: 297200, mdrt_commission_ytd: 22878, mdrt_commission_risk_ytd: 21621, mdrt_premium_ytd: 62200, mdrt_premium_risk_ytd: 53200, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 92 },
+  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-08-31", commission_ytd: 25062, premium_ytd: 301900, mdrt_commission_ytd: 25062, mdrt_commission_risk_ytd: 23804, mdrt_premium_ytd: 66900, mdrt_premium_risk_ytd: 57900, pending_commission: 9174, pending_premium: 19200, elite_credits_ytd: 100 },
+  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-01-31", commission_ytd: 0, premium_ytd: 0, mdrt_commission_ytd: 0, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 0, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 0 },
+  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-02-28", commission_ytd: 2529, premium_ytd: 9100, mdrt_commission_ytd: 2529, mdrt_commission_risk_ytd: 2529, mdrt_premium_ytd: 9100, mdrt_premium_risk_ytd: 9100, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 10 },
+  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-03-31", commission_ytd: 2529, premium_ytd: 9100, mdrt_commission_ytd: 2529, mdrt_commission_risk_ytd: 2529, mdrt_premium_ytd: 9100, mdrt_premium_risk_ytd: 9100, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 10 },
+  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-04-30", commission_ytd: 2529, premium_ytd: 9100, mdrt_commission_ytd: 2529, mdrt_commission_risk_ytd: 2529, mdrt_premium_ytd: 9100, mdrt_premium_risk_ytd: 9100, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 10 },
+  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-05-31", commission_ytd: 4814, premium_ytd: 15300, mdrt_commission_ytd: 4814, mdrt_commission_risk_ytd: 4814, mdrt_premium_ytd: 15300, mdrt_premium_risk_ytd: 15300, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 19 },
+  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-06-30", commission_ytd: 4814, premium_ytd: 15300, mdrt_commission_ytd: 4814, mdrt_commission_risk_ytd: 4814, mdrt_premium_ytd: 15300, mdrt_premium_risk_ytd: 15300, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 19 },
+  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-07-31", commission_ytd: 4814, premium_ytd: 15300, mdrt_commission_ytd: 4814, mdrt_commission_risk_ytd: 4814, mdrt_premium_ytd: 15300, mdrt_premium_risk_ytd: 15300, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 19 },
+  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-08-31", commission_ytd: 6235, premium_ytd: 18700, mdrt_commission_ytd: 6235, mdrt_commission_risk_ytd: 6235, mdrt_premium_ytd: 18700, mdrt_premium_risk_ytd: 18700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 25 },
+  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-01-31", commission_ytd: 0, premium_ytd: 0, mdrt_commission_ytd: 0, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 0, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 0 },
+  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-02-28", commission_ytd: 1885, premium_ytd: 75000, mdrt_commission_ytd: 1885, mdrt_commission_risk_ytd: 1885, mdrt_premium_ytd: 4500, mdrt_premium_risk_ytd: 4500, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 8 },
+  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-03-31", commission_ytd: 1885, premium_ytd: 75000, mdrt_commission_ytd: 1885, mdrt_commission_risk_ytd: 1885, mdrt_premium_ytd: 4500, mdrt_premium_risk_ytd: 4500, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 8 },
+  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-04-30", commission_ytd: 8818, premium_ytd: 87200, mdrt_commission_ytd: 8818, mdrt_commission_risk_ytd: 8818, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 35 },
+  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-05-31", commission_ytd: 8818, premium_ytd: 87200, mdrt_commission_ytd: 8818, mdrt_commission_risk_ytd: 8818, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 35 },
+  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-06-30", commission_ytd: 8818, premium_ytd: 87200, mdrt_commission_ytd: 8818, mdrt_commission_risk_ytd: 8818, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 35 },
+  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-07-31", commission_ytd: 15432, premium_ytd: 110700, mdrt_commission_ytd: 15432, mdrt_commission_risk_ytd: 15432, mdrt_premium_ytd: 40200, mdrt_premium_risk_ytd: 40200, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 62 },
+  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-08-31", commission_ytd: 25126, premium_ytd: 127700, mdrt_commission_ytd: 25126, mdrt_commission_risk_ytd: 25126, mdrt_premium_ytd: 57200, mdrt_premium_risk_ytd: 57200, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 101 },
+  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-01-31", commission_ytd: 0, premium_ytd: 0, mdrt_commission_ytd: 0, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 0, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 0 },
+  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-02-28", commission_ytd: 0, premium_ytd: 0, mdrt_commission_ytd: 0, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 0, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 0 },
+  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-03-31", commission_ytd: 921, premium_ytd: 3600, mdrt_commission_ytd: 921, mdrt_commission_risk_ytd: 921, mdrt_premium_ytd: 3600, mdrt_premium_risk_ytd: 3600, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 4 },
+  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-04-30", commission_ytd: 921, premium_ytd: 3600, mdrt_commission_ytd: 921, mdrt_commission_risk_ytd: 921, mdrt_premium_ytd: 3600, mdrt_premium_risk_ytd: 3600, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 4 },
+  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-05-31", commission_ytd: 921, premium_ytd: 3600, mdrt_commission_ytd: 921, mdrt_commission_risk_ytd: 921, mdrt_premium_ytd: 3600, mdrt_premium_risk_ytd: 3600, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 4 },
+  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-06-30", commission_ytd: 921, premium_ytd: 3600, mdrt_commission_ytd: 921, mdrt_commission_risk_ytd: 921, mdrt_premium_ytd: 3600, mdrt_premium_risk_ytd: 3600, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 4 },
+  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-07-31", commission_ytd: 1943, premium_ytd: 7000, mdrt_commission_ytd: 1943, mdrt_commission_risk_ytd: 1943, mdrt_premium_ytd: 7000, mdrt_premium_risk_ytd: 7000, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 8 },
+  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-08-31", commission_ytd: 1943, premium_ytd: 7000, mdrt_commission_ytd: 1943, mdrt_commission_risk_ytd: 1943, mdrt_premium_ytd: 7000, mdrt_premium_risk_ytd: 7000, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 8 },
+  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-01-31", commission_ytd: 0, premium_ytd: 0, mdrt_commission_ytd: 0, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 0, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 0 },
+  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-02-28", commission_ytd: 0, premium_ytd: 0, mdrt_commission_ytd: 0, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 0, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 0 },
+  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-03-31", commission_ytd: 728, premium_ytd: 95000, mdrt_commission_ytd: 728, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 5700, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 3 },
+  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-04-30", commission_ytd: 728, premium_ytd: 95000, mdrt_commission_ytd: 728, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 5700, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 3 },
+  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-05-31", commission_ytd: 7474, premium_ytd: 108900, mdrt_commission_ytd: 7474, mdrt_commission_risk_ytd: 6746, mdrt_premium_ytd: 19600, mdrt_premium_risk_ytd: 13900, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 30 },
+  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-06-30", commission_ytd: 7474, premium_ytd: 108900, mdrt_commission_ytd: 7474, mdrt_commission_risk_ytd: 6746, mdrt_premium_ytd: 19600, mdrt_premium_risk_ytd: 13900, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 30 },
+  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-07-31", commission_ytd: 7474, premium_ytd: 108900, mdrt_commission_ytd: 7474, mdrt_commission_risk_ytd: 6746, mdrt_premium_ytd: 19600, mdrt_premium_risk_ytd: 13900, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 30 },
+  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-08-31", commission_ytd: 7474, premium_ytd: 108900, mdrt_commission_ytd: 7474, mdrt_commission_risk_ytd: 6746, mdrt_premium_ytd: 19600, mdrt_premium_risk_ytd: 13900, pending_commission: 1982, pending_premium: 4400, elite_credits_ytd: 30 },
 ];
 
-/** Self-set targets for 2026. Amounts are per period of the cadence. */
 export const goals: Goal[] = [
-  { advisor_id: "adv_01", metric: "commission", year: 2026, cadence: "year", target_value: 45000 },
-  { advisor_id: "adv_01", metric: "gross_revenue", year: 2026, cadence: "year", target_value: 90000 },
-  { advisor_id: "adv_01", metric: "wape", year: 2026, cadence: "year", target_value: 150000 },
-  { advisor_id: "adv_01", metric: "elite", year: 2026, cadence: "year", target_value: 1 },
-  { advisor_id: "adv_01", metric: "new_clients", year: 2026, cadence: "year", target_value: 24 },
-  { advisor_id: "adv_01", metric: "referrals", year: 2026, cadence: "year", target_value: 12 },
-  { advisor_id: "adv_01", metric: "testimonials", year: 2026, cadence: "year", target_value: 6 },
-  { advisor_id: "adv_02", metric: "commission", year: 2026, cadence: "year", target_value: 15000 },
-  { advisor_id: "adv_02", metric: "wape", year: 2026, cadence: "year", target_value: 80000 },
-  { advisor_id: "adv_02", metric: "new_clients", year: 2026, cadence: "year", target_value: 15 },
-  { advisor_id: "adv_03", metric: "commission", year: 2026, cadence: "year", target_value: 35000 },
-  { advisor_id: "adv_03", metric: "wape", year: 2026, cadence: "year", target_value: 200000 },
-  { advisor_id: "adv_03", metric: "new_clients", year: 2026, cadence: "year", target_value: 30 },
-  { advisor_id: "adv_04", metric: "commission", year: 2026, cadence: "year", target_value: 5000 },
-  { advisor_id: "adv_04", metric: "wape", year: 2026, cadence: "year", target_value: 60000 },
-  { advisor_id: "adv_04", metric: "new_clients", year: 2026, cadence: "year", target_value: 12 },
-  { advisor_id: "adv_05", metric: "commission", year: 2026, cadence: "year", target_value: 12000 },
-  { advisor_id: "adv_05", metric: "wape", year: 2026, cadence: "year", target_value: 120000 },
-  { advisor_id: "adv_05", metric: "new_clients", year: 2026, cadence: "year", target_value: 20 },
-  { advisor_id: "adv_mgr", metric: "commission", year: 2026, cadence: "year", target_value: 15000 },
-  { advisor_id: "adv_mgr", metric: "wape", year: 2026, cadence: "year", target_value: 250000 },
-  { advisor_id: "adv_mgr", metric: "new_clients", year: 2026, cadence: "year", target_value: 20 },
+  { advisor_id: "FC001", metric: "commission", year: 2026, cadence: "year", target_value: 45000 },
+  { advisor_id: "FC001", metric: "premium", year: 2026, cadence: "year", target_value: 400000 },
+  { advisor_id: "FC001", metric: "elite", year: 2026, cadence: "year", target_value: 120 },
+  { advisor_id: "FC002", metric: "commission", year: 2026, cadence: "year", target_value: 15000 },
+  { advisor_id: "FC003", metric: "commission", year: 2026, cadence: "year", target_value: 35000 },
+  { advisor_id: "FC003", metric: "elite", year: 2026, cadence: "year", target_value: 240 },
+  { advisor_id: "FC004", metric: "commission", year: 2026, cadence: "year", target_value: 5000 },
+  { advisor_id: "FC005", metric: "commission", year: 2026, cadence: "year", target_value: 12000 },
+  { advisor_id: "FC000", metric: "commission", year: 2026, cadence: "year", target_value: 15000 },
 ];
 
 /** Self-set MDRT aspiration for 2026. Defaults to MDRT; an FC can raise it to COT or TOT. */
 export const mdrt_tier_goals: MdrtTierGoal[] = [
-  { advisor_id: "adv_01", year: 2026, tier: "mdrt" },
-  { advisor_id: "adv_02", year: 2026, tier: "mdrt" },
-  { advisor_id: "adv_03", year: 2026, tier: "cot" },
-  { advisor_id: "adv_04", year: 2026, tier: "mdrt" },
-  { advisor_id: "adv_05", year: 2026, tier: "mdrt" },
-  { advisor_id: "adv_mgr", year: 2026, tier: "mdrt" },
-];
-
-// ─────────────────────────────────────────────────────────────────────────
-// SECTION 3 — AROUND THE WORLD LUCKY DRAW
-// Mirrors the campaign tables the mastersheet importer already writes to
-// (challenge_types, draws, clients, pass_ledger, prizes_won). Codes and
-// pass rates are the campaign's own; names and awards are fake.
-// ─────────────────────────────────────────────────────────────────────────
-
-export type PassType = "gold" | "blue";
-
-export interface ChallengeType {
-  code: string;
-  label: string;
-  pass_type: PassType;
-  passes_per_unit: number;
-  unit_noun: string;
-  sort_order: number;
-}
-
-export interface DrawRound {
-  id: string;
-  /** "July", "August", … as the campaign labels them. */
-  monthly_draw: string;
-  draw_date: string;
-  pass_type: PassType;
-  is_drawn: boolean;
-}
-
-export interface Client {
-  id: string;
-  advisor_id: string;
-  name: string;
-  email: string;
-  mobile: string;
-  /** First case or first activity, ISO date. */
-  since: string;
-}
-
-export interface PassAward {
-  id: string;
-  advisor_id: string;
-  client_id: string;
-  challenge_code: string;
-  monthly_draw: string;
-  units: number;
-  passes: number;
-  pass_type: PassType;
-  awarded_on: string;
-  external_ref: string;
-}
-
-export interface PrizeWon {
-  client_id: string;
-  monthly_draw: string;
-  pass_type: PassType;
-  prize_won: string;
-}
-
-export const challenge_types: ChallengeType[] = [
-  { code: "PURCHASE_PRODUCT", label: "Purchase Qualifying Product", pass_type: "gold", passes_per_unit: 1, unit_noun: "product", sort_order: 1 },
-  { code: "REFERRAL_PURCHASE", label: "Successful Referral Purchase", pass_type: "gold", passes_per_unit: 2, unit_noun: "purchase", sort_order: 2 },
-  { code: "SUBMIT_REFERRAL", label: "Submit Referrals", pass_type: "blue", passes_per_unit: 1, unit_noun: "referral", sort_order: 3 },
-  { code: "ATTEND_EVENT", label: "Attend Client Events", pass_type: "blue", passes_per_unit: 5, unit_noun: "event", sort_order: 4 },
-  { code: "BRING_GUEST", label: "Bring Guests For Events", pass_type: "blue", passes_per_unit: 2, unit_noun: "guest", sort_order: 5 },
-  { code: "TESTIMONIAL", label: "Submit Testimonial", pass_type: "blue", passes_per_unit: 3, unit_noun: "testimonial", sort_order: 6 },
-  { code: "DOWNLOAD_APP", label: "Download finConnect", pass_type: "blue", passes_per_unit: 1, unit_noun: "download", sort_order: 7 },
-];
-
-export const draws: DrawRound[] = [
-  { id: "draw_july_gold", monthly_draw: "July", draw_date: "2026-07-31", pass_type: "gold", is_drawn: true },
-  { id: "draw_july_blue", monthly_draw: "July", draw_date: "2026-07-31", pass_type: "blue", is_drawn: true },
-  { id: "draw_august_gold", monthly_draw: "August", draw_date: "2026-08-31", pass_type: "gold", is_drawn: true },
-  { id: "draw_august_blue", monthly_draw: "August", draw_date: "2026-08-31", pass_type: "blue", is_drawn: true },
-  { id: "draw_september_gold", monthly_draw: "September", draw_date: "2026-09-30", pass_type: "gold", is_drawn: false },
-  { id: "draw_september_blue", monthly_draw: "September", draw_date: "2026-09-30", pass_type: "blue", is_drawn: false },
-];
-
-/** Cases link to clients by advisor + client_name in the mock; the real table carries a client_id. */
-export const clients: Client[] = [
-  { id: "cli_001", advisor_id: "adv_01", name: "Ivan Lim", email: "ivan.lim@example.com", mobile: "91588139", since: "2025-01-14" },
-  { id: "cli_002", advisor_id: "adv_01", name: "Hui Ling Ong", email: "hui.ling.ong@example.com", mobile: "99869879", since: "2025-02-20" },
-  { id: "cli_003", advisor_id: "adv_01", name: "Owen Lim", email: "owen.lim@example.com", mobile: "97309114", since: "2025-04-03" },
-  { id: "cli_004", advisor_id: "adv_01", name: "Mei Fong Heng", email: "mei.fong.heng@example.com", mobile: "91707536", since: "2025-06-11" },
-  { id: "cli_005", advisor_id: "adv_01", name: "Elaine Ng", email: "elaine.ng@example.com", mobile: "94556815", since: "2025-08-22" },
-  { id: "cli_006", advisor_id: "adv_01", name: "Natalie Koh", email: "natalie.koh@example.com", mobile: "91884472", since: "2025-11-05" },
-  { id: "cli_007", advisor_id: "adv_01", name: "Amanda Soh", email: "amanda.soh@example.com", mobile: "99405576", since: "2026-01-09" },
-  { id: "cli_008", advisor_id: "adv_01", name: "Esther Quek", email: "esther.quek@example.com", mobile: "91698716", since: "2026-02-17" },
-  { id: "cli_009", advisor_id: "adv_01", name: "Xin Yi Lim", email: "xin.yi.lim@example.com", mobile: "98976846", since: "2026-03-26" },
-  { id: "cli_010", advisor_id: "adv_01", name: "Karen Sim", email: "karen.sim@example.com", mobile: "99788093", since: "2026-04-15" },
-  { id: "cli_011", advisor_id: "adv_01", name: "Xavier Chia", email: "xavier.chia@example.com", mobile: "92081967", since: "2026-05-08" },
-  { id: "cli_012", advisor_id: "adv_01", name: "Lydia Chng", email: "lydia.chng@example.com", mobile: "92731778", since: "2026-05-27" },
-  { id: "cli_013", advisor_id: "adv_01", name: "Yasmin Abdullah", email: "yasmin.abdullah@example.com", mobile: "94864887", since: "2026-06-19" },
-  { id: "cli_014", advisor_id: "adv_01", name: "Serene Wee", email: "serene.wee@example.com", mobile: "96634400", since: "2026-07-02" },
-  { id: "cli_015", advisor_id: "adv_01", name: "Ravi Nathan", email: "ravi.nathan@example.com", mobile: "92978753", since: "2026-07-28" },
-  { id: "cli_016", advisor_id: "adv_01", name: "Hannah Tay", email: "hannah.tay@example.com", mobile: "94778768", since: "2026-08-05" },
-  { id: "cli_017", advisor_id: "adv_01", name: "Vanessa Loh", email: "vanessa.loh@example.com", mobile: "90457178", since: "2026-08-20" },
-  { id: "cli_018", advisor_id: "adv_01", name: "Marcus Lee", email: "marcus.lee@example.com", mobile: "94726714", since: "2026-08-21" },
-  { id: "cli_019", advisor_id: "adv_01", name: "Oliver Yeo", email: "oliver.yeo@example.com", mobile: "97513627", since: "2026-08-28" },
-  { id: "cli_020", advisor_id: "adv_01", name: "Uma Shankar", email: "uma.shankar@example.com", mobile: "90107981", since: "2026-09-02" },
-  { id: "cli_021", advisor_id: "adv_02", name: "Yusri Hamid", email: "yusri.hamid@example.com", mobile: "99331908", since: "2025-03-04" },
-  { id: "cli_022", advisor_id: "adv_02", name: "Grace Tan", email: "grace.tan@example.com", mobile: "94520599", since: "2025-07-15" },
-  { id: "cli_023", advisor_id: "adv_02", name: "Cheryl Goh", email: "cheryl.goh@example.com", mobile: "97283792", since: "2025-10-09" },
-  { id: "cli_024", advisor_id: "adv_02", name: "Kevin Yap", email: "kevin.yap@example.com", mobile: "99841622", since: "2026-02-03" },
-  { id: "cli_025", advisor_id: "adv_02", name: "Valerie Kwek", email: "valerie.kwek@example.com", mobile: "99486628", since: "2026-05-21" },
-  { id: "cli_026", advisor_id: "adv_02", name: "Jason Lee", email: "jason.lee@example.com", mobile: "93601610", since: "2026-08-11" },
-  { id: "cli_027", advisor_id: "adv_03", name: "Terence Ho", email: "terence.ho@example.com", mobile: "95500875", since: "2025-01-22" },
-  { id: "cli_028", advisor_id: "adv_03", name: "Qiu Ming", email: "qiu.ming@example.com", mobile: "94751779", since: "2025-04-17" },
-  { id: "cli_029", advisor_id: "adv_03", name: "Priya Menon", email: "priya.menon@example.com", mobile: "99229836", since: "2025-09-03" },
-  { id: "cli_030", advisor_id: "adv_03", name: "Hafiz Osman", email: "hafiz.osman@example.com", mobile: "99579318", since: "2025-12-10" },
-  { id: "cli_031", advisor_id: "adv_03", name: "Liyana Yusof", email: "liyana.yusof@example.com", mobile: "96032080", since: "2026-01-27" },
-  { id: "cli_032", advisor_id: "adv_03", name: "Gwen Low", email: "gwen.low@example.com", mobile: "97370283", since: "2026-04-14" },
-  { id: "cli_033", advisor_id: "adv_03", name: "Adrian Foo", email: "adrian.foo@example.com", mobile: "98222646", since: "2026-06-30" },
-  { id: "cli_034", advisor_id: "adv_03", name: "Zoe Ang", email: "zoe.ang@example.com", mobile: "98616425", since: "2026-08-05" },
-  { id: "cli_035", advisor_id: "adv_03", name: "Thomas Goh", email: "thomas.goh@example.com", mobile: "92477647", since: "2026-09-01" },
-  { id: "cli_036", advisor_id: "adv_04", name: "Benjamin Chua", email: "benjamin.chua@example.com", mobile: "92587718", since: "2025-05-13" },
-  { id: "cli_037", advisor_id: "adv_04", name: "Dinesh Kumar", email: "dinesh.kumar@example.com", mobile: "98413301", since: "2025-09-25" },
-  { id: "cli_038", advisor_id: "adv_04", name: "Wesley Tay", email: "wesley.tay@example.com", mobile: "97568205", since: "2026-03-10" },
-  { id: "cli_039", advisor_id: "adv_04", name: "Irene Lau", email: "irene.lau@example.com", mobile: "92589831", since: "2026-07-16" },
-  { id: "cli_040", advisor_id: "adv_05", name: "Alicia Teo", email: "alicia.teo@example.com", mobile: "99489394", since: "2025-02-06" },
-  { id: "cli_041", advisor_id: "adv_05", name: "Wan Ling Tan", email: "wan.ling.tan@example.com", mobile: "99482141", since: "2025-06-24" },
-  { id: "cli_042", advisor_id: "adv_05", name: "Jasmine Poh", email: "jasmine.poh@example.com", mobile: "96210521", since: "2025-11-18" },
-  { id: "cli_043", advisor_id: "adv_05", name: "Rohan Pillai", email: "rohan.pillai@example.com", mobile: "98549145", since: "2026-02-25" },
-  { id: "cli_044", advisor_id: "adv_05", name: "Clement Ang", email: "clement.ang@example.com", mobile: "92441064", since: "2026-05-05" },
-  { id: "cli_045", advisor_id: "adv_05", name: "Brandon Lau", email: "brandon.lau@example.com", mobile: "96001304", since: "2026-08-19" },
-  { id: "cli_046", advisor_id: "adv_mgr", name: "Patricia Neo", email: "patricia.neo@example.com", mobile: "91189557", since: "2025-03-19" },
-  { id: "cli_047", advisor_id: "adv_mgr", name: "Daniel Wong", email: "daniel.wong@example.com", mobile: "99906593", since: "2025-08-07" },
-  { id: "cli_048", advisor_id: "adv_mgr", name: "Melvin Toh", email: "melvin.toh@example.com", mobile: "99761584", since: "2026-01-15" },
-  { id: "cli_049", advisor_id: "adv_mgr", name: "Bella Seah", email: "bella.seah@example.com", mobile: "96450604", since: "2026-06-09" },
-];
-
-export const pass_ledger: PassAward[] = [
-  { id: "pass_001", advisor_id: "adv_01", client_id: "cli_014", challenge_code: "PURCHASE_PRODUCT", monthly_draw: "July", units: 1, passes: 1, pass_type: "gold", awarded_on: "2026-07-02", external_ref: "July:cli_014:PURCHASE_PRODUCT" },
-  { id: "pass_002", advisor_id: "adv_01", client_id: "cli_014", challenge_code: "DOWNLOAD_APP", monthly_draw: "July", units: 1, passes: 1, pass_type: "blue", awarded_on: "2026-07-02", external_ref: "July:cli_014:DOWNLOAD_APP" },
-  { id: "pass_003", advisor_id: "adv_01", client_id: "cli_019", challenge_code: "DOWNLOAD_APP", monthly_draw: "July", units: 1, passes: 1, pass_type: "blue", awarded_on: "2026-07-14", external_ref: "July:cli_019:DOWNLOAD_APP" },
-  { id: "pass_004", advisor_id: "adv_04", client_id: "cli_039", challenge_code: "PURCHASE_PRODUCT", monthly_draw: "July", units: 1, passes: 1, pass_type: "gold", awarded_on: "2026-07-16", external_ref: "July:cli_039:PURCHASE_PRODUCT" },
-  { id: "pass_005", advisor_id: "adv_01", client_id: "cli_015", challenge_code: "ATTEND_EVENT", monthly_draw: "July", units: 1, passes: 5, pass_type: "blue", awarded_on: "2026-07-18", external_ref: "July:cli_015:ATTEND_EVENT" },
-  { id: "pass_006", advisor_id: "adv_01", client_id: "cli_013", challenge_code: "ATTEND_EVENT", monthly_draw: "July", units: 1, passes: 5, pass_type: "blue", awarded_on: "2026-07-18", external_ref: "July:cli_013:ATTEND_EVENT" },
-  { id: "pass_007", advisor_id: "adv_01", client_id: "cli_010", challenge_code: "ATTEND_EVENT", monthly_draw: "July", units: 1, passes: 5, pass_type: "blue", awarded_on: "2026-07-18", external_ref: "July:cli_010:ATTEND_EVENT" },
-  { id: "pass_008", advisor_id: "adv_01", client_id: "cli_010", challenge_code: "BRING_GUEST", monthly_draw: "July", units: 1, passes: 2, pass_type: "blue", awarded_on: "2026-07-18", external_ref: "July:cli_010:BRING_GUEST" },
-  { id: "pass_009", advisor_id: "adv_01", client_id: "cli_015", challenge_code: "PURCHASE_PRODUCT", monthly_draw: "July", units: 1, passes: 1, pass_type: "gold", awarded_on: "2026-07-28", external_ref: "July:cli_015:PURCHASE_PRODUCT" },
-  { id: "pass_010", advisor_id: "adv_01", client_id: "cli_015", challenge_code: "SUBMIT_REFERRAL", monthly_draw: "July", units: 3, passes: 3, pass_type: "blue", awarded_on: "2026-07-28", external_ref: "July:cli_015:SUBMIT_REFERRAL" },
-  { id: "pass_011", advisor_id: "adv_03", client_id: "cli_034", challenge_code: "PURCHASE_PRODUCT", monthly_draw: "August", units: 1, passes: 1, pass_type: "gold", awarded_on: "2026-08-05", external_ref: "August:cli_034:PURCHASE_PRODUCT" },
-  { id: "pass_012", advisor_id: "adv_01", client_id: "cli_016", challenge_code: "SUBMIT_REFERRAL", monthly_draw: "August", units: 2, passes: 2, pass_type: "blue", awarded_on: "2026-08-05", external_ref: "August:cli_016:SUBMIT_REFERRAL" },
-  { id: "pass_013", advisor_id: "adv_01", client_id: "cli_016", challenge_code: "DOWNLOAD_APP", monthly_draw: "August", units: 1, passes: 1, pass_type: "blue", awarded_on: "2026-08-05", external_ref: "August:cli_016:DOWNLOAD_APP" },
-  { id: "pass_014", advisor_id: "adv_01", client_id: "cli_003", challenge_code: "SUBMIT_REFERRAL", monthly_draw: "August", units: 1, passes: 1, pass_type: "blue", awarded_on: "2026-08-09", external_ref: "August:cli_003:SUBMIT_REFERRAL" },
-  { id: "pass_015", advisor_id: "adv_02", client_id: "cli_026", challenge_code: "PURCHASE_PRODUCT", monthly_draw: "August", units: 1, passes: 1, pass_type: "gold", awarded_on: "2026-08-11", external_ref: "August:cli_026:PURCHASE_PRODUCT" },
-  { id: "pass_016", advisor_id: "adv_01", client_id: "cli_014", challenge_code: "SUBMIT_REFERRAL", monthly_draw: "August", units: 1, passes: 1, pass_type: "blue", awarded_on: "2026-08-12", external_ref: "August:cli_014:SUBMIT_REFERRAL" },
-  { id: "pass_017", advisor_id: "adv_01", client_id: "cli_007", challenge_code: "SUBMIT_REFERRAL", monthly_draw: "August", units: 2, passes: 2, pass_type: "blue", awarded_on: "2026-08-15", external_ref: "August:cli_007:SUBMIT_REFERRAL" },
-  { id: "pass_018", advisor_id: "adv_01", client_id: "cli_007", challenge_code: "DOWNLOAD_APP", monthly_draw: "August", units: 1, passes: 1, pass_type: "blue", awarded_on: "2026-08-15", external_ref: "August:cli_007:DOWNLOAD_APP" },
-  { id: "pass_019", advisor_id: "adv_05", client_id: "cli_045", challenge_code: "PURCHASE_PRODUCT", monthly_draw: "August", units: 1, passes: 1, pass_type: "gold", awarded_on: "2026-08-19", external_ref: "August:cli_045:PURCHASE_PRODUCT" },
-  { id: "pass_020", advisor_id: "adv_01", client_id: "cli_017", challenge_code: "PURCHASE_PRODUCT", monthly_draw: "August", units: 1, passes: 1, pass_type: "gold", awarded_on: "2026-08-20", external_ref: "August:cli_017:PURCHASE_PRODUCT" },
-  { id: "pass_021", advisor_id: "adv_01", client_id: "cli_017", challenge_code: "DOWNLOAD_APP", monthly_draw: "August", units: 1, passes: 1, pass_type: "blue", awarded_on: "2026-08-20", external_ref: "August:cli_017:DOWNLOAD_APP" },
-  { id: "pass_022", advisor_id: "adv_01", client_id: "cli_018", challenge_code: "SUBMIT_REFERRAL", monthly_draw: "August", units: 1, passes: 1, pass_type: "blue", awarded_on: "2026-08-21", external_ref: "August:cli_018:SUBMIT_REFERRAL" },
-  { id: "pass_023", advisor_id: "adv_01", client_id: "cli_017", challenge_code: "TESTIMONIAL", monthly_draw: "August", units: 1, passes: 3, pass_type: "blue", awarded_on: "2026-08-26", external_ref: "August:cli_017:TESTIMONIAL" },
-  { id: "pass_024", advisor_id: "adv_01", client_id: "cli_019", challenge_code: "PURCHASE_PRODUCT", monthly_draw: "August", units: 1, passes: 1, pass_type: "gold", awarded_on: "2026-08-28", external_ref: "August:cli_019:PURCHASE_PRODUCT" },
-  { id: "pass_025", advisor_id: "adv_01", client_id: "cli_019", challenge_code: "REFERRAL_PURCHASE", monthly_draw: "August", units: 1, passes: 2, pass_type: "gold", awarded_on: "2026-08-28", external_ref: "August:cli_019:REFERRAL_PURCHASE" },
-  { id: "pass_026", advisor_id: "adv_03", client_id: "cli_035", challenge_code: "PURCHASE_PRODUCT", monthly_draw: "September", units: 1, passes: 1, pass_type: "gold", awarded_on: "2026-09-01", external_ref: "September:cli_035:PURCHASE_PRODUCT" },
-  { id: "pass_027", advisor_id: "adv_01", client_id: "cli_015", challenge_code: "TESTIMONIAL", monthly_draw: "September", units: 1, passes: 3, pass_type: "blue", awarded_on: "2026-09-01", external_ref: "September:cli_015:TESTIMONIAL" },
-  { id: "pass_028", advisor_id: "adv_01", client_id: "cli_020", challenge_code: "PURCHASE_PRODUCT", monthly_draw: "September", units: 1, passes: 1, pass_type: "gold", awarded_on: "2026-09-02", external_ref: "September:cli_020:PURCHASE_PRODUCT" },
-  { id: "pass_029", advisor_id: "adv_01", client_id: "cli_020", challenge_code: "SUBMIT_REFERRAL", monthly_draw: "September", units: 1, passes: 1, pass_type: "blue", awarded_on: "2026-09-02", external_ref: "September:cli_020:SUBMIT_REFERRAL" },
-  { id: "pass_030", advisor_id: "adv_01", client_id: "cli_020", challenge_code: "DOWNLOAD_APP", monthly_draw: "September", units: 1, passes: 1, pass_type: "blue", awarded_on: "2026-09-02", external_ref: "September:cli_020:DOWNLOAD_APP" },
-  { id: "pass_031", advisor_id: "adv_01", client_id: "cli_016", challenge_code: "ATTEND_EVENT", monthly_draw: "September", units: 1, passes: 5, pass_type: "blue", awarded_on: "2026-09-03", external_ref: "September:cli_016:ATTEND_EVENT" },
-  { id: "pass_032", advisor_id: "adv_01", client_id: "cli_018", challenge_code: "ATTEND_EVENT", monthly_draw: "September", units: 1, passes: 5, pass_type: "blue", awarded_on: "2026-09-03", external_ref: "September:cli_018:ATTEND_EVENT" },
-  { id: "pass_033", advisor_id: "adv_01", client_id: "cli_018", challenge_code: "BRING_GUEST", monthly_draw: "September", units: 2, passes: 4, pass_type: "blue", awarded_on: "2026-09-03", external_ref: "September:cli_018:BRING_GUEST" },
-  { id: "pass_034", advisor_id: "adv_01", client_id: "cli_019", challenge_code: "ATTEND_EVENT", monthly_draw: "September", units: 1, passes: 5, pass_type: "blue", awarded_on: "2026-09-03", external_ref: "September:cli_019:ATTEND_EVENT" },
-];
-
-export const prizes_won: PrizeWon[] = [
-  { client_id: "cli_015", monthly_draw: "July", pass_type: "blue", prize_won: "Around The World travel voucher (S$200)" },
-  { client_id: "cli_014", monthly_draw: "August", pass_type: "gold", prize_won: "Weekend staycation for two" },
+  { advisor_id: "FC001", year: 2026, tier: "mdrt" },
+  { advisor_id: "FC002", year: 2026, tier: "mdrt" },
+  { advisor_id: "FC003", year: 2026, tier: "cot" },
+  { advisor_id: "FC004", year: 2026, tier: "mdrt" },
+  { advisor_id: "FC005", year: 2026, tier: "mdrt" },
+  { advisor_id: "FC000", year: 2026, tier: "mdrt" },
 ];

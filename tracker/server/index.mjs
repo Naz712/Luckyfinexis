@@ -1,18 +1,22 @@
-// Meeting Pack pipeline server. Three routes, no dependencies, Node 22+.
+// The Finexis tracker assistant server. No dependencies, Node 22+.
 //
-//   GET  /health        what is configured (service and model names, never keys)
-//   POST /packs/make    inputs in → transcript (recording dropped) → report + numbers out
-//   POST /packs/rework  report + card notes in → revised cards out
+//   GET  /              a hint for anyone who opens the address in a browser
+//   GET  /health        what is configured (service and model name, never the key) and what the import holds
 //   POST /ask           the assistant: conversation + tool definitions in → tool calls or the answer card out
+//   GET  /me            the signed-in FA's production rows: their own, plus their team's for a manager
+//   POST /admin/import  the month's CSV in; replaces the whole import
+//   GET  /admin/links   every FA's individual link, as CSV (?fc=FC001 for one)
 //
-// Keys come from ./.env (gitignored) or the environment. Nothing is written
-// to disk: the recap audio lives in this process only until it is
-// transcribed, and the request body is gone when the response is sent.
+// The key comes from ./.env (gitignored) or the environment. Only the
+// production import is written to disk (IMPORT_FILE, gitignored): a request
+// body is gone when the response is sent, and the assistant's tools run in
+// the app over the consultant's own records.
 import http from "node:http";
 import { fileURLToPath } from "node:url";
-import { ApiError, ask, compose, config, describe, rework, transcribe } from "./providers.mjs";
+import { ApiError, ask, config, describe } from "./providers.mjs";
 import { askSystem } from "./prompt.mjs";
 import * as mock from "./mock.mjs";
+import * as store from "./store.mjs";
 
 try {
   process.loadEnvFile(fileURLToPath(new URL("./.env", import.meta.url)));
@@ -23,11 +27,12 @@ try {
 const PORT = Number(process.env.PORT) || 8787;
 const MOCK = process.env.PACKS_MOCK === "1" || process.argv.includes("--mock");
 const ACCESS_CODE = (process.env.ACCESS_CODE ?? "").trim();
+const ADMIN_CODE = (process.env.ADMIN_CODE ?? "").trim();
+const APP_URL = (process.env.APP_URL ?? "").trim() || "https://naz712.github.io/Luckyfinexis/";
 const EXTRA_ORIGINS = (process.env.ALLOW_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-const BODY_LIMIT = 64 * 1024 * 1024;
-const KINDS = new Set(["recap", "photo", "document", "typed"]);
-const MAX_BYTES = { recap: 25 * 1024 * 1024, photo: 20 * 1024 * 1024, document: 32 * 1024 * 1024 };
+const BODY_LIMIT = 8 * 1024 * 1024; // A year of the firm's CSV, or a conversation with its tool results; nothing bigger is ever sent.
 const cfg = config();
+const loaded = store.load();
 
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
@@ -42,108 +47,66 @@ function originAllowed(origin) {
   return false;
 }
 
-function send(res, status, body, extra = {}) {
-  const json = JSON.stringify(body);
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Content-Length": Buffer.byteLength(json), ...extra });
-  res.end(json);
+function sendText(res, status, text, type, extra = {}) {
+  res.writeHead(status, { "Content-Type": `${type}; charset=utf-8`, "Content-Length": Buffer.byteLength(text), ...extra });
+  res.end(text);
 }
 
-function readJson(req) {
+function send(res, status, body, extra = {}) {
+  sendText(res, status, JSON.stringify(body), "application/json", extra);
+}
+
+function readBody(req) {
   return new Promise((resolve, reject) => {
     const declared = Number(req.headers["content-length"] ?? 0);
-    if (declared > BODY_LIMIT) return reject(new ApiError(413, "That is too much to send at once (64 MB limit). Try a smaller photo or PDF."));
+    if (declared > BODY_LIMIT) return reject(new ApiError(413, "That is too much to send at once (8 MB limit)."));
     const chunks = [];
     let size = 0;
     req.on("data", (c) => {
       size += c.length;
       if (size > BODY_LIMIT) {
-        reject(new ApiError(413, "That is too much to send at once (64 MB limit)."));
+        reject(new ApiError(413, "That is too much to send at once (8 MB limit)."));
         req.destroy();
         return;
       }
       chunks.push(c);
     });
-    req.on("end", () => {
-      try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
-      } catch {
-        reject(new ApiError(400, "The request body is not JSON."));
-      }
-    });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     req.on("error", (e) => reject(new ApiError(400, `Upload failed: ${e.message}`)));
   });
 }
 
-/** Counts the page objects in a PDF; 1 when nothing is found. Good enough for the detail line. */
-function countPages(buf) {
-  const n = (buf.toString("latin1").match(/\/Type\s*\/Page(?![s\w])/g) ?? []).length;
-  return n || 1;
-}
-
-const hhmm = () => new Date().toTimeString().slice(0, 5);
-
-/** Validates and decodes the inputs; base64 becomes a Buffer, text stays text. */
-function decodeInputs(raw) {
-  if (!Array.isArray(raw) || raw.length === 0) throw new ApiError(400, "Drop in at least one thing first.");
-  if (raw.length > 8) throw new ApiError(400, "At most eight inputs per pack.");
-  return raw.map((i, n) => {
-    if (!i || !KINDS.has(i.kind)) throw new ApiError(400, `Input ${n + 1} has an unknown kind.`);
-    const input = { id: String(i.id ?? `in_${n + 1}`), kind: i.kind, filename: typeof i.filename === "string" ? i.filename.slice(0, 120) : undefined, duration_sec: Number(i.duration_sec) || undefined };
-    if (i.kind === "typed") {
-      input.text = String(i.text ?? "").trim();
-      if (!input.text) throw new ApiError(400, "The typed lines are empty.");
-      return input;
-    }
-    if (typeof i.data !== "string" || !i.data) throw new ApiError(400, `Input ${n + 1} (${i.kind}) has no file.`);
-    input.media_type = String(i.media_type ?? "application/octet-stream").split(";")[0].trim();
-    input.data = Buffer.from(i.data, "base64");
-    input.bytes = input.data.length;
-    if (input.bytes > MAX_BYTES[i.kind]) throw new ApiError(413, `The ${i.kind} is too large (${Math.round(input.bytes / 1048576)} MB).`);
-    if (i.kind === "document" && input.media_type === "application/pdf") input.pages = countPages(input.data);
-    return input;
-  });
-}
-
-async function makePack(body) {
-  const inputs = decodeInputs(body.inputs);
-  const client = { name: String(body.client?.name ?? "the client").slice(0, 80), since: body.client?.since ? String(body.client.since).slice(0, 10) : "" };
-  const advisor = { name: String(body.advisor?.name ?? "the consultant").slice(0, 80) };
-  const met_on = /^\d{4}-\d{2}-\d{2}$/.test(String(body.met_on)) ? String(body.met_on) : new Date().toISOString().slice(0, 10);
-  const products = (Array.isArray(body.products) ? body.products : []).slice(0, 40).map((p) => ({ id: String(p.id), name: String(p.name).slice(0, 60) }));
-  if (MOCK) return mock.make({ client, inputs });
-
-  const timings = {};
-  let transcript = null;
-  let recording_deleted_at = null;
-  const recap = inputs.find((i) => i.kind === "recap");
-  if (recap) {
-    const t0 = Date.now();
-    transcript = await transcribe(cfg.transcribe, { data: recap.data, media_type: recap.media_type, filename: recap.filename || "recap.webm" });
-    recap.data = null; // The audio is not needed again and is not kept.
-    recording_deleted_at = hhmm();
-    recap.text = transcript;
-    timings.transcribe_ms = Date.now() - t0;
-    log(`  recap ${recap.duration_sec ?? "?"} s → ${transcript.length} chars in ${timings.transcribe_ms} ms, audio dropped`);
+async function readJson(req) {
+  try {
+    return JSON.parse(await readBody(req));
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    throw new ApiError(400, "The request body is not JSON.");
   }
-  const t1 = Date.now();
-  const { meeting, numbers, report } = await compose(cfg.report, { advisor, client, met_on, products }, inputs);
-  timings.report_ms = Date.now() - t1;
-  log(`  report by ${describe(cfg.report)} in ${timings.report_ms} ms · ${numbers.length} numbers`);
-  const pages = Object.fromEntries(inputs.filter((i) => i.pages).map((i) => [i.id, i.pages]));
-  return { meeting, recording_deleted_at, transcript, pages, timings, numbers, report };
 }
 
-async function reworkPack(body) {
-  const report = body.report;
-  const notes = body.notes;
-  if (!report || typeof report !== "object") throw new ApiError(400, "No report to rework.");
-  if (!notes || typeof notes !== "object" || Object.keys(notes).length === 0) throw new ApiError(400, "No notes to work from.");
-  const clean = {};
-  for (const [code, note] of Object.entries(notes)) if (typeof note === "string" && note.trim()) clean[code] = note.trim().slice(0, 600);
-  if (Object.keys(clean).length === 0) throw new ApiError(400, "No notes to work from.");
-  const { attachments, ...cards } = report;
-  const out = MOCK ? await mock.rework({ report: cards, notes: clean }) : await rework(cfg.report, cards, clean);
-  return { cards: out };
+/** The CSV of an import: the body as is (text/csv, text/plain), or the "csv" field of a JSON body. */
+async function readCsv(req) {
+  const text = await readBody(req);
+  if (!/application\/json/i.test(String(req.headers["content-type"] ?? ""))) return text;
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    throw new ApiError(400, "The request body is not JSON.");
+  }
+  if (typeof body?.csv !== "string") throw new ApiError(400, 'A JSON body must be {"csv": "...the file..."}.');
+  return body.csv;
+}
+
+function requireAdmin(req) {
+  if (!ADMIN_CODE) throw new ApiError(401, "Set ADMIN_CODE on the server before importing.");
+  if (req.headers["x-admin-code"] !== ADMIN_CODE) throw new ApiError(401, "Wrong or missing admin code.");
+}
+
+/** The FA's individual link: the app's address with their fc and key. */
+function linkFor(fc) {
+  return `${APP_URL}${APP_URL.includes("?") ? "&" : "?"}fc=${encodeURIComponent(fc)}&key=${store.keyFor(fc)}`;
 }
 
 async function askTurn(body) {
@@ -177,7 +140,7 @@ const server = http.createServer(async (req, res) => {
       "Access-Control-Allow-Origin": origin,
       Vary: "Origin",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, X-Access-Code",
+      "Access-Control-Allow-Headers": "Content-Type, X-Access-Code, X-FC, X-Admin-Code",
       "Access-Control-Max-Age": "600",
     });
   }
@@ -186,36 +149,76 @@ const server = http.createServer(async (req, res) => {
     res.end();
     return;
   }
-  const path = (req.url ?? "/").split("?")[0];
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const path = url.pathname;
+  const ms = () => `${Date.now() - started} ms`;
   try {
     if (req.method === "GET" && path === "/") {
-      send(res, 200, { ok: true, this_is: "the Meeting Pack server", next: "Open the app (npm run dev, http://localhost:5173), go to Packs → New pack → Connect, and enter this address there." }, cors);
+      send(res, 200, { ok: true, this_is: "the Finexis tracker assistant server", next: "Open the app (npm run dev, http://localhost:5173), tap the speech bubble, then Connect, and enter this address there." }, cors);
       return;
     }
     if (req.method === "GET" && path === "/health") {
-      send(res, 200, { ok: true, mock: MOCK, transcribe: MOCK ? "mock" : describe(cfg.transcribe), report: MOCK ? "mock" : describe(cfg.report), access_code: ACCESS_CODE !== "" }, cors);
+      send(res, 200, { ok: true, mock: MOCK, report: MOCK ? "mock" : describe(cfg.report), access_code: ACCESS_CODE !== "", import: store.summary() }, cors);
       return;
     }
-    if (req.method !== "POST" || !["/packs/make", "/packs/rework", "/ask"].includes(path)) throw new ApiError(404, "Not found.");
+    if (req.method === "GET" && path === "/me") {
+      // The link's key is the credential: "<fc_code>:<key>", not the access code.
+      const [fc = "", key = ""] = String(req.headers["x-fc"] ?? "").split(":");
+      const code = fc.trim().toUpperCase();
+      if (!code || !store.verify(code, key.trim())) throw new ApiError(401, "Your link is not valid. Ask the admin for a new one.");
+      const rows = store.rowsFor(code);
+      if (rows.length === 0) throw new ApiError(404, `No production rows for ${code} yet.`);
+      const me = store.advisers().find((a) => a.fc_code === code);
+      send(res, 200, { fc_code: code, name: me?.name ?? code, rows, as_of: store.asOf(rows) }, cors);
+      log(`GET /me → 200 · ${code} · ${rows.length} rows · ${ms()}`);
+      return;
+    }
+    if (req.method === "POST" && path === "/admin/import") {
+      requireAdmin(req);
+      const result = store.replace(await readCsv(req));
+      if (result.errors.length > 0) {
+        // Nothing was replaced. The reply lists every bad line; the terminal only gets the count.
+        send(res, 400, { error: `The file has ${result.errors.length} problem${result.errors.length === 1 ? "" : "s"}; nothing was imported.`, errors: result.errors }, cors);
+        log(`POST /admin/import → 400 · ${result.errors.length} problem(s) · ${ms()}`);
+        return;
+      }
+      send(res, 200, { ok: true, ...result }, cors);
+      log(`POST /admin/import → 200 · ${result.rows} rows · ${result.advisers} advisers · as of ${result.as_of} · ${ms()}`);
+      return;
+    }
+    if (req.method === "GET" && path === "/admin/links") {
+      requireAdmin(req);
+      const only = (url.searchParams.get("fc") ?? "").trim().toUpperCase();
+      const list = store.advisers().filter((a) => !only || a.fc_code === only);
+      if (only && list.length === 0) throw new ApiError(404, `No production rows for ${only} yet.`);
+      const csv = ["fc_code,name,link", ...list.map((a) => [a.fc_code, a.name, linkFor(a.fc_code)].map(store.csvCell).join(","))].join("\n") + "\n";
+      sendText(res, 200, csv, "text/csv", cors);
+      log(`GET /admin/links → 200 · ${list.length} link${list.length === 1 ? "" : "s"} · ${ms()}`);
+      return;
+    }
+    if (req.method !== "POST" || path !== "/ask") throw new ApiError(404, "Not found.");
     if (ACCESS_CODE && req.headers["x-access-code"] !== ACCESS_CODE) throw new ApiError(401, "Wrong or missing access code.");
     const body = await readJson(req);
-    const result = path === "/packs/make" ? await makePack(body) : path === "/ask" ? await askTurn(body) : await reworkPack(body);
+    const result = await askTurn(body);
     send(res, 200, result, cors);
-    log(`${req.method} ${path} → 200 · ${Date.now() - started} ms`);
+    log(`${req.method} ${path} → 200 · ${ms()}`);
   } catch (e) {
     const status = e instanceof ApiError ? e.status : 500;
     const message = e instanceof ApiError ? e.message : "Server error. See the server's terminal.";
     if (!(e instanceof ApiError)) console.error(e);
     send(res, status, { error: message }, cors);
-    log(`${req.method} ${path} → ${status} · ${Date.now() - started} ms · ${message}`);
+    log(`${req.method} ${path} → ${status} · ${ms()} · ${message}`);
   }
 });
 
 server.listen(PORT, () => {
-  log(`Meeting Pack API on http://localhost:${PORT}${MOCK ? " (mock mode: canned answers, no keys used)" : ""}`);
+  log(`Assistant API on http://localhost:${PORT}${MOCK ? " (mock mode: canned answers, no key used)" : ""}`);
   if (!MOCK) {
-    log(`  recap → text: ${describe(cfg.transcribe) ?? "not configured"}`);
-    log(`  report: ${describe(cfg.report) ?? "not configured (set OPENAI_API_KEY in .env)"}`);
+    log(`  model: ${describe(cfg.report) ?? "not configured (set OPENAI_API_KEY in .env)"}`);
     log(`  access code: ${ACCESS_CODE ? "required" : "none (fine on your own Wi-Fi; set one before opening a tunnel)"}`);
   }
+  for (const problem of loaded.errors) log(`  ${loaded.file}: ${problem}`);
+  log(`  import: ${loaded.rows} rows · ${loaded.advisers} advisers · as of ${loaded.as_of ?? "—"} · ${loaded.source === "file" ? loaded.file : "the sample file (upload the real one with npm run import)"}`);
+  log(`  admin code: ${ADMIN_CODE ? "set" : "none (set ADMIN_CODE to upload the CSV and list the links)"}`);
+  if (store.secretIsDefault()) log("  WARNING: LINK_SECRET and ACCESS_CODE are both unset, so the individual links use the built-in secret and anyone who knows it can forge one. Set LINK_SECRET.");
 });

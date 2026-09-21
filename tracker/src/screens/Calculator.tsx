@@ -19,7 +19,8 @@ import {
   type PrimaryGoal,
   type RouteCredit,
 } from "../lib/calc";
-import { pct, periodLabel, sgd } from "../lib/format";
+import { count, pct, periodLabel, sgd } from "../lib/format";
+import { PRIVATE_RATES_LOADED } from "../lib/privateRates";
 import { Card, Label } from "../components/ui";
 import { ProductButton, ProductPicker } from "../components/ProductPicker";
 
@@ -31,7 +32,7 @@ const FIRST_PRODUCT_ID = "prd_02";
 interface Row {
   key: number;
   productId: string;
-  /** Premium, single premium or amount invested, as typed. Pre-filled with the product's typical case until the FC types over it. */
+  /** Annual or single premium, as typed. Pre-filled with the product's typical case until the FC types over it. */
   premium: string;
   /** Gross revenue as typed. Estimated from the premium at the product's placeholder rate until the FC types over it. */
   gross: string;
@@ -58,7 +59,6 @@ interface ActiveGoal {
 
 /** What the money field means for this product. */
 function amountLabel(product: Product): string {
-  if (product.category === "fund") return product.premium_type === "single" ? "Amount invested" : "Annual contribution";
   return product.premium_type === "single" ? "Single premium" : "Annual premium";
 }
 
@@ -201,11 +201,14 @@ export default function Calculator({
       gross,
       commission: commissionForCase(gross, band),
       mdrt: premium * creditRate(product.id, "mdrt_premium"),
+      /** PLACEHOLDER Elite credits: the product's rate per S$1,000 of premium. */
+      elite: (premium / 1000) * product.elite_rate,
     };
   });
   const totalGross = computed.reduce((t, c) => t + c.gross, 0);
   const totalCommission = computed.reduce((t, c) => t + c.commission, 0);
   const totalMdrt = computed.reduce((t, c) => t + c.mdrt, 0);
+  const totalElite = Math.round(computed.reduce((t, c) => t + c.elite, 0));
   /** The client's commission from Other Products (hospital plans, funds): MDRT counts it only once the Risk-Protection floor is met. */
   const otherCommission = computed.filter((c) => c.product.mdrt_category === "other").reduce((t, c) => t + c.commission, 0);
   const filled = computed.filter((c) => c.gross > 0).length;
@@ -243,7 +246,7 @@ export default function Calculator({
     verdict = {
       figure: String(needed),
       unit: needed === 1 ? "more client like this" : "more clients like this",
-      note: `At ${sgd(totalCommission)} a client, that closes the ${sgd(gap)} gap to ${goalName}. Each one also adds ${sgd(totalMdrt)} of MDRT premium credit.${
+      note: `At ${sgd(totalCommission)} a client, that closes the ${sgd(gap)} gap to ${goalName}. Each one also adds ${sgd(totalMdrt)} of MDRT premium credit${totalElite > 0 ? ` and ${count(totalElite)} Elite ${totalElite === 1 ? "credit" : "credits"}` : ""}.${
         floorHolds
           ? ` ${sgd(otherCommission)} of each is Other Products credit, which MDRT counts only once Risk-Protection commission reaches ${sgd(goal.credit!.riskFloor)}; the count allows for that.`
           : ""
@@ -287,8 +290,8 @@ export default function Calculator({
   return (
     <>
       <div className="flex flex-col gap-2.5 px-4 pb-24 pt-3">
-        {computed.map(({ row, product, gross, commission }) => {
-          const fund = product.category === "fund";
+        {computed.map(({ row, product, gross, commission, elite }) => {
+          const eliteCredits = Math.round(elite);
           return (
             <div key={row.key} className="overflow-hidden rounded-2xl border border-line bg-surface">
               <ProductButton product={product} onClick={() => setPicker({ mode: "edit", key: row.key })} bordered={false} />
@@ -312,7 +315,7 @@ export default function Calculator({
                     <span className="flex shrink-0 items-center gap-[5px] text-[11px] text-muted">
                       {row.grossTouched ? "your figure" : `est. × ${product.comm_rate}`}
                       {!row.grossTouched && (
-                        <span className="rounded bg-canvas px-1 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] text-muted">Placeholder rate</span>
+                        <span className="rounded bg-canvas px-1 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] text-muted">{PRIVATE_RATES_LOADED ? "Private rate" : "Placeholder rate"}</span>
                       )}
                     </span>
                   </div>
@@ -331,8 +334,8 @@ export default function Calculator({
 
               <div className="flex items-center justify-between gap-2.5 border-t border-line bg-canvas px-4 py-[11px]">
                 <span className="tnum text-[12px] text-muted">
-                  Commission @ {band} · {pct(rate)}
-                  {fund && " · upfront only"} · {MDRT_CATEGORY_LABEL[product.mdrt_category]}
+                  Commission @ {band} · {pct(rate)} · {MDRT_CATEGORY_LABEL[product.mdrt_category]}
+                  {eliteCredits > 0 && ` · Elite +${count(eliteCredits)}`}
                 </span>
                 <span className="flex shrink-0 items-center gap-3">
                   <span className="tnum text-[20px] font-bold text-ink">{gross > 0 ? sgd(commission) : "—"}</span>
@@ -419,7 +422,9 @@ export default function Calculator({
         </Card>
 
         <p className="tnum px-1 pt-0.5 text-center text-pretty text-[11px] leading-normal text-muted">
-          Nothing here is saved. Banding rates and product commission rates are placeholders.
+          {PRIVATE_RATES_LOADED
+            ? "Nothing here is saved. Rates come from the firm's private rates file."
+            : "Nothing here is saved. Banding rates, product commission rates and Elite credit rates are placeholders."}
         </p>
       </div>
 
@@ -430,7 +435,7 @@ export default function Calculator({
         <div className="min-w-0">
           <div className="text-[10px] font-bold uppercase tracking-[.08em] text-white/72">Total per client</div>
           <div className="tnum mt-0.5 truncate text-[11px] text-white/78">
-            {filled} {filled === 1 ? "product" : "products"} · gross {sgd(totalGross)} · MDRT credit {sgd(totalMdrt)}
+            {filled} {filled === 1 ? "product" : "products"} · gross {sgd(totalGross)} · MDRT credit {sgd(totalMdrt)} · Elite +{count(totalElite)}
           </div>
         </div>
         <div className="tnum shrink-0 text-[28px] font-bold leading-none tracking-[-.025em]">{sgd(totalCommission)}</div>

@@ -1,0 +1,6 @@
+# Confidential reference data lives here and never enters the repo: everything
+# in this folder is ignored except this file, the README and the example.
+*
+!.gitignore
+!README.md
+!rates.example.json

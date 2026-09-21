@@ -1,3 +1,5 @@
 # The keys live here and only here. Never commit this file.
 .env
 node_modules
+# The uploaded production CSV (IMPORT_FILE): the firm's figures never enter the repo.
+data/

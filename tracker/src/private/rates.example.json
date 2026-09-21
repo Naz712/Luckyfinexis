@@ -1,0 +1,13 @@
+{
+  "note": "Copy to rates.local.json and fill in. Every key is optional; unlisted products and bands keep their placeholders.",
+  "bandings": { "B1": 0.3, "B2": 0.4, "B3": 0.5, "B4": 0.6, "B5": 0.7 },
+  "products": {
+    "prd_01": { "name": "Singlife Term", "comm_rate": 0.95, "mdrt_premium": 1.0, "mdrt_commission": 1.0, "wape": 1.0, "elite_rate": 10, "typical_premium": 1800 },
+    "prd_07": { "comm_rate": 0.95, "elite_rate": 10 }
+  },
+  "elite_tiers": [
+    { "code": "elite", "name": "Elite", "credits": 120 },
+    { "code": "elite_gold", "name": "Elite Gold", "credits": 240 },
+    { "code": "elite_platinum", "name": "Elite Platinum", "credits": 480 }
+  ]
+}

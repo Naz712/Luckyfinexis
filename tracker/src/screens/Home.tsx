@@ -1,6 +1,7 @@
 import { useCallback, useState, type ReactNode } from "react";
 import {
-  insurers,
+  ELITE_RULES_CONFIRMED,
+  elite_tiers,
   MDRT_MEMBERSHIP_YEAR,
   MDRT_THRESHOLDS_CONFIRMED,
   metric_definitions,
@@ -13,20 +14,16 @@ import {
 } from "../mock/data";
 import {
   casesForAdvisor,
-  clientsNeeded,
-  clientsNeededOnRoute,
-  contributingCases,
-  effectiveDate,
   goalFor,
   mdrtSnapshot,
   metricSnapshot,
   metricsForCase,
+  pace as paceToward,
+  parseISODate,
   productById,
   ROUTE_WORD,
-  routeCaseValue,
   UNTRACKED_METRICS,
   weeksLeftIn,
-  type CaseMetrics,
   type GoalSet,
   type MdrtRoute,
   type MdrtRouteMetric,
@@ -36,7 +33,8 @@ import {
   type PrimaryGoal,
   type RouteCredit,
 } from "../lib/calc";
-import { fmtMetric, paceText, pct, periodLabel, routeGateText, sgd, shortDate } from "../lib/format";
+import { count, fmtMetric, paceText, pct, periodLabel, routeGateText, sgd, shortDate } from "../lib/format";
+import type { DataSource } from "../lib/api";
 import { Card, Label } from "../components/ui";
 import Sheet from "../components/Sheet";
 
@@ -62,7 +60,7 @@ const ARC_TRANSITION = { transition: "stroke-dasharray .55s cubic-bezier(.22,1,.
 const arcDash = (frac: number) => `${(ARC * frac).toFixed(1)} ${ARC}`;
 
 /** The order the "This year" rows appear in. */
-const TRACKED_ORDER: MetricCode[] = ["commission", "gross_revenue", "wape", "new_clients"];
+const TRACKED_ORDER: MetricCode[] = ["commission", "premium", "elite"];
 
 type Tone = "ok" | "accent" | "warn";
 const TONE: Record<Tone, { text: string; dot: string; fill: string; soft: string }> = {
@@ -99,21 +97,6 @@ function initials(name: string): string {
     .toUpperCase();
 }
 
-function insurerName(productId: string): string {
-  const product = productById(productId);
-  return insurers.find((i) => i.id === product?.insurer_id)?.name ?? "";
-}
-
-function isCaseMetric(code: MetricCode): code is keyof CaseMetrics {
-  return code === "commission" || code === "gross_revenue" || code === "mdrt_premium" || code === "mdrt_commission" || code === "wape";
-}
-
-/** The value one case contributes to a metric row: money for the S$ metrics, "1 client" for new clients. */
-function caseValue(c: Case, code: MetricCode): string {
-  if (code === "new_clients") return "1 client";
-  return isCaseMetric(code) ? sgd(metricsForCase(c)[code]) : "";
-}
-
 function isCalendarYear(p: Period): boolean {
   return p.start.getMonth() === 0 && p.start.getDate() === 1 && p.end.getMonth() === 11 && p.end.getDate() === 31 && p.start.getFullYear() === p.end.getFullYear();
 }
@@ -123,20 +106,27 @@ function windowWord(p: Period): string {
   return isCalendarYear(p) ? String(p.end.getFullYear()) : periodLabel(p);
 }
 
-/** Ids of each client's earliest live case — the ones that count for `new_clients` (mirrors aggregate()). */
-function firstCaseIds(cases: Case[]): Set<string> {
-  const first = new Map<string, Case>();
-  for (const c of cases) {
-    if (c.status === "superseded") continue;
-    const prev = first.get(c.client_name);
-    if (!prev || effectiveDate(c) < effectiveDate(prev)) first.set(c.client_name, c);
+/** "31 Aug 2026" from an ISO date. */
+function longDay(iso: string): string {
+  const d = parseISODate(iso);
+  return `${shortDate(d)} ${d.getFullYear()}`;
+}
+
+/** The line at the foot of the page saying where the figures came from. */
+function sourceNote(source: DataSource): { text: string; tone: "muted" | "warn" } {
+  switch (source.kind) {
+    case "sample":
+      return { text: "Sample import, January to August 2026. Nothing here is real.", tone: "muted" };
+    case "server":
+      return { text: source.as_of ? `Your production as of ${longDay(source.as_of)}.` : "Your production, from the server.", tone: "muted" };
+    case "error":
+      return { text: `${source.message} Showing the sample instead.`, tone: "warn" };
   }
-  return new Set([...first.values()].map((c) => c.id));
 }
 
 // ───────────────────────── Route view ─────────────────────────
 
-type RouteWord = "commission" | "premium" | "income";
+type RouteWord = "commission" | "premium";
 
 /** One MDRT route as the hero shows it: its window, totals and — when the aim gives it one — a target to pace against. */
 interface RouteView {
@@ -149,15 +139,13 @@ interface RouteView {
   target: number | null;
   gap: number;
   pace: Pace | null;
-  /** Which per-case figure this route sums. */
-  valueKey: keyof CaseMetrics;
-  /** The route's credit as MDRT splits it (Risk-Protection floor, income minimums); null when the FC's own commission goal is shown, which has no such rule. */
+  /** The route's credit as MDRT splits it (the Risk-Protection floor); null when the FC's own commission goal is shown, which has no such rule. */
   credit: RouteCredit | null;
 }
 
 function routeView(r: MdrtRoute, primary: PrimaryGoal, mdrtPeriod: Period, commission: MetricSnapshot): RouteView {
   const word: RouteWord = ROUTE_WORD[r.metric];
-  const base = { metric: r.metric, label: r.label, word, valueKey: routeCaseValue(r.metric) };
+  const base = { metric: r.metric, label: r.label, word };
   if (primary.kind === "tier") {
     return { ...base, period: mdrtPeriod, achieved: r.achieved, projected: r.projected, target: r.goalThreshold, gap: r.pace.gap, pace: r.pace, credit: r.credit };
   }
@@ -171,11 +159,10 @@ function routeView(r: MdrtRoute, primary: PrimaryGoal, mdrtPeriod: Period, commi
       target: commission.target,
       gap: commission.gap ?? 0,
       pace: commission.pace,
-      valueKey: "commission",
       credit: null,
     };
   }
-  // No custom premium or income target exists: the credit is tracked but there is nothing to pace it against.
+  // No custom premium target exists: the credit is tracked but there is nothing to pace it against.
   return { ...base, period: mdrtPeriod, achieved: r.achieved, projected: r.projected, target: null, gap: 0, pace: null, credit: r.credit };
 }
 
@@ -183,17 +170,17 @@ function routeView(r: MdrtRoute, primary: PrimaryGoal, mdrtPeriod: Period, commi
 
 function MetricRow({
   snapshot,
-  cases,
+  entries,
   expanded,
   onToggle,
-  onOpenCase,
+  onOpenEntry,
 }: {
   snapshot: MetricSnapshot;
-  /** The cases listed when expanded (already narrowed for count metrics). */
-  cases: Case[];
+  /** The imported months listed when expanded. */
+  entries: Case[];
   expanded: boolean;
   onToggle: () => void;
-  onOpenCase: (c: Case) => void;
+  onOpenEntry: (c: Case) => void;
 }) {
   const { definition: def, achieved, projected, target, gap, pace, period } = snapshot;
   const unit = def.unit;
@@ -249,32 +236,30 @@ function MetricRow({
             </div>
           </dl>
           <div className="mt-3">
-            <Label>{def.code === "new_clients" ? "First case this year" : "Cases in this period"}</Label>
+            <Label>Month by month</Label>
           </div>
           <div className="mt-0.5">
-            {cases.length === 0 ? (
-              <p className="border-t border-line py-2.5 text-[13px] text-muted">No cases in this period yet.</p>
+            {entries.length === 0 ? (
+              <p className="border-t border-line py-2.5 text-[13px] text-muted">Nothing imported for this period yet.</p>
             ) : (
-              cases.map((c) => (
+              entries.map((c) => (
                 <button
                   key={c.id}
                   type="button"
-                  onClick={() => onOpenCase(c)}
+                  onClick={() => onOpenEntry(c)}
                   className="flex w-full items-center justify-between gap-2.5 border-t border-line py-2.5 text-left"
                 >
                   <span className="block min-w-0">
                     <span className="flex items-center gap-1.5">
-                      <span className="truncate text-[14px] font-medium text-ink">{c.client_name}</span>
+                      <span className="truncate text-[14px] font-medium text-ink">{c.label ?? c.client_name}</span>
                       {c.status === "pending" && (
                         <span className="shrink-0 rounded bg-warn/12 px-1 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] text-warn">Pending</span>
                       )}
                     </span>
-                    <span className="mt-0.5 block truncate text-[12px] text-muted">
-                      {shortDate(effectiveDate(c))} · {productById(c.product_id)?.name}
-                    </span>
+                    <span className="mt-0.5 block truncate text-[12px] text-muted">{productById(c.product_id)?.name}</span>
                   </span>
                   <span className="tnum flex shrink-0 items-center gap-1.5 text-[14px] font-semibold text-body">
-                    {caseValue(c, def.code)}
+                    {fmtMetric(metricsForCase(c)[def.code], unit)}
                     <Chevron className="text-hairline" />
                   </span>
                 </button>
@@ -287,32 +272,28 @@ function MetricRow({
   );
 }
 
-// ───────────────────────── Case detail sheet ─────────────────────────
+// ───────────────────────── Month detail sheet ─────────────────────────
 
-function SheetTile({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
+function SheetTile({ label, value, accent = false, wide = false }: { label: string; value: string; accent?: boolean; wide?: boolean }) {
   return (
-    <div className="bg-canvas px-[13px] py-[11px]">
+    <div className={`bg-canvas px-[13px] py-[11px] ${wide ? "col-span-2" : ""}`}>
       <dt className="text-[11px] text-muted">{label}</dt>
       <dd className={`tnum mt-0.5 text-[16px] font-semibold ${accent ? "text-accent" : "text-ink"}`}>{value}</dd>
     </div>
   );
 }
 
+/** One imported month (or the pending entry): its figures as the import gave them. */
 function CaseSheet({ c, onDone }: { c: Case; onDone: () => void }) {
-  const product = productById(c.product_id);
   const m = metricsForCase(c);
   const pending = c.status === "pending";
-  const when = shortDate(effectiveDate(c));
-  const footnote = pending
-    ? `Submitted ${when}, awaiting Merlin. Counts toward projected, not confirmed. WAPE credit ${sgd(m.wape)}.`
-    : `Confirmed ${when}. Counts on its confirmation date. WAPE credit ${sgd(m.wape)}.`;
   return (
     <div className="px-5 pb-[max(30px,env(safe-area-inset-bottom))] pt-3.5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-[20px] font-bold tracking-[-.015em] text-ink">{c.client_name}</div>
+          <div className="text-[20px] font-bold tracking-[-.015em] text-ink">{c.label ?? c.client_name}</div>
           <div className="mt-[3px] text-[12px] text-muted">
-            {product?.name} · {insurerName(c.product_id)}
+            {c.client_name} · {productById(c.product_id)?.name}
           </div>
         </div>
         <span className={`shrink-0 rounded-[5px] px-1.5 py-1 text-[9px] font-bold uppercase tracking-[.05em] ${pending ? "bg-warn/12 text-warn" : "bg-ok/12 text-ok"}`}>
@@ -321,13 +302,14 @@ function CaseSheet({ c, onDone }: { c: Case; onDone: () => void }) {
       </div>
 
       <dl className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-[14px] bg-line">
-        <SheetTile label="Premium" value={sgd(c.premium_amount)} />
-        <SheetTile label="Gross revenue" value={sgd(c.gross_revenue)} />
-        <SheetTile label={`Commission at Band ${c.banding_code_at_time.slice(1)}`} value={sgd(m.commission)} accent />
+        <SheetTile label="Commission" value={sgd(m.commission)} accent />
+        <SheetTile label="Premium" value={sgd(m.premium)} />
         <SheetTile label="MDRT premium credit" value={sgd(m.mdrt_premium)} />
+        <SheetTile label="MDRT commission credit" value={sgd(m.mdrt_commission)} />
+        <SheetTile label="Elite credits" value={count(m.elite)} wide />
       </dl>
 
-      <p className="tnum mt-3.5 text-pretty text-[12px] leading-[1.55] text-muted">{footnote}</p>
+      <p className="tnum mt-3.5 text-pretty text-[12px] leading-[1.55] text-muted">From the monthly import. Figures are year-to-date differences month on month.</p>
 
       <button type="button" onClick={onDone} className="btn-primary mt-[18px] block w-full rounded-xl py-3.5 text-center text-[15px] font-semibold text-white">
         Done
@@ -345,6 +327,7 @@ export default function Home({
   primary = { kind: "tier" },
   onChangeGoal,
   identityExtra,
+  source,
 }: {
   advisor: Advisor;
   cases: Case[];
@@ -352,6 +335,8 @@ export default function Home({
   primary?: PrimaryGoal;
   onChangeGoal?: () => void;
   identityExtra?: ReactNode;
+  /** Where the rows came from; absent in the manager's read-only drill-down. */
+  source?: DataSource;
 }) {
   const mine = casesForAdvisor(advisor.id, cases);
   const year = TODAY.getFullYear();
@@ -382,33 +367,24 @@ export default function Home({
   // MDRT's minimums inside the route, when one is not met yet.
   const gate = view.credit ? routeGateText(view.credit) : null;
 
-  // What it takes from here: the average confirmed case on this route this window sets the case count.
-  // With a tier aim the count follows MDRT's rule: an average case's Other Products share only counts once
-  // Risk-Protection credit reaches the floor.
-  const confirmedInWindow = contributingCases(
-    mine.filter((c) => c.status === "confirmed"),
-    view.period.start,
-    view.period.end,
-  );
-  const caseParts = confirmedInWindow
-    .map((c) => ({ value: metricsForCase(c)[view.valueKey], risk: productById(c.product_id)?.mdrt_category !== "other" }))
-    .filter((x) => x.value > 0);
-  const avgCase = caseParts.length > 0 ? caseParts.reduce((a, x) => a + x.value, 0) / caseParts.length : 0;
-  const riskPerCase = caseParts.length > 0 ? caseParts.filter((x) => x.risk).reduce((a, x) => a + x.value, 0) / caseParts.length : 0;
-  const casesNeeded = !goal ? null : view.credit ? clientsNeededOnRoute(view.credit, goal.target, riskPerCase, avgCase - riskPerCase) : clientsNeeded(view.gap, avgCase);
+  // What it takes from here: the gap spread over what is left of the window, and where the current rate lands.
   const weeksLeft = weeksLeftIn(view.period, TODAY);
+  const landingWord = isCalendarYear(view.period) ? "by year end" : `by end of ${periodLabel(view.period)}`;
 
-  // Pending strip: the pending cases in this window on this route.
-  const pendingCases = contributingCases(
-    mine.filter((c) => c.status === "pending"),
-    view.period.start,
-    view.period.end,
-  ).filter((c) => metricsForCase(c)[view.valueKey] > 0);
+  // Pending strip: the latest month's figures the insurer has not confirmed yet, on this route.
   const pendingValue = Math.max(view.projected - view.achieved, 0);
-  const pendingWord = `${pendingCases.length} ${pendingCases.length === 1 ? "case" : "cases"} worth ${sgd(pendingValue)}`;
   const pendingLine = goal
-    ? `${pendingWord} would take you to ${pct(view.projected / goal.target)} once Merlin confirms.`
-    : `${pendingWord} are waiting on Merlin.`;
+    ? `${sgd(pendingValue)} pending would take you to ${pct(view.projected / goal.target)} once the insurer confirms.`
+    : `${sgd(pendingValue)} is waiting on the insurer.`;
+
+  // Finexis Elite: the in-house scheme, tracked apart from MDRT. The next rung is the first the credits have not reached.
+  const elite = metricSnapshot(advisor.id, mine, "elite", TODAY, goalSet);
+  const eliteGoal = goalFor(advisor.id, "elite", year, goalSet.targets);
+  const rung = elite_tiers.find((t) => t.credits > elite.achieved) ?? null;
+  const rungReached = [...elite_tiers].reverse().find((t) => elite.achieved >= t.credits) ?? null;
+  const rungPace = rung ? paceToward(elite.achieved, rung.credits, elite.period.start, elite.period.end, TODAY) : null;
+  const rungFill = rung ? Math.min(elite.achieved / rung.credits, 1) : 1;
+  const rungTone: Tone = !rung ? "ok" : rungPace && !rungPace.onTrack ? "warn" : "accent";
 
   const routeLine = (v: RouteView) =>
     v.target !== null && v.target > 0 ? `${sgd(v.achieved)} · ${pct(v.achieved / v.target)} of ${sgd(v.target)}` : `${sgd(v.achieved)} credit · no goal set`;
@@ -421,13 +397,16 @@ export default function Home({
   const tracked = metric_definitions
     .filter((m) => !UNTRACKED_METRICS.has(m.code) && m.code !== "mdrt_commission" && m.code !== "mdrt_premium")
     .sort((a, b) => order(a) - order(b))
-    .map((m) => (m.code === "commission" ? commissionSnap : metricSnapshot(advisor.id, mine, m.code, TODAY, goalSet)));
-  const firstIds = firstCaseIds(mine);
-  const rowCases = (s: MetricSnapshot) => (s.definition.code === "new_clients" ? s.contributing.filter((c) => firstIds.has(c.id)) : s.contributing);
+    .map((m) => (m.code === "commission" ? commissionSnap : m.code === "elite" ? elite : metricSnapshot(advisor.id, mine, m.code, TODAY, goalSet)));
+  // The months a row lists: every headline (Risk-Protection) entry, plus an Other Products entry only when it adds to the metric.
+  const rowEntries = (s: MetricSnapshot) =>
+    s.contributing.filter((c) => productById(c.product_id)?.mdrt_category !== "other" || metricsForCase(c)[s.definition.code] !== 0);
 
   const untracked = metric_definitions
     .filter((m) => UNTRACKED_METRICS.has(m.code))
     .map((m) => ({ def: m, goal: goalFor(advisor.id, m.code, year, goalSet.targets) }));
+
+  const note = source ? sourceNote(source) : null;
 
   return (
     <div>
@@ -550,10 +529,9 @@ export default function Home({
                 <div className="tnum text-[15px] font-semibold text-ink">{sgd(goal.pace.requiredPerWeek ?? 0)}</div>
               </div>
               <div className="bg-canvas px-[11px] py-[9px]">
-                <div className="text-[11px] text-muted">at your average case</div>
-                <div className="tnum text-[15px] font-semibold text-ink">
-                  {casesNeeded === null ? "—" : `${casesNeeded} ${casesNeeded === 1 ? "case" : "cases"}`}
-                </div>
+                <div className="text-[11px] text-muted">at your current rate</div>
+                <div className="tnum text-[15px] font-semibold text-ink">{sgd(goal.pace.runRateProjection)}</div>
+                <div className="text-[11px] text-muted">{landingWord}</div>
               </div>
             </div>
             <p className="tnum mt-2.5 text-[12px] leading-[1.5] text-muted">
@@ -562,12 +540,53 @@ export default function Home({
           </Card>
         )}
 
-        {pendingCases.length > 0 && pendingValue > 0 && (
+        {pendingValue > 0 && (
           <div className="flex items-center gap-[9px] rounded-xl bg-warn/9 px-[13px] py-[11px]">
             <span className="shrink-0 rounded bg-warn/14 px-[5px] py-[3px] text-[9px] font-bold uppercase tracking-[.06em] text-warn">Pending</span>
             <span className="tnum text-[12px] leading-[1.45] text-gold-ink">{pendingLine}</span>
           </div>
         )}
+
+        <Card>
+          <div className="flex items-center justify-between gap-2">
+            <Label>Finexis Elite</Label>
+            {!ELITE_RULES_CONFIRMED && (
+              <span className="rounded bg-canvas px-1 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] text-muted">placeholder rules</span>
+            )}
+          </div>
+          <div className="mt-2 flex items-baseline gap-1.5">
+            <span className="tnum text-[36px] font-bold leading-none tracking-[-.025em] text-accent">{count(elite.achieved)}</span>
+            <span className="text-[15px] font-medium text-muted">credits this year</span>
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-2.5">
+            <span className="flex min-w-0 items-center gap-[7px]">
+              <span className="truncate text-[13px] font-semibold text-ink">{rung ? `Next rung · ${rung.name}` : "Every rung reached"}</span>
+              {rungReached && <span className="shrink-0 rounded bg-brand px-1 py-px text-[9px] font-semibold text-white">{rungReached.name}</span>}
+            </span>
+            {rung && (
+              <span className="tnum shrink-0 text-[12px] text-muted">
+                {count(elite.achieved)} of {count(rung.credits)}
+              </span>
+            )}
+          </div>
+          <div className="mt-[9px] flex h-[5px] overflow-hidden rounded-full bg-accent-soft" aria-hidden="true">
+            <span className={`${TONE[rungTone].fill} transition-[width] duration-[450ms]`} style={{ width: `${rungFill * 100}%` }} />
+          </div>
+          {rung && (
+            <div className={`tnum mt-2 flex items-center gap-1.5 text-[12px] font-medium ${TONE[rungTone].text}`}>
+              <span className={`h-[5px] w-[5px] shrink-0 rounded-full ${TONE[rungTone].dot}`} aria-hidden="true" />
+              <span className="truncate">{paceText(rungPace, "count", false)}</span>
+            </div>
+          )}
+          {eliteGoal && eliteGoal.target_value > 0 && (
+            <p className="tnum mt-2 text-[12px] text-muted">
+              Your own target: {count(eliteGoal.target_value)} credits · {pct(elite.achieved / eliteGoal.target_value)} there
+            </p>
+          )}
+          <p className="mt-2.5 text-pretty text-[11px] leading-[1.5] text-muted">
+            Tracked apart from MDRT. Credits come from the monthly import; the rungs are placeholders until the scheme's rules arrive.
+          </p>
+        </Card>
 
         <Card className="divide-y divide-line overflow-hidden p-0">
           {others.map((o) => (
@@ -589,16 +608,16 @@ export default function Home({
         <Card className="overflow-hidden p-0">
           <div className="flex items-baseline justify-between px-4 pb-2.5 pt-3">
             <Label>This year</Label>
-            <span className="text-[11px] text-muted">tap for the cases</span>
+            <span className="text-[11px] text-muted">tap for the months</span>
           </div>
           {tracked.map((s) => (
             <MetricRow
               key={s.definition.code}
               snapshot={s}
-              cases={rowCases(s)}
+              entries={rowEntries(s)}
               expanded={expanded === s.definition.code}
               onToggle={() => setExpanded((k) => (k === s.definition.code ? null : s.definition.code))}
-              onOpenCase={setSheetCase}
+              onOpenEntry={setSheetCase}
             />
           ))}
         </Card>
@@ -607,7 +626,7 @@ export default function Home({
           <Card className="px-4 py-[13px]">
             <div className="flex items-baseline justify-between">
               <Label>Not tracked yet</Label>
-              <span className="text-[11px] text-muted">no data source</span>
+              <span className="text-[11px] text-muted">not in the monthly import yet</span>
             </div>
             <div className="tnum mt-[7px] flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-muted">
               {untracked.map(({ def, goal: g }) => (
@@ -621,7 +640,9 @@ export default function Home({
         )}
       </div>
 
-      <Sheet open={sheetCase !== null} onClose={closeSheet} label="Case details" height="auto">
+      {note && <p className={`tnum px-5 pb-5 text-center text-[11px] leading-[1.5] ${note.tone === "warn" ? "text-warn" : "text-muted"}`}>{note.text}</p>}
+
+      <Sheet open={sheetCase !== null} onClose={closeSheet} label="Month details" height="auto">
         {sheetCase && <CaseSheet c={sheetCase} onDone={closeSheet} />}
       </Sheet>
     </div>

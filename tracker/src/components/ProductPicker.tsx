@@ -8,18 +8,20 @@ export const CATEGORY_LABEL: Record<Product["category"], string> = {
   ilp: "ILP",
   health: "Health",
   endowment: "Endowment",
-  fund: "Investment",
 };
 
 export function insurerName(product: Product): string {
   return insurers.find((i) => i.id === product.insurer_id)?.name ?? "";
 }
 
-/** Every product whose name, insurer or category contains the query, case-insensitively. Empty query = all. */
+/** The products on offer: the panel without the import's two hidden bucket products. */
+const offered = products.filter((p) => !p.hidden);
+
+/** Every offered product whose name, insurer or category contains the query, case-insensitively. Empty query = all. */
 export function searchProducts(query: string): Product[] {
   const q = query.trim().toLowerCase();
-  if (!q) return products;
-  return products.filter((p) => p.name.toLowerCase().includes(q) || insurerName(p).toLowerCase().includes(q) || CATEGORY_LABEL[p.category].toLowerCase().includes(q));
+  if (!q) return offered;
+  return offered.filter((p) => p.name.toLowerCase().includes(q) || insurerName(p).toLowerCase().includes(q) || CATEGORY_LABEL[p.category].toLowerCase().includes(q));
 }
 
 function Chevron({ className = "" }: { className?: string }) {
@@ -123,7 +125,7 @@ export function ProductPicker({
             )}
           </div>
           <div className="tnum mt-[7px] text-[11px] text-muted">
-            {q ? `${found.length} ${found.length === 1 ? "product" : "products"} matching “${q}”` : `${products.length} products across ${insurers.length} insurers`}
+            {q ? `${found.length} ${found.length === 1 ? "product" : "products"} matching “${q}”` : `${offered.length} products across ${insurers.length} insurers`}
           </div>
         </div>
       </div>

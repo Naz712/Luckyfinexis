@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { advisors, TODAY, type Advisor, type Case } from "../mock/data";
-import { mdrtSnapshot, metricSnapshot, type GoalSet, type MdrtSnapshot, type MetricSnapshot } from "../lib/calc";
-import { CADENCE_PER, periodLabel, pct, sgd } from "../lib/format";
+import { ELITE_RULES_CONFIRMED, TODAY, type Advisor, type Case } from "../mock/data";
+import { mdrtSnapshot, metricSnapshot, parseISODate, type GoalSet, type MdrtSnapshot, type MetricSnapshot } from "../lib/calc";
+import { CADENCE_PER, count, periodLabel, pct, sgd, shortDate } from "../lib/format";
+import type { DataSource } from "../lib/api";
 import { Card, Label } from "../components/ui";
 import Home from "./Home";
 
@@ -10,7 +11,27 @@ const TIER_LABEL = { mdrt: "MDRT", cot: "COT", tot: "TOT" } as const;
 interface Row {
   advisor: Advisor;
   commission: MetricSnapshot;
+  elite: MetricSnapshot;
   mdrt: MdrtSnapshot;
+}
+
+/** "31 Aug 2026" from an ISO date. */
+function longDay(iso: string): string {
+  const d = parseISODate(iso);
+  return `${shortDate(d)} ${d.getFullYear()}`;
+}
+
+/** The as-of line in the Monthly import card; null when the shell did not say where the rows came from. */
+function importNote(source: DataSource | undefined): { text: string; tone: "muted" | "warn" } | null {
+  if (!source) return null;
+  switch (source.kind) {
+    case "sample":
+      return { text: "Showing the sample import, January to August 2026.", tone: "muted" };
+    case "server":
+      return { text: source.as_of ? `Latest import: ${longDay(source.as_of)}.` : "Latest import loaded from the server.", tone: "muted" };
+    case "error":
+      return { text: `${source.message} Showing the sample import instead.`, tone: "warn" };
+  }
 }
 
 function OnTrackFlag({ snapshot }: { snapshot: MetricSnapshot }) {
@@ -24,7 +45,19 @@ function OnTrackFlag({ snapshot }: { snapshot: MetricSnapshot }) {
   );
 }
 
-export default function Team({ manager, cases, goalSet }: { manager: Advisor; cases: Case[]; goalSet: GoalSet }) {
+export default function Team({
+  manager,
+  advisors,
+  cases,
+  goalSet,
+  source,
+}: {
+  manager: Advisor;
+  advisors: Advisor[];
+  cases: Case[];
+  goalSet: GoalSet;
+  source?: DataSource;
+}) {
   const [viewing, setViewing] = useState<Advisor | null>(null);
 
   const rows: Row[] = advisors
@@ -32,6 +65,7 @@ export default function Team({ manager, cases, goalSet }: { manager: Advisor; ca
     .map((advisor) => ({
       advisor,
       commission: metricSnapshot(advisor.id, cases, "commission", TODAY, goalSet),
+      elite: metricSnapshot(advisor.id, cases, "elite", TODAY, goalSet),
       mdrt: mdrtSnapshot(advisor.id, cases, TODAY, goalSet),
     }))
     .sort((a, b) => b.commission.achieved - a.commission.achieved);
@@ -41,6 +75,7 @@ export default function Team({ manager, cases, goalSet }: { manager: Advisor; ca
   const qualified = rows.filter((r) => r.mdrt.routes.some((x) => x.tiers.reached !== null)).length;
   const periodOf = (r: Row) => periodLabel(r.commission.period);
   const period = rows[0]?.commission.period;
+  const note = importNote(source);
 
   if (viewing) {
     return (
@@ -91,7 +126,7 @@ export default function Team({ manager, cases, goalSet }: { manager: Advisor; ca
           <span className="text-[11px] text-muted">Tap a row for their dashboard</span>
         </div>
         <ul className="mt-2 divide-y divide-line border-t border-line">
-          {rows.map(({ advisor, commission, mdrt }) => {
+          {rows.map(({ advisor, commission, elite, mdrt }) => {
             const route = mdrt.routes.find((r) => r.metric === mdrt.closer)!;
             return (
               <li key={advisor.id}>
@@ -114,7 +149,7 @@ export default function Team({ manager, cases, goalSet }: { manager: Advisor; ca
                   </div>
                   <dl className="mt-2 grid grid-cols-2 gap-3">
                     <div>
-                      <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted">Commission · {periodOf({ advisor, commission, mdrt })}</dt>
+                      <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted">Commission · {periodOf({ advisor, commission, elite, mdrt })}</dt>
                       <dd className="tnum mt-0.5 text-[16px] font-semibold leading-none text-ink">{sgd(commission.achieved)}</dd>
                       <dd className="tnum mt-1 text-[11px] text-muted">
                         {commission.target === null
@@ -137,6 +172,11 @@ export default function Team({ manager, cases, goalSet }: { manager: Advisor; ca
                       </dd>
                     </div>
                   </dl>
+                  {/* The in-house scheme, tracked apart from MDRT; its rules are placeholders until the business supplies them. */}
+                  <div className="tnum mt-2 text-[11px] text-muted">
+                    Elite credits · {count(elite.achieved)}
+                    {!ELITE_RULES_CONFIRMED && " (placeholder rules)"}
+                  </div>
                 </button>
               </li>
             );
@@ -144,8 +184,16 @@ export default function Team({ manager, cases, goalSet }: { manager: Advisor; ca
         </ul>
       </Card>
 
+      <Card className="px-4 py-[13px]">
+        <Label>Monthly import</Label>
+        <p className="mt-1.5 text-pretty text-[12px] leading-[1.5] text-body">
+          Production figures come from the firm's monthly import, loaded on the server by the admin. FCs never upload anything.
+        </p>
+        {note && <p className={`tnum mt-1.5 text-[12px] leading-[1.5] ${note.tone === "warn" ? "text-warn" : "text-muted"}`}>{note.text}</p>}
+      </Card>
+
       <p className="px-1 text-center text-[11px] text-muted">
-        Commission is confirmed cases only. Pace compares each FC's run rate with their own goal.
+        Commission is confirmed production only. Pace compares each FC's run rate with their own goal.
       </p>
     </div>
   );

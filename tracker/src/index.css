@@ -202,7 +202,7 @@ button:not(:disabled):active {
   animation: tabPop 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* Meeting Pack: processing spinner (900 ms linear) and the running step's pulsing dot (1.1 s). */
+/* Spinner (900 ms linear) and a pulsing dot (1.1 s), used by the assistant sheet. */
 @keyframes spin { to { transform: rotate(360deg); } }
 .spin { animation: spin 0.9s linear infinite; }
 @keyframes pulseDot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .45; transform: scale(.75); } }

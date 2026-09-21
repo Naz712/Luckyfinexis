@@ -77,6 +77,13 @@ export function sgdCompact(value: number): string {
   return `S$${k >= 10 ? Math.round(k) : Math.round(k * 10) / 10}k`;
 }
 
+/** "31 Aug 2026" from an ISO date, for as-of notes. */
+export function isoDay(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return `${shortDate(new Date(y, m - 1, d))} ${y}`;
+}
+
 /** A metric value in its own unit: money as S$, counts as plain numbers. */
 export function fmtMetric(value: number, unit: MetricUnit): string {
   return unit === "sgd" ? sgd(value) : count(value);
@@ -98,12 +105,6 @@ export function paceText(pace: Pace | null, unit: MetricUnit, reached: boolean):
  * or nothing is affected yet.
  */
 export function routeGateText(credit: RouteCredit): string | null {
-  if (credit.newBusiness) {
-    const parts: string[] = [];
-    if (credit.newBusiness.shortfall > 0) parts.push(`${sgd(credit.newBusiness.floor)} of new-business income (you have ${sgd(credit.newBusiness.value)})`);
-    if (credit.riskShortfall > 0) parts.push(`${sgd(credit.riskFloor)} from Risk-Protection products (you have ${sgd(credit.risk)})`);
-    return parts.length === 0 ? null : `To qualify on income, MDRT also needs ${parts.join(" and ")}.`;
-  }
   if (credit.locked > 0) {
     return `${sgd(credit.locked)} of Other Products credit is not counted yet. MDRT needs ${sgd(credit.riskShortfall)} more from Risk-Protection products first.`;
   }

@@ -1,28 +1,25 @@
 // The in-app assistant's tools. Every figure it can quote comes from these
 // functions, which use the same calc.ts the screens use, over the same
-// in-memory cases. The model (or, with no server, the keyword router at the
-// bottom) only decides which tool to call and how to phrase the result. The
-// tools never see anything beyond this advisor's own book.
-import { TODAY, advisors, metric_definitions, products, type Advisor, type Case, type Client, type Product, type Tier } from "../mock/data";
+// in-memory production entries. The model (or, with no server, the keyword
+// router at the bottom) only decides which tool to call and how to phrase
+// the result. The tools never see anything beyond this advisor's own
+// production and, for a manager, their team's.
+import { ELITE_RULES_CONFIRMED, elite_tiers, MDRT_MEMBERSHIP_YEAR, metric_definitions, products, TODAY, type Advisor, type Case, type Product, type Tier } from "../mock/data";
 import {
+  aggregate,
   casesForAdvisor,
-  casesForClient,
-  challengeByCode,
-  clientsForAdvisor,
   commissionForCase,
-  currentDrawMonth,
-  drawMonths,
+  effectiveDate,
   estimateGrossRevenue,
   goalFor,
+  inPeriod,
   mdrtSnapshot,
+  metricDefinition,
   metricSnapshot,
   metricsForCase,
+  pace,
   parseISODate,
-  passesForAdvisor,
-  passesForClient,
-  passTotals,
   periodBounds,
-  prizesForClient,
   productById,
   ROUTE_LABEL,
   toISODate,
@@ -31,7 +28,7 @@ import {
   type GoalSet,
   type MdrtRoute,
 } from "./calc";
-import { CADENCE_PER, fmtMetric, paceText, sgd, shortDate } from "./format";
+import { CADENCE_PER, count, fmtMetric, paceText, sgd, shortDate } from "./format";
 
 export interface AnswerRow {
   label: string;
@@ -59,56 +56,19 @@ export interface ToolResult {
 
 export interface AskContext {
   advisor: Advisor;
+  /** Everyone the import describes; team_status picks this advisor's reports out of it. */
+  advisors: Advisor[];
   cases: Case[];
   goalSet: GoalSet;
 }
 
-export const SUGGESTIONS = ["Who are my best clients?", "Who have I not talked to in a while?", "If I sell a S$5,000 term plan next month, what's my pace?"];
+export const SUGGESTIONS = ["How am I doing on my pace?", "If I sell a S$5,000 term plan next month, what's my pace?", "How are my Elite credits?"];
 
 const TIER_LABEL: Record<Tier, string> = { mdrt: "MDRT", cot: "COT", tot: "TOT" };
-const DAY = 86_400_000;
 
 // ── Tool definitions, in the OpenAI function-calling shape ──
 
 export const TOOL_DEFS = [
-  {
-    type: "function",
-    function: {
-      name: "top_clients",
-      description: "The advisor's biggest clients, ranked by premium written, commission earned, MDRT credit or number of cases. Use for 'best', 'top', 'biggest' clients.",
-      parameters: {
-        type: "object",
-        properties: {
-          by: { type: "string", enum: ["premium", "commission", "mdrt", "cases"], description: "What to rank by. premium when unsure." },
-          period: { type: "string", enum: ["year", "all"], description: "This calendar year, or the whole book." },
-          limit: { type: "integer", description: "How many to list, 1 to 10." },
-        },
-        required: ["by", "period", "limit"],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "quiet_clients",
-      description: "Clients with no case logged for at least N days, longest silence first. Use for 'not talked to', 'haven't heard from', 'quiet', 'neglected'. The app has no call or meeting log, so the last logged case stands in for last contact.",
-      parameters: {
-        type: "object",
-        properties: { days: { type: "integer", description: "Minimum days since the last case. 60 when unsure." }, limit: { type: "integer", description: "How many to list, 1 to 10." } },
-        required: ["days", "limit"],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "client_detail",
-      description: "One client: their cases with product, premium, status and date, plus totals and last contact.",
-      parameters: { type: "object", properties: { name: { type: "string", description: "The client's name, or part of it." } }, required: ["name"], additionalProperties: false },
-    },
-  },
   {
     type: "function",
     function: {
@@ -126,7 +86,7 @@ export const TOOL_DEFS = [
         type: "object",
         properties: {
           premium: { type: "number", description: "Annual premium in dollars (lump sum for single-premium products)." },
-          product: { type: "string", description: "Product name or part of it (term, critical illness, ILP, endowment, hospital, whole life, fund). Empty when not said." },
+          product: { type: "string", description: "Product name or part of it (term, critical illness, ILP, endowment, hospital, whole life). Empty when not said." },
           term_years: { type: "integer", description: "Policy term in years. 0 when not said." },
           when: { type: "string", description: "Confirmation date as YYYY-MM-DD, or empty for today." },
         },
@@ -138,45 +98,24 @@ export const TOOL_DEFS = [
   {
     type: "function",
     function: {
-      name: "pipeline",
-      description: "Cases submitted but not yet confirmed, with the premium and commission waiting on them.",
+      name: "elite_status",
+      description: "The in-house Elite scheme (the year-end trips): credits earned so far this year, the next rung with the credits to go and the pace needed, the advisor's own Elite goal if set, and every rung with reached or to go. Use for 'Elite', 'credits', 'trip', 'rung'.",
       parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
     },
   },
   {
     type: "function",
     function: {
-      name: "recent_cases",
-      description: "Cases submitted in the last N days, newest first, with totals.",
-      parameters: { type: "object", properties: { days: { type: "integer", description: "How far back to look. 30 when unsure." } }, required: ["days"], additionalProperties: false },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "draw_passes",
-      description: "The lucky draw campaign: clients ranked by the passes they hold (gold from purchases and referral purchases, blue from referrals, events, guests, testimonials, app downloads), for the current draw month or the whole campaign. Use for 'lucky draw', 'passes', 'who has the most passes'.",
-      parameters: {
-        type: "object",
-        properties: { month: { type: "string", enum: ["current", "all"], description: "The draw month coming up, or the whole campaign." }, limit: { type: "integer", description: "How many clients to list, 1 to 10." } },
-        required: ["month", "limit"],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "draw_status",
-      description: "The lucky draw campaign overall: the next draw and its date, passes the advisor's clients hold per month, draws already held, and prizes the advisor's clients have won. Use for 'when is the draw', 'prizes', 'how is the campaign going'.",
-      parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
+      name: "production_by_month",
+      description: "The advisor's confirmed production this year, month by month from the monthly import, newest first: commission, premium and Elite credits per month, the best month and the year-to-date totals. Use for 'by month', 'monthly', a month by name, 'last month', 'best month'.",
+      parameters: { type: "object", properties: { months: { type: "integer", description: "How many recent months, 12 when unsure." } }, required: ["months"], additionalProperties: false },
     },
   },
   {
     type: "function",
     function: {
       name: "goals_status",
-      description: "Every goal the advisor has set this year (commission, gross revenue, WAPE, new clients, referrals, testimonials, Elite) with achieved, target and pace, plus the MDRT tier they aim for. Use for 'my goals', 'my targets', or any of those metrics by name.",
+      description: "Every goal the advisor has set this year (commission, premium, Elite credits, WAPE) with achieved, target and pace, plus the MDRT tier they aim for. Use for 'my goals', 'my targets', or any of those metrics by name.",
       parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
     },
   },
@@ -200,29 +139,21 @@ const clip = (n: unknown, lo: number, hi: number, dflt: number) => {
 const commissionOf = (c: Case) => commissionForCase(c.gross_revenue, c.banding_code_at_time);
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-const daysSince = (iso: string) => Math.max(0, Math.floor((TODAY.getTime() - parseISODate(iso).getTime()) / DAY));
-const lastCaseOf = (cs: Case[]) => cs.reduce<string | null>((m, c) => (m === null || c.submitted_on > m ? c.submitted_on : m), null);
-/** "14 Jan" this year, "14 Jan 2025" otherwise, so a long silence reads right. */
+/** "14 Jan" this year, "14 Jan 2025" otherwise. */
 const dayOf = (iso: string) => {
   const d = parseISODate(iso);
   return d.getFullYear() === TODAY.getFullYear() ? shortDate(d) : `${shortDate(d)} ${d.getFullYear()}`;
 };
-
-/** Cases and clients are linked by name in the mock; a client with cases but no client row still counts. */
-function book(ctx: AskContext): { name: string; client: Client | null; cases: Case[] }[] {
-  const clients = clientsForAdvisor(ctx.advisor.id);
-  const byName = new Map<string, { name: string; client: Client | null; cases: Case[] }>();
-  for (const cl of clients) byName.set(cl.name, { name: cl.name, client: cl, cases: casesForClient(cl, ctx.cases) });
-  for (const c of mine(ctx)) if (!byName.has(c.client_name)) byName.set(c.client_name, { name: c.client_name, client: null, cases: mine(ctx).filter((x) => x.client_name === c.client_name) });
-  return [...byName.values()];
-}
+/** The products a what-if can name: the panel without the import's two buckets. */
+const offered = () => products.filter((p) => !p.hidden);
 
 function findProduct(hint: string): Product | null {
   const h = hint.trim().toLowerCase();
   if (!h) return null;
-  const exact = products.find((p) => p.id === h || p.name.toLowerCase() === h);
+  const panel = offered();
+  const exact = panel.find((p) => p.id === h || p.name.toLowerCase() === h);
   if (exact) return exact;
-  const byName = products.find((p) => p.name.toLowerCase().includes(h));
+  const byName = panel.find((p) => p.name.toLowerCase().includes(h));
   if (byName) return byName;
   const kinds: [RegExp, (p: Product) => boolean][] = [
     [/critical|\bci\b/, (p) => /critical/i.test(p.name)],
@@ -231,86 +162,25 @@ function findProduct(hint: string): Product | null {
     [/\bterm\b/, (p) => /\bterm\b/i.test(p.name)],
     [/\bilp\b|investment.linked/, (p) => p.category === "ilp"],
     [/endowment|retirement|savings/, (p) => p.category === "endowment"],
-    [/fund|unit trust|portfolio/, (p) => p.category === "fund"],
   ];
-  for (const [re, pick] of kinds) if (re.test(h)) return products.find(pick) ?? null;
+  for (const [re, pick] of kinds) if (re.test(h)) return panel.find(pick) ?? null;
   return null;
 }
 
-/** The product this advisor writes most, for a what-if that names none. */
+/** The product this advisor writes most, for a what-if that names none. Import entries carry only the two hidden buckets, so this usually lands on a term plan. */
 function usualProduct(ctx: AskContext): Product {
   const counts = new Map<string, number>();
-  for (const c of mine(ctx)) counts.set(c.product_id, (counts.get(c.product_id) ?? 0) + 1);
+  for (const c of mine(ctx)) if (!productById(c.product_id)?.hidden) counts.set(c.product_id, (counts.get(c.product_id) ?? 0) + 1);
   const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
-  return (top && productById(top)) || products.find((p) => /\bterm\b/i.test(p.name)) || products[0]!;
+  const panel = offered();
+  return (top && productById(top)) || panel.find((p) => /\bterm\b/i.test(p.name)) || panel[0] || products[0]!;
 }
 
 const routeOf = (snap: ReturnType<typeof mdrtSnapshot>): MdrtRoute => snap.routes.find((r) => r.metric === snap.closer) ?? snap.routes[0]!;
 const pctOf = (r: MdrtRoute) => `${Math.round(Math.min(1, r.projected / r.goalThreshold) * 100)}%`;
+const tierName = (tier: Tier) => `${TIER_LABEL[tier]} ${MDRT_MEMBERSHIP_YEAR}`;
 
 // ── The tools ──
-
-function topClients(ctx: AskContext, args: Record<string, unknown>): ToolResult {
-  const by = ["premium", "commission", "mdrt", "cases"].includes(String(args.by)) ? (String(args.by) as "premium" | "commission" | "mdrt" | "cases") : "premium";
-  const period = args.period === "all" ? "all" : "year";
-  const limit = clip(args.limit, 1, 10, 5);
-  const year = periodBounds("jan_dec", TODAY);
-  const inPeriod = (c: Case) => period === "all" || (parseISODate(c.submitted_on) >= year.start && parseISODate(c.submitted_on) <= year.end);
-  const value = (cs: Case[]) => (by === "cases" ? cs.length : sum(cs.map((c) => (by === "premium" ? c.premium_amount : by === "commission" ? commissionOf(c) : metricsForCase(c).mdrt_commission))));
-  const ranked = book(ctx)
-    .map((b) => ({ ...b, cases: b.cases.filter(inPeriod) }))
-    .filter((b) => b.cases.length > 0)
-    .map((b) => ({ ...b, value: value(b.cases), pending: b.cases.filter((c) => c.status === "pending").length, last: lastCaseOf(b.cases)! }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, limit);
-  const byLabel = { premium: "premium", commission: "commission", mdrt: "MDRT credit", cases: "cases" }[by];
-  const periodLabel = period === "all" ? "whole book" : `this year`;
-  return {
-    label: `Top clients by ${byLabel}, ${periodLabel}`,
-    summary: ranked.length === 0 ? `No cases ${periodLabel === "this year" ? "this year" : "on the book"} yet.` : `${ranked[0]!.name} leads on ${byLabel} with ${by === "cases" ? plural(ranked[0]!.value, "case") : sgd(ranked[0]!.value)}${ranked.length > 1 ? `, then ${ranked[1]!.name}` : ""}.`,
-    rows: ranked.map((b) => ({ label: b.name, value: by === "cases" ? plural(b.value, "case") : sgd(b.value), sub: `${plural(b.cases.length, "case")}${b.pending ? ` · ${b.pending} pending` : ""} · last ${dayOf(b.last)}` })),
-    note: by === "premium" ? "Premium is the annual premium as logged; lump sums count once." : by === "commission" ? "Commission at the band each case was logged under; pending cases included." : undefined,
-    facts: { by, period, clients: ranked.map((b) => ({ name: b.name, value: Math.round(b.value), cases: b.cases.length, pending: b.pending, last_case: b.last })) },
-  };
-}
-
-function quietClients(ctx: AskContext, args: Record<string, unknown>): ToolResult {
-  const days = clip(args.days, 1, 3650, 60);
-  const limit = clip(args.limit, 1, 10, 6);
-  const rows = book(ctx)
-    .map((b) => {
-      const last = lastCaseOf(b.cases);
-      const since = last ?? b.client?.since ?? toISODate(TODAY);
-      return { name: b.name, last, since, days: daysSince(since), cases: b.cases.length };
-    })
-    .filter((b) => b.days >= days)
-    .sort((a, b) => b.days - a.days);
-  const shown = rows.slice(0, limit);
-  return {
-    label: `Quiet for ${days} days or more`,
-    summary: rows.length === 0 ? `Everyone has a case logged within the last ${days} days.` : `${plural(rows.length, "client")} with nothing logged for ${days}+ days; ${shown[0]!.name} the longest at ${shown[0]!.days} days.`,
-    rows: shown.map((b) => ({ label: b.name, value: `${b.days} days`, sub: b.last ? `last case ${dayOf(b.last)} · ${plural(b.cases, "case")}` : `no case yet · client since ${dayOf(b.since)}` })),
-    note: "Contact here means the last case logged. The app has no call or meeting log yet, so a client you spoke to without a case still shows as quiet.",
-    facts: { days, count: rows.length, clients: shown.map((b) => ({ name: b.name, days_since_last_case: b.days, last_case: b.last, cases: b.cases })) },
-  };
-}
-
-function clientDetail(ctx: AskContext, args: Record<string, unknown>): ToolResult {
-  const q = String(args.name ?? "").trim().toLowerCase();
-  const all = book(ctx);
-  const hit = all.find((b) => b.name.toLowerCase() === q) ?? all.find((b) => b.name.toLowerCase().startsWith(q)) ?? all.find((b) => b.name.toLowerCase().includes(q));
-  if (!q || !hit) return { label: "Client", summary: `No client called “${args.name ?? ""}” in your book.`, rows: [], facts: { found: false, names: all.map((b) => b.name) } };
-  const cs = hit.cases.slice().sort((a, b) => (a.submitted_on < b.submitted_on ? 1 : -1));
-  const premium = sum(cs.map((c) => c.premium_amount));
-  const commission = sum(cs.map(commissionOf));
-  const last = lastCaseOf(cs);
-  return {
-    label: hit.name,
-    summary: cs.length === 0 ? `${hit.name} has no case logged yet${hit.client ? `; client since ${dayOf(hit.client.since)}` : ""}.` : `${plural(cs.length, "case")}, ${sgd(premium)} premium and ${sgd(commission)} commission in total; last case ${dayOf(last!)}.`,
-    rows: cs.map((c) => ({ label: productById(c.product_id)?.name ?? c.product_id, value: sgd(c.premium_amount), sub: `${c.status} · ${dayOf(c.submitted_on)}${c.premium_term_years > 1 ? ` · ${c.premium_term_years} yrs` : ""}` })),
-    facts: { found: true, name: hit.name, since: hit.client?.since ?? null, cases: cs.length, premium: Math.round(premium), commission: Math.round(commission), last_case: last, days_since_last_case: last ? daysSince(last) : null },
-  };
-}
 
 function paceStatus(ctx: AskContext): ToolResult {
   const cs = mine(ctx);
@@ -320,7 +190,7 @@ function paceStatus(ctx: AskContext): ToolResult {
   const toGo = Math.max(0, route.goalThreshold - route.projected);
   const weeks = weeksLeftInYear(TODAY);
   const rows: AnswerRow[] = [
-    { label: "Aiming for", value: `${TIER_LABEL[snap.goalTier]} 2027`, sub: `${ROUTE_LABEL[route.metric]} route, your closest` },
+    { label: "Aiming for", value: tierName(snap.goalTier), sub: `${ROUTE_LABEL[route.metric]} route, your closest` },
     { label: "Counted so far", value: sgd(route.achieved), sub: route.projected > route.achieved ? `${sgd(route.projected - route.achieved)} more pending` : "nothing pending" },
     { label: "Threshold", value: sgd(route.goalThreshold), sub: `${pctOf(route)} there, pending included` },
     { label: "Still to go", value: sgd(toGo), sub: `${plural(weeks, "week")} left in the year` },
@@ -384,82 +254,74 @@ function whatIf(ctx: AskContext, args: Record<string, unknown>): ToolResult {
   };
 }
 
-function pipeline(ctx: AskContext): ToolResult {
-  const pend = mine(ctx)
-    .filter((c) => c.status === "pending")
-    .sort((a, b) => (a.submitted_on < b.submitted_on ? 1 : -1));
-  const premium = sum(pend.map((c) => c.premium_amount));
-  const commission = sum(pend.map(commissionOf));
+function eliteStatus(ctx: AskContext): ToolResult {
+  const cs = mine(ctx);
+  // Credits over the scheme's own period (the calendar year until its rules arrive); the FC's goal keeps its own cadence window.
+  const period = periodBounds(metricDefinition("elite").period_type, TODAY);
+  const credits = aggregate(cs.filter((c) => c.status === "confirmed"), "elite", period.start, period.end);
+  const goal = metricSnapshot(ctx.advisor.id, cs, "elite", TODAY, ctx.goalSet);
+  const rungs = elite_tiers.slice().sort((a, b) => a.credits - b.credits);
+  const reached = rungs.filter((r) => credits >= r.credits);
+  const next = rungs.find((r) => credits < r.credits) ?? null;
+  const nextPace = next ? pace(credits, next.credits, period.start, period.end, TODAY) : null;
+  const rows: AnswerRow[] = [{ label: "Credits this year", value: count(credits), sub: reached.length > 0 ? `${reached[reached.length - 1]!.name} reached` : "no rung reached yet" }];
+  if (next && nextPace) rows.push({ label: `Next rung: ${next.name}`, value: `${count(next.credits - credits)} to go`, sub: `${count(next.credits)} needed · ${paceText(nextPace, "count", false)}` });
+  if (goal.target !== null) rows.push({ label: "Your Elite goal", value: `${count(goal.achieved)} of ${count(goal.target)}`, sub: `${goal.cadence ? CADENCE_PER[goal.cadence] : "per year"} · ${paceText(goal.pace, "count", goal.achieved >= goal.target)}` });
+  for (const r of rungs) rows.push({ label: r.name, value: count(r.credits), sub: credits >= r.credits ? "reached" : `${count(r.credits - credits)} to go` });
+  // The FC's own goal gets a sentence only when it is not simply the next rung.
+  const goalWord = goal.target !== null && goal.target !== next?.credits ? ` Your own goal is ${count(goal.target)}: ${paceText(goal.pace, "count", goal.achieved >= goal.target).toLowerCase()}.` : "";
   return {
-    label: "Pending cases",
-    summary: pend.length === 0 ? "Nothing is waiting on confirmation." : `${plural(pend.length, "case")} pending, ${sgd(premium)} premium and ${sgd(commission)} commission waiting on them.`,
-    rows: pend.map((c) => ({ label: c.client_name, value: sgd(c.premium_amount), sub: `${productById(c.product_id)?.name ?? c.product_id} · submitted ${dayOf(c.submitted_on)}` })),
-    facts: { count: pend.length, premium: Math.round(premium), commission: Math.round(commission), cases: pend.map((c) => ({ client: c.client_name, product: productById(c.product_id)?.name, premium: c.premium_amount, submitted_on: c.submitted_on })) },
-  };
-}
-
-function recentCases(ctx: AskContext, args: Record<string, unknown>): ToolResult {
-  const days = clip(args.days, 1, 3650, 30);
-  const cs = mine(ctx)
-    .filter((c) => daysSince(c.submitted_on) <= days)
-    .sort((a, b) => (a.submitted_on < b.submitted_on ? 1 : -1));
-  const premium = sum(cs.map((c) => c.premium_amount));
-  const commission = sum(cs.map(commissionOf));
-  return {
-    label: `Cases in the last ${days} days`,
-    summary: cs.length === 0 ? `No case submitted in the last ${days} days.` : `${plural(cs.length, "case")}, ${sgd(premium)} premium, ${sgd(commission)} commission; ${cs.filter((c) => c.status === "pending").length} still pending.`,
-    rows: cs.slice(0, 10).map((c) => ({ label: c.client_name, value: sgd(c.premium_amount), sub: `${productById(c.product_id)?.name ?? c.product_id} · ${c.status} · ${dayOf(c.submitted_on)}` })),
-    facts: { days, count: cs.length, premium: Math.round(premium), commission: Math.round(commission), pending: cs.filter((c) => c.status === "pending").length },
-  };
-}
-
-const passWord = (n: number) => plural(n, "pass").replace("passs", "passes");
-
-function drawPasses(ctx: AskContext, args: Record<string, unknown>): ToolResult {
-  const month = args.month === "all" ? null : currentDrawMonth();
-  const limit = clip(args.limit, 1, 10, 6);
-  const ranked = clientsForAdvisor(ctx.advisor.id)
-    .map((cl) => {
-      const rows = passesForClient(cl.id, month);
-      const t = passTotals(rows);
-      const byChallenge = new Map<string, number>();
-      for (const r of rows) byChallenge.set(r.challenge_code, (byChallenge.get(r.challenge_code) ?? 0) + r.passes);
-      const top = [...byChallenge.entries()].sort((a, b) => b[1] - a[1])[0];
-      return { name: cl.name, gold: t.gold, blue: t.blue, total: t.gold + t.blue, top: top ? `${challengeByCode(top[0])?.label ?? top[0]} ×${top[1]}` : "" };
-    })
-    .filter((c) => c.total > 0)
-    .sort((a, b) => b.total - a.total || b.gold - a.gold);
-  const shown = ranked.slice(0, limit);
-  const mine = passTotals(passesForAdvisor(ctx.advisor.id, month));
-  const scope = month ? `the ${month} draw` : "the whole campaign";
-  return {
-    label: month ? `Most passes for the ${month} draw` : "Most passes across the campaign",
-    summary: ranked.length === 0 ? `None of your clients holds a pass for ${scope} yet.` : `${shown[0]!.name} has the most with ${passWord(shown[0]!.total)} (${shown[0]!.gold} gold, ${shown[0]!.blue} blue). Your clients hold ${mine.gold} gold and ${mine.blue} blue in ${scope}.`,
-    rows: shown.map((c) => ({ label: c.name, value: passWord(c.total), sub: `${c.gold} gold · ${c.blue} blue${c.top ? ` · ${c.top}` : ""}` })),
-    note: "Gold passes come from qualifying purchases and referral purchases; blue from referrals, events, guests, testimonials and app downloads.",
-    facts: { month: month ?? "all", advisor_gold: mine.gold, advisor_blue: mine.blue, clients: shown.map((c) => ({ name: c.name, gold: c.gold, blue: c.blue, total: c.total, mostly_from: c.top })) },
-  };
-}
-
-function drawStatus(ctx: AskContext): ToolResult {
-  const months = drawMonths();
-  const current = currentDrawMonth();
-  const next = months.find((m) => m.monthly_draw === current)!;
-  const rows: AnswerRow[] = months
-    .slice()
-    .reverse()
-    .map((m) => {
-      const t = passTotals(passesForAdvisor(ctx.advisor.id, m.monthly_draw));
-      return { label: `${m.monthly_draw} draw`, value: `${t.gold} gold · ${t.blue} blue`, sub: m.is_drawn ? `drawn ${dayOf(m.draw_date)}` : `draw on ${dayOf(m.draw_date)}` };
-    });
-  const prizes = clientsForAdvisor(ctx.advisor.id).flatMap((cl) => prizesForClient(cl.id).map((p) => ({ client: cl.name, ...p })));
-  for (const p of prizes) rows.push({ label: `${p.client} won ${p.prize_won}`, value: p.monthly_draw, sub: `${p.pass_type} draw` });
-  const all = passTotals(passesForAdvisor(ctx.advisor.id, null));
-  return {
-    label: "Lucky draw campaign",
-    summary: `${next.is_drawn ? `The last draw was ${current}` : `The ${current} draw is on ${dayOf(next.draw_date)}`}; your clients hold ${passTotals(passesForAdvisor(ctx.advisor.id, current)).gold} gold and ${passTotals(passesForAdvisor(ctx.advisor.id, current)).blue} blue passes for it, ${all.gold} gold and ${all.blue} blue across the campaign. ${prizes.length === 0 ? "No prizes won yet." : `${plural(prizes.length, "prize")} won so far.`}`,
+    label: "Your Elite credits",
+    summary: next
+      ? `${count(credits)} credits so far this year, ${count(next.credits - credits)} to go for ${next.name}${reached.length > 0 ? ` (${reached[reached.length - 1]!.name} already reached)` : ""}. ${paceText(nextPace, "count", false)}.${goalWord}`
+      : `${count(credits)} credits so far this year; every rung is reached, up to ${rungs[rungs.length - 1]?.name ?? "the top"}.${goalWord}`,
     rows,
-    facts: { next_draw: current, next_draw_date: next.draw_date, drawn: next.is_drawn, campaign_gold: all.gold, campaign_blue: all.blue, prizes: prizes.map((p) => ({ client: p.client, month: p.monthly_draw, prize: p.prize_won, pass_type: p.pass_type })) },
+    note: ELITE_RULES_CONFIRMED ? undefined : "The Elite rungs and the credit rule are placeholders until the business supplies the scheme; the credits are as the import counts them.",
+    facts: {
+      credits: Math.round(credits),
+      reached: reached.map((r) => r.name),
+      next: next && nextPace ? { name: next.name, credits: next.credits, to_go: Math.round(next.credits - credits), required_per_month: nextPace.requiredPerMonth === null ? null : Math.round(nextPace.requiredPerMonth), on_track: nextPace.onTrack } : null,
+      goal: goal.target === null ? null : { target: goal.target, achieved: Math.round(goal.achieved), cadence: goal.cadence, on_track: goal.achieved >= goal.target || !!goal.pace?.onTrack },
+      rungs: rungs.map((r) => ({ name: r.name, credits: r.credits, reached: credits >= r.credits, to_go: Math.max(0, Math.round(r.credits - credits)) })),
+      rules_confirmed: ELITE_RULES_CONFIRMED,
+    },
+  };
+}
+
+function productionByMonth(ctx: AskContext, args: Record<string, unknown>): ToolResult {
+  const months = clip(args.months, 1, 12, 12);
+  const year = periodBounds("jan_dec", TODAY);
+  // Confirmed import entries only: the month's pending production is a separate entry and stays out.
+  const entries = mine(ctx).filter((c) => c.source === "import" && c.status === "confirmed" && c.label && inPeriod(effectiveDate(c), year.start, year.end));
+  const byMonth = new Map<string, { label: string; at: string; commission: number; premium: number; elite: number }>();
+  for (const c of entries) {
+    const label = c.label!;
+    const m = metricsForCase(c);
+    const cur = byMonth.get(label) ?? { label, at: c.confirmed_on ?? c.submitted_on, commission: 0, premium: 0, elite: 0 };
+    cur.commission += m.commission;
+    cur.premium += m.premium;
+    cur.elite += m.elite;
+    byMonth.set(label, cur);
+  }
+  const all = [...byMonth.values()].sort((a, b) => (a.at < b.at ? 1 : -1));
+  const shown = all.slice(0, months);
+  const best = all.reduce<(typeof all)[number] | null>((m, x) => (m === null || x.commission > m.commission ? x : m), null);
+  const ytd = { commission: sum(all.map((x) => x.commission)), premium: sum(all.map((x) => x.premium)), elite: sum(all.map((x) => x.elite)) };
+  const y = TODAY.getFullYear();
+  return {
+    label: shown.length < all.length ? `Production, last ${plural(shown.length, "month")}` : `Production by month, ${y}`,
+    summary:
+      all.length === 0 || !best
+        ? `No imported production for ${y} yet.`
+        : `${sgd(ytd.commission)} commission on ${sgd(ytd.premium)} premium and ${count(ytd.elite)} Elite credits so far in ${y}, over ${plural(all.length, "month")}. Best month: ${best.label} at ${sgd(best.commission)}.`,
+    rows: shown.map((x) => ({ label: x.label, value: sgd(x.commission), sub: `premium ${sgd(x.premium)} · ${count(x.elite)} credits` })),
+    note: all.length === 0 ? undefined : "Confirmed figures from the monthly import, each month being the change in the year-to-date row. Pending production is not included.",
+    facts: {
+      year: y,
+      months: shown.map((x) => ({ label: x.label, as_of: x.at, commission: Math.round(x.commission), premium: Math.round(x.premium), elite: Math.round(x.elite) })),
+      best_month: best ? { label: best.label, commission: Math.round(best.commission) } : null,
+      year_to_date: { months: all.length, commission: Math.round(ytd.commission), premium: Math.round(ytd.premium), elite: Math.round(ytd.elite) },
+    },
   };
 }
 
@@ -468,7 +330,7 @@ function goalsStatus(ctx: AskContext): ToolResult {
   const year = TODAY.getFullYear();
   const mdrt = mdrtSnapshot(ctx.advisor.id, cs, TODAY, ctx.goalSet);
   const route = routeOf(mdrt);
-  const rows: AnswerRow[] = [{ label: "MDRT aim", value: `${TIER_LABEL[mdrt.goalTier]} 2027`, sub: `${pctOf(route)} there on the ${ROUTE_LABEL[route.metric].toLowerCase()} route · ${paceText(route.pace, "sgd", route.goalReached)}` }];
+  const rows: AnswerRow[] = [{ label: "MDRT aim", value: tierName(mdrt.goalTier), sub: `${pctOf(route)} there on the ${ROUTE_LABEL[route.metric].toLowerCase()} route · ${paceText(route.pace, "sgd", route.goalReached)}` }];
   const facts: Record<string, unknown>[] = [];
   let onTrack = 0;
   let set = 0;
@@ -484,7 +346,7 @@ function goalsStatus(ctx: AskContext): ToolResult {
     rows.push({
       label: def.label,
       value: tracked ? `${fmtMetric(snap.achieved, def.unit)} of ${fmtMetric(snap.target ?? goal.target_value, def.unit)}` : `target ${fmtMetric(goal.target_value, def.unit)}`,
-      sub: tracked ? `${CADENCE_PER[goal.cadence]} · ${paceText(snap.pace, def.unit, reached)}` : `${CADENCE_PER[goal.cadence]} · not tracked in the app yet`,
+      sub: tracked ? `${CADENCE_PER[goal.cadence]} · ${paceText(snap.pace, def.unit, reached)}` : `${CADENCE_PER[goal.cadence]} · not in the import yet`,
     });
     facts.push({ metric: def.code, label: def.label, cadence: goal.cadence, target: snap.target ?? goal.target_value, achieved: tracked ? Math.round(snap.achieved) : null, projected: tracked ? Math.round(snap.projected) : null, on_track: tracked ? reached || !!snap.pace?.onTrack : null, tracked });
   }
@@ -492,13 +354,13 @@ function goalsStatus(ctx: AskContext): ToolResult {
     label: "Your goals",
     summary: set === 0 ? `Only the MDRT aim is set: ${TIER_LABEL[mdrt.goalTier]}, ${pctOf(route)} there on the ${ROUTE_LABEL[route.metric].toLowerCase()} route.` : `${plural(set, "goal")} set besides the MDRT aim; ${onTrack} on track or reached. MDRT: ${pctOf(route)} there on the ${ROUTE_LABEL[route.metric].toLowerCase()} route.`,
     rows,
-    note: rows.some((r) => r.sub?.includes("not tracked")) ? "Referrals, testimonials and Elite are not tracked in the app yet, so only their targets show." : undefined,
+    note: rows.some((r) => r.sub?.includes("not in the import")) ? "WAPE has no column in the monthly import yet, so only its target shows." : undefined,
     facts: { mdrt_tier: mdrt.goalTier, mdrt_route: route.metric, mdrt_progress: route.projected / route.goalThreshold, goals: facts },
   };
 }
 
 function teamStatus(ctx: AskContext): ToolResult {
-  const team = advisors.filter((a) => a.manager_id === ctx.advisor.id);
+  const team = ctx.advisors.filter((a) => a.manager_id === ctx.advisor.id);
   if (team.length === 0) return { label: "Team", summary: "You don't manage a team in this app, so there is no team view for you.", rows: [], facts: { manager: false } };
   const rows = team
     .map((a) => {
@@ -518,24 +380,14 @@ function teamStatus(ctx: AskContext): ToolResult {
 
 export function runTool(name: string, args: Record<string, unknown>, ctx: AskContext): ToolResult {
   switch (name) {
-    case "top_clients":
-      return topClients(ctx, args);
-    case "quiet_clients":
-      return quietClients(ctx, args);
-    case "client_detail":
-      return clientDetail(ctx, args);
     case "pace_status":
       return paceStatus(ctx);
     case "what_if":
       return whatIf(ctx, args);
-    case "pipeline":
-      return pipeline(ctx);
-    case "recent_cases":
-      return recentCases(ctx, args);
-    case "draw_passes":
-      return drawPasses(ctx, args);
-    case "draw_status":
-      return drawStatus(ctx);
+    case "elite_status":
+      return eliteStatus(ctx);
+    case "production_by_month":
+      return productionByMonth(ctx, args);
     case "goals_status":
       return goalsStatus(ctx);
     case "team_status":
@@ -561,43 +413,34 @@ export function parseAmount(q: string): number | null {
   return Number.isFinite(n) && n > 0 ? Math.round(n * (k ? 1000 : 1)) : null;
 }
 
-function parseDays(q: string): number | null {
-  const m = q.match(/(\d+)\s*(day|week|month)s?/i);
+/** "last 3 months" → 3; null when no count of months is given. */
+function parseMonths(q: string): number | null {
+  const m = q.match(/(\d+)\s*months?/i);
   if (!m) return null;
   const n = Number(m[1]);
-  return m[2]!.toLowerCase() === "day" ? n : m[2]!.toLowerCase() === "week" ? n * 7 : n * 30;
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
+
+const MONTH_NAMES = /january|february|march|april|\bmay\b|june|july|august|september|october|november|december/;
 
 export function localAnswer(question: string, ctx: AskContext): Answer {
   const q = question.trim();
   const ql = q.toLowerCase();
   const amount = parseAmount(q);
-  const names = book(ctx).map((b) => b.name);
-  const named = names.find((n) => ql.includes(n.toLowerCase())) ?? names.find((n) => ql.includes(n.split(" ")[0]!.toLowerCase()) && n.split(" ")[0]!.length > 3);
   if (/what if|if i (sell|close|log|write|bring)|would .* (get|take|bring)|one more/.test(ql) && amount) {
     const term = q.match(/(\d+)\s*(?:years?|yrs?)/i);
     return toAnswer(runTool("what_if", { premium: amount, product: ql, term_years: term ? Number(term[1]) : 0, when: "" }, ctx));
   }
-  if (/\bpass(es)?\b|\bdraws?\b|lucky|prize|raffle|campaign/.test(ql)) {
-    if (/prize|won|when|next|status|how is|going|date/.test(ql)) return toAnswer(runTool("draw_status", {}, ctx));
-    return toAnswer(runTool("draw_passes", { month: /all|whole|overall|total|campaign|ever/.test(ql) ? "all" : "current", limit: 6 }, ctx));
-  }
-  if (/\bteam\b|my advisors|my fcs|\bagency\b|who.s (ahead|behind)/.test(ql)) return toAnswer(runTool("team_status", {}, ctx));
-  if (/\bgoals\b|\btargets?\b|\bwape\b|referral|testimonial|new clients|gross revenue|\belite\b/.test(ql)) return toAnswer(runTool("goals_status", {}, ctx));
-  if (/best|top|biggest|largest|most valuable|highest/.test(ql)) {
-    const by = /commission/.test(ql) ? "commission" : /mdrt|credit/.test(ql) ? "mdrt" : /most cases|number of cases/.test(ql) ? "cases" : "premium";
-    return toAnswer(runTool("top_clients", { by, period: /all time|ever|whole book|overall/.test(ql) ? "all" : "year", limit: 5 }, ctx));
-  }
-  if (/not talked|haven.?t talked|not spoken|haven.?t spoken|quiet|in a while|long time|not heard|haven.?t heard|neglect|not seen|haven.?t seen|no contact/.test(ql)) return toAnswer(runTool("quiet_clients", { days: parseDays(q) ?? 60, limit: 6 }, ctx));
-  if (/pending|pipeline|waiting|unconfirmed|not confirmed/.test(ql)) return toAnswer(runTool("pipeline", {}, ctx));
-  if (/this week|this month|recent|lately|last \d+ (day|week|month)/.test(ql)) return toAnswer(runTool("recent_cases", { days: /this week/.test(ql) ? 7 : (parseDays(q) ?? 30) }, ctx));
-  if (/pace|on track|how am i|where am i|progress|mdrt|goal|cot|tot|how far/.test(ql)) return toAnswer(runTool("pace_status", {}, ctx));
-  if (named) return toAnswer(runTool("client_detail", { name: named }, ctx));
+  if (/elite|credits|trip|rung/.test(ql)) return toAnswer(runTool("elite_status", {}, ctx));
+  if (/\bteam\b|my advisors|my fcs/.test(ql)) return toAnswer(runTool("team_status", {}, ctx));
+  if (/\bgoals\b|\btargets?\b|wape/.test(ql)) return toAnswer(runTool("goals_status", {}, ctx));
+  if (/by month|monthly|month by month|last month|best month|this month|\d+\s*months?/.test(ql) || MONTH_NAMES.test(ql)) return toAnswer(runTool("production_by_month", { months: parseMonths(q) ?? 12 }, ctx));
+  if (/pace|on track|how am i|where am i|progress|mdrt|\bcot\b|\btot\b|how far|goal/.test(ql)) return toAnswer(runTool("pace_status", {}, ctx));
   return {
     title: "Not sure what to look up",
-    summary: "Without the server I only understand a few kinds of question: best clients, quiet clients, what-ifs with an amount, pace, goals, lucky draw passes, pending and recent cases, your team, or a client by name.",
+    summary: "Without the server I only understand a few kinds of question: your pace, what-ifs with an amount, your Elite credits, your goals, your production by month, or your team.",
     rows: [],
-    note: "Connect the pipeline server on Packs → New pack to ask anything in your own words.",
+    note: "Connect the server below to ask anything in your own words.",
     basis: [],
   };
 }

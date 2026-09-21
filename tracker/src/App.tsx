@@ -1,26 +1,27 @@
-import { useState, type ReactNode } from "react";
-import { advisors, bandings, cases as seedCases, DEFAULT_USER_ID, MANAGER_USER_ID, TODAY, type BandingCode, type Case, type Tier } from "./mock/data";
-import { advisorById, casesForAdvisor, clientsForAdvisor, defaultGoalSet, periodBounds, weeksLeftIn, withAdvisorTier, type GoalSet, type PrimaryGoal } from "./lib/calc";
-import { pct } from "./lib/format";
-import Calculator from "./screens/Calculator";
+// The shell: who is signed in, where the data comes from, the four tabs and
+// the header. Data is the monthly production import: the bundled sample
+// (the stand-in) or, with a server connected and an individual link opened,
+// the signed-in FA's own rows from the server. Everything else is derived.
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import "./lib/privateRates";
+import { bandings, DEFAULT_USER_ID, import_rows, MANAGER_USER_ID, TODAY, type BandingCode, type ImportRow, type Tier } from "./mock/data";
+import { casesForAdvisor, defaultGoalSet, periodBounds, weeksLeftIn, withAdvisorTier, type GoalSet, type PrimaryGoal } from "./lib/calc";
+import { advisorsFromRows, asOf, entriesFromRows } from "./lib/importer";
+import { isoDay, pct } from "./lib/format";
+import { fetchMe, loadApiSettings, loadSession, saveApiSettings, saveSession, type ApiSettings, type DataSource, type Session } from "./lib/api";
 import Home from "./screens/Home";
-import Log from "./screens/Log";
-import Team from "./screens/Team";
-import Clients from "./screens/Clients";
 import Goals from "./screens/Goals";
-import Packs, { type LogPrefill } from "./screens/packs/Packs";
+import Calculator from "./screens/Calculator";
+import Team from "./screens/Team";
 import AskSheet, { AskButton } from "./components/Ask";
 
-type Tab = "home" | "goals" | "calculator" | "log" | "team" | "clients" | "packs";
+type Tab = "home" | "goals" | "calculator" | "team";
 
 const TABS: { id: Tab; label: string; managerOnly?: boolean }[] = [
   { id: "home", label: "Home" },
   { id: "goals", label: "Goals" },
   { id: "calculator", label: "Calculator" },
-  { id: "log", label: "Log" },
   { id: "team", label: "Team", managerOnly: true },
-  { id: "clients", label: "Clients" },
-  { id: "packs", label: "Packs" },
 ];
 
 /** Tab icons from the handoff: an outline at rest, a filled version when active. 23px on a 24 grid. */
@@ -55,37 +56,6 @@ function TabIcon({ tab, active }: { tab: Tab; active: boolean }) {
           ))}
         </svg>
       );
-    case "log":
-      return (
-        <svg {...p}>
-          <rect x="3.6" y="3.6" width="16.8" height="16.8" rx="4.4" fill={active ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" />
-          <path d="M12 8.4v7.2M8.4 12h7.2" stroke={active ? "var(--color-accent-soft)" : "currentColor"} strokeWidth="1.9" strokeLinecap="round" />
-        </svg>
-      );
-    case "clients":
-      return active ? (
-        <svg {...p}>
-          <circle cx="9.6" cy="8.4" r="3.4" fill="currentColor" />
-          <path d="M3.4 20.2a6.2 6.2 0 0 1 12.4 0Z" fill="currentColor" />
-          <circle cx="17" cy="9.4" r="2.4" fill="currentColor" fillOpacity=".55" />
-          <path d="M14.6 16.2a4.4 4.4 0 0 1 6 3.9h-3" fill="currentColor" fillOpacity=".55" />
-        </svg>
-      ) : (
-        <svg {...p}>
-          <circle cx="9.6" cy="8.4" r="3.4" stroke="currentColor" strokeWidth="1.8" />
-          <path d="M3.4 20.2a6.2 6.2 0 0 1 12.4 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          <circle cx="17.2" cy="9.6" r="2.3" stroke="currentColor" strokeWidth="1.6" />
-          <path d="M15.4 16.4a4.3 4.3 0 0 1 5.2 3.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        </svg>
-      );
-    case "packs":
-      return (
-        <svg {...p}>
-          <path d="M7 6.5V4.2a.7.7 0 0 1 .7-.7h8.6l3.2 3.2v2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-          <path d="M4.5 9.2a.7.7 0 0 1 .7-.7h8.4l3.4 3.4v8.4a.7.7 0 0 1-.7.7H5.2a.7.7 0 0 1-.7-.7V9.2Z" fill={active ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-          <path d="M7.6 14.6h6.2M7.6 17.6h4.4" stroke={active ? "var(--color-accent-soft)" : "currentColor"} strokeWidth="1.6" strokeLinecap="round" />
-        </svg>
-      );
     case "team":
       return (
         <svg {...p}>
@@ -99,55 +69,88 @@ function TabIcon({ tab, active }: { tab: Tab; active: boolean }) {
 }
 
 export default function App() {
-  const [userId, setUserId] = useState(DEFAULT_USER_ID);
   const [tab, setTab] = useState<Tab>("home");
-  // Set by the Clients screen's "Case" action; cleared when leaving Log so the next visit starts blank.
-  const [logClient, setLogClient] = useState<string | null>(null);
-  // Set by a Meeting Pack's "Log the … case": client, product and premium prefilled.
-  const [logPrefill, setLogPrefill] = useState<LogPrefill | null>(null);
-  const [packsReset, setPacksReset] = useState(0);
-  const goTo = (t: Tab) => {
-    if (t === "packs" && tab === "packs") setPacksReset((n) => n + 1);
-    setTab(t);
-    if (t !== "log") {
-      setLogClient(null);
-      setLogPrefill(null);
-    }
-  };
-  // Cases live in memory only; the Log screen appends pending manual cases here.
-  const [cases, setCases] = useState(seedCases);
-  const addCase = (c: Case) => setCases((cs) => [...cs, c]);
-  const removePendingCase = (id: string) => setCases((cs) => cs.filter((c) => !(c.id === id && c.status === "pending")));
-  // Self-set goals, also in memory only. Goals edits them in place; Home and Calculator read them.
-  const [goalSet, setGoalSet] = useState<GoalSet>(defaultGoalSet);
-  const [primaryGoal, setPrimaryGoal] = useState<PrimaryGoal>({ kind: "tier" });
-  // The Calculator's band lives in the header strip, so the shell holds it.
-  const [band, setBand] = useState<BandingCode | null>(null);
+  const [api, setApi] = useState<ApiSettings>(loadApiSettings);
+  const [session, setSession] = useState<Session | null>(loadSession);
+  const [rows, setRows] = useState<ImportRow[]>(import_rows);
+  const [source, setSource] = useState<DataSource>({ kind: "sample" });
+  const [userId, setUserId] = useState(DEFAULT_USER_ID);
+  const [askOpen, setAskOpen] = useState(false);
 
-  const me = advisorById(userId)!;
+  // With a server and an individual link, the FA's own rows replace the sample. Anything else keeps the sample and says why.
+  useEffect(() => {
+    if (!api.url || !session) {
+      setRows(import_rows);
+      setSource({ kind: "sample" });
+      return;
+    }
+    let cancelled = false;
+    fetchMe(api, session)
+      .then((me) => {
+        if (cancelled) return;
+        if (me.rows.length === 0) {
+          setRows(import_rows);
+          setSource({ kind: "error", message: `The server has no production rows for ${session.fc_code} yet.` });
+          return;
+        }
+        setRows(me.rows);
+        setUserId(me.fc_code);
+        setSource({ kind: "server", as_of: me.as_of ?? asOf(me.rows) });
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setRows(import_rows);
+        setSource({ kind: "error", message: e instanceof Error ? e.message : "Could not load your production from the server." });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, session]);
+
+  const advisors = useMemo(() => advisorsFromRows(rows), [rows]);
+  const cases = useMemo(() => entriesFromRows(rows), [rows]);
+  const me = advisors.find((a) => a.id === userId) ?? advisors.find((a) => a.id === DEFAULT_USER_ID) ?? advisors[0]!;
   const isManager = advisors.some((a) => a.manager_id === me.id);
   const myCases = casesForAdvisor(me.id, cases);
   const visibleTabs = TABS.filter((t) => !t.managerOnly || isManager);
   const activeTab = visibleTabs.some((t) => t.id === tab) ? tab : "home";
+
+  // Self-set goals, in memory only. Goals edits them in place; Home and Calculator read them.
+  const [goalSet, setGoalSet] = useState<GoalSet>(defaultGoalSet);
+  const [primaryGoal, setPrimaryGoal] = useState<PrimaryGoal>({ kind: "tier" });
+  // The Calculator's band lives in the header strip, so the shell holds it.
+  const [band, setBand] = useState<BandingCode | null>(null);
   const bandInUse = band ?? me.banding_code;
   const setTier = (tier: Tier) => setGoalSet((set) => withAdvisorTier(set, me.id, TODAY.getFullYear(), tier));
-  /** Mockup only: flips between the FC and their manager so every screen can be reviewed. */
+
+  const onApiChange = (next: ApiSettings) => {
+    saveApiSettings(next);
+    setApi(next);
+  };
+  const onSessionChange = (next: Session | null) => {
+    saveSession(next);
+    setSession(next);
+  };
+
+  /** Stand-in only: flips between the sample FC and their manager so every screen can be reviewed. */
   const switchUser = () => {
     setPrimaryGoal({ kind: "tier" });
     setBand(null);
-    setUserId(isManager ? DEFAULT_USER_ID : MANAGER_USER_ID);
+    const manager = advisors.find((a) => advisors.some((b) => b.manager_id === a.id))?.id ?? MANAGER_USER_ID;
+    const fc = advisors.find((a) => a.manager_id !== null)?.id ?? DEFAULT_USER_ID;
+    setUserId(isManager ? fc : manager);
   };
-  const [askOpen, setAskOpen] = useState(false);
-  const viewSwitch: ReactNode = (
-    <button
-      type="button"
-      onClick={switchUser}
-      className={`whitespace-nowrap rounded-full border border-dashed px-2 py-1 text-[10px] font-medium ${activeTab === "home" ? "border-white/40 text-white/80 hover:bg-white/15" : "border-line text-muted hover:border-accent hover:text-accent"}`}
-      title="Mockup only: switch between the FC and manager views"
-    >
-      {isManager ? "FC view" : "Manager view"}
-    </button>
-  );
+  const viewSwitch: ReactNode =
+    source.kind === "server" ? null : (
+      <button
+        type="button"
+        onClick={switchUser}
+        className="rounded-full border border-dashed border-hairline px-2.5 py-1 text-[11px] font-medium text-muted hover:border-accent hover:text-accent"
+        title="Mockup only: switch between the sample FC and their manager"
+      >
+        {isManager ? "FC view" : "Manager view"}
+      </button>
+    );
   const headerExtra: ReactNode = (
     <>
       {viewSwitch}
@@ -161,9 +164,9 @@ export default function App() {
     </>
   );
 
-  const pendingCount = myCases.filter((c) => c.status === "pending").length;
-  const weeksLeft = weeksLeftIn(periodBounds("jan_dec", TODAY), TODAY);
-  const headerNote: Record<Exclude<Tab, "home" | "packs">, ReactNode> = {
+  const yearPeriod = periodBounds("jan_dec", TODAY);
+  const weeksLeft = weeksLeftIn(yearPeriod, TODAY);
+  const headerNote: Record<Exclude<Tab, "home">, ReactNode> = {
     goals: `${weeksLeft} weeks left in ${TODAY.getFullYear()}`,
     calculator: (
       <>
@@ -172,20 +175,18 @@ export default function App() {
         before you meet them
       </>
     ),
-    log: (
+    team: (
       <>
-        {pendingCount} waiting
+        {advisors.filter((a) => a.manager_id === me.id).length} FCs
         <br />
-        on Merlin
+        {source.kind === "server" && source.as_of ? `as of ${isoDay(source.as_of)}` : "sample import"}
       </>
     ),
-    team: `${advisors.filter((a) => a.manager_id === me.id).length} FCs`,
-    clients: `${clientsForAdvisor(me.id).length} clients`,
   };
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-canvas sm:border-x sm:border-line">
-      {activeTab !== "home" && activeTab !== "packs" && (
+      {activeTab !== "home" && (
         <header className="sticky top-0 z-10 border-b border-line bg-surface px-5 pb-3 pt-[max(6px,env(safe-area-inset-top))]">
           <div className="flex items-end justify-between gap-2.5">
             <div className="min-w-0">
@@ -224,50 +225,25 @@ export default function App() {
       )}
 
       <main className="flex-1 pb-[calc(84px+env(safe-area-inset-bottom))]">
-        {activeTab === "home" && <Home key={me.id} advisor={me} cases={cases} goalSet={goalSet} primary={primaryGoal} onChangeGoal={() => goTo("goals")} identityExtra={heroExtra} />}
+        {activeTab === "home" && (
+          <Home key={me.id} advisor={me} cases={cases} goalSet={goalSet} primary={primaryGoal} onChangeGoal={() => setTab("goals")} identityExtra={heroExtra} source={source} />
+        )}
         {activeTab === "goals" && (
           <Goals key={me.id} advisor={me} cases={cases} goalSet={goalSet} onGoalSetChange={setGoalSet} primary={primaryGoal} onPrimaryChange={setPrimaryGoal} onTierChange={setTier} />
         )}
-        {activeTab === "calculator" && <Calculator key={me.id} advisor={me} cases={myCases} goalSet={goalSet} primary={primaryGoal} band={bandInUse} onGoToGoals={() => goTo("goals")} />}
-        {activeTab === "log" && (
-          <Log
-            key={`${me.id}:${logClient ?? ""}:${logPrefill?.productId ?? ""}`}
-            advisor={me}
-            cases={cases}
-            onAdd={addCase}
-            onRemove={removePendingCase}
-            initialClient={logPrefill?.clientName ?? logClient ?? undefined}
-            initialProductId={logPrefill?.productId}
-            initialPremium={logPrefill?.premium}
-            initialTerm={logPrefill?.termYears}
-          />
-        )}
-        <div hidden={activeTab !== "packs"}>
-          <Packs
-            key={me.id}
-            advisor={me}
-            extra={headerExtra}
-            resetKey={packsReset}
-            onLogCase={(p) => {
-              setLogPrefill(p);
-              setTab("log");
-            }}
-          />
-        </div>
-        {activeTab === "team" && isManager && <Team key={me.id} manager={me} cases={cases} goalSet={goalSet} />}
-        {activeTab === "clients" && (
-          <Clients
-            key={me.id}
-            advisor={me}
-            cases={cases}
-            onLogCase={(client) => {
-              setLogClient(client.name);
-              setTab("log");
-            }}
-          />
-        )}
+        {activeTab === "calculator" && <Calculator key={me.id} advisor={me} cases={myCases} goalSet={goalSet} primary={primaryGoal} band={bandInUse} onGoToGoals={() => setTab("goals")} />}
+        {activeTab === "team" && isManager && <Team key={me.id} manager={me} advisors={advisors} cases={cases} goalSet={goalSet} source={source} />}
       </main>
-      <AskSheet open={askOpen} onClose={() => setAskOpen(false)} ctx={{ advisor: me, cases, goalSet }} />
+      <AskSheet
+        open={askOpen}
+        onClose={() => setAskOpen(false)}
+        ctx={{ advisor: me, advisors, cases, goalSet }}
+        api={api}
+        onApiChange={onApiChange}
+        session={session}
+        onSessionChange={onSessionChange}
+        source={source}
+      />
 
       <nav className="fixed inset-x-0 bottom-0 z-10 mx-auto w-full max-w-[430px] border-t border-line bg-surface px-1 pb-[max(20px,env(safe-area-inset-bottom))] pt-1.5" aria-label="Sections">
         <ul className="grid" style={{ gridTemplateColumns: `repeat(${visibleTabs.length}, minmax(0, 1fr))` }}>
@@ -275,7 +251,7 @@ export default function App() {
             const active = t.id === activeTab;
             return (
               <li key={t.id}>
-                <button type="button" onClick={() => goTo(t.id)} aria-current={active ? "page" : undefined} className="flex w-full flex-col items-center gap-[3px] py-[5px]">
+                <button type="button" onClick={() => setTab(t.id)} aria-current={active ? "page" : undefined} className="flex w-full flex-col items-center gap-[3px] py-[5px]">
                   <span key={active ? "on" : "off"} className={`grid h-7 w-11 place-items-center rounded-[10px] ${active ? "tab-pop bg-accent-soft text-accent" : "text-faint"}`}>
                     <TabIcon tab={t.id} active={active} />
                   </span>

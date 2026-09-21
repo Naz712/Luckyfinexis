@@ -2,9 +2,7 @@
 // Screens must get every number from here (or from src/mock/data.ts).
 
 import {
-  advisors,
   bandings,
-  cases as allCases,
   credit_rates,
   goals,
   mdrt_floors,
@@ -12,9 +10,9 @@ import {
   metric_definitions,
   metric_thresholds,
   products,
-  type Advisor,
   type BandingCode,
   type Case,
+  type CaseMetricValues,
   type CreditMetric,
   type Goal,
   type GoalCadence,
@@ -38,10 +36,6 @@ export function productById(id: string): Product | undefined {
 
 export function productsForInsurer(insurerId: string): Product[] {
   return products.filter((p) => p.insurer_id === insurerId);
-}
-
-export function advisorById(id: string): Advisor | undefined {
-  return advisors.find((a) => a.id === id);
 }
 
 export function bandingRate(code: BandingCode): number {
@@ -100,7 +94,7 @@ export function withAdvisorGoals(set: GoalSet, advisorId: string, year: number, 
 }
 
 /** Cases belonging to one advisor (from the mock table). */
-export function casesForAdvisor(advisorId: string, source: Case[] = allCases): Case[] {
+export function casesForAdvisor(advisorId: string, source: Case[]): Case[] {
   return source.filter((c) => c.advisor_id === advisorId);
 }
 
@@ -125,27 +119,28 @@ export function wapeTermFactor(product: Product, termYears: number): number {
   return 1;
 }
 
-export interface CaseMetrics {
-  commission: number;
-  gross_revenue: number;
-  mdrt_premium: number;
-  mdrt_commission: number;
-  wape: number;
-}
+export type CaseMetrics = CaseMetricValues;
 
+const ZERO: CaseMetrics = { commission: 0, gross_revenue: 0, premium: 0, mdrt_premium: 0, mdrt_commission: 0, wape: 0, elite: 0 };
+
+/**
+ * Every figure one entry contributes. An imported month carries its figures
+ * explicitly; a hypothetical case (the Calculator, the assistant's what-if)
+ * gets them from the product's rates and the band.
+ */
 export function metricsForCase(c: Case): CaseMetrics {
+  if (c.metrics) return { ...ZERO, ...c.metrics };
   const product = productById(c.product_id);
   if (!product) throw new Error(`Case ${c.id} references unknown product ${c.product_id}`);
   const commission = commissionForCase(c.gross_revenue, c.banding_code_at_time);
   return {
     commission,
     gross_revenue: c.gross_revenue,
+    premium: c.premium_amount,
     mdrt_premium: c.premium_amount * creditRate(c.product_id, "mdrt_premium"),
     mdrt_commission: commission * creditRate(c.product_id, "mdrt_commission"),
-    wape:
-      c.premium_amount *
-      wapeTermFactor(product, c.premium_term_years) *
-      creditRate(c.product_id, "wape"),
+    wape: c.premium_amount * wapeTermFactor(product, c.premium_term_years) * creditRate(c.product_id, "wape"),
+    elite: (c.premium_amount / 1000) * product.elite_rate,
   };
 }
 
@@ -153,6 +148,7 @@ export function metricsForCase(c: Case): CaseMetrics {
 
 const MS_PER_DAY = 86_400_000;
 const MS_PER_MONTH = (365.25 / 12) * MS_PER_DAY;
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** Parse "YYYY-MM-DD" as a local-time midnight (avoids UTC off-by-one). */
 export function parseISODate(s: string): Date {
@@ -238,35 +234,14 @@ export function inPeriod(date: Date, start: Date, end: Date): boolean {
 // ───────────────────────── Aggregation ─────────────────────────
 
 /**
- * Sum a metric over the cases that fall inside [periodStart, periodEnd].
- * Superseded cases are always ignored. Pass a pre-filtered list to control
+ * Sum a metric over the entries that fall inside [periodStart, periodEnd].
+ * Superseded entries are always ignored. Pass a pre-filtered list to control
  * status (e.g. confirmed only for "achieved", confirmed + pending for "projected").
- *
- * Count metrics: `new_clients` counts clients whose first case in `cases`
- * falls in the period. `elite`, `referrals` and `testimonials` have no
- * source table in the mock data yet, so they aggregate to 0.
  */
 export function aggregate(cases: Case[], metric: MetricCode, periodStart: Date, periodEnd: Date): number {
-  const live = cases.filter((c) => c.status !== "superseded");
-
-  if (metric === "new_clients") {
-    const firstSeen = new Map<string, Date>();
-    for (const c of live) {
-      const d = effectiveDate(c);
-      const prev = firstSeen.get(c.client_name);
-      if (!prev || d < prev) firstSeen.set(c.client_name, d);
-    }
-    let n = 0;
-    for (const d of firstSeen.values()) if (inPeriod(d, periodStart, periodEnd)) n++;
-    return n;
-  }
-
-  if (metric === "elite" || metric === "referrals" || metric === "testimonials") {
-    return 0; // no source data in the mock yet
-  }
-
   let total = 0;
-  for (const c of live) {
+  for (const c of cases) {
+    if (c.status === "superseded") continue;
     if (!inPeriod(effectiveDate(c), periodStart, periodEnd)) continue;
     total += metricsForCase(c)[metric];
   }
@@ -392,8 +367,8 @@ export function tierProgress(metric: MdrtRouteMetric, value: number): TierProgre
 // Everything a metric card needs, computed in one place so Home and Team
 // show identical numbers.
 
-/** Metrics with no source table in the mock; they aggregate to 0 and cards say "not tracked yet". */
-export const UNTRACKED_METRICS: ReadonlySet<MetricCode> = new Set(["elite", "referrals", "testimonials"]);
+/** Metrics the monthly import has no column for; they aggregate to 0 and cards say so. */
+export const UNTRACKED_METRICS: ReadonlySet<MetricCode> = new Set(["wape"]);
 
 /**
  * The same window last year, cut off at the same point in time as `today`
@@ -460,55 +435,44 @@ export function metricSnapshot(
   };
 }
 
-export const MDRT_ROUTES: readonly MdrtRouteMetric[] = ["mdrt_commission", "mdrt_premium", "mdrt_income"];
-export const ROUTE_LABEL: Record<MdrtRouteMetric, string> = { mdrt_commission: "Commission", mdrt_premium: "Premium", mdrt_income: "Income" };
+export const MDRT_ROUTES: readonly MdrtRouteMetric[] = ["mdrt_commission", "mdrt_premium"];
+export const ROUTE_LABEL: Record<MdrtRouteMetric, string> = { mdrt_commission: "Commission", mdrt_premium: "Premium" };
 /** Lower-case noun for prose: "commission route". */
-export const ROUTE_WORD: Record<MdrtRouteMetric, "commission" | "premium" | "income"> = {
-  mdrt_commission: "commission",
-  mdrt_premium: "premium",
-  mdrt_income: "income",
-};
+export const ROUTE_WORD: Record<MdrtRouteMetric, "commission" | "premium"> = { mdrt_commission: "commission", mdrt_premium: "premium" };
 export const MDRT_CATEGORY_LABEL: Record<MdrtCategory, string> = { risk_protection: "Risk-Protection", other: "Other Products" };
 
-export function floorsFor(metric: MdrtRouteMetric): { risk: number; newBusiness: number | null } {
+export function floorsFor(metric: MdrtRouteMetric): { risk: number } {
   const f = mdrt_floors.find((x) => x.metric === metric);
   if (!f) throw new Error(`No MDRT floors for ${metric}`);
-  return { risk: f.risk_protection, newBusiness: f.new_business };
+  return { risk: f.risk_protection };
 }
 
-/** The per-case figure a route sums: premium credit on the premium route, commission everywhere else. */
-export function routeCaseValue(metric: MdrtRouteMetric): "mdrt_commission" | "mdrt_premium" | "commission" {
-  return metric === "mdrt_premium" ? "mdrt_premium" : metric === "mdrt_commission" ? "mdrt_commission" : "commission";
+/** The per-entry figure a route sums: premium credit on the premium route, commission credit on the commission route. */
+export function routeCaseValue(metric: MdrtRouteMetric): "mdrt_commission" | "mdrt_premium" {
+  return metric;
 }
 
 /**
- * Credit on one MDRT route, split the way MDRT judges it. On the commission
- * and premium routes, Other Products credit only counts once Risk-Protection
- * credit has reached the floor (half the entry-level requirement, the same
- * for COT and TOT). On the income route, everything counts toward the total
- * but two separate minimums must also be met: new-business income and
- * income from Risk-Protection products.
+ * Credit on one MDRT route, split the way MDRT judges it: Other Products
+ * credit only counts once Risk-Protection credit has reached the floor (half
+ * the entry-level requirement, the same for COT and TOT).
  */
 export interface RouteCredit {
   /** From Risk-Protection products (life, ILPs, endowments, CI, disability, annuities). */
   risk: number;
   /** From Other Products (hospital plans, funds, portfolios, advice fees). */
   other: number;
-  /** Income route only: renewals, trails and other production income that no case carries. 0 elsewhere. */
-  otherIncome: number;
-  /** Everything earned on the route: risk + other + otherIncome. */
+  /** Everything earned on the route: risk + other. */
   total: number;
-  /** What MDRT counts today: `other` is left out while `risk` is below the floor. Income: the total. */
+  /** What MDRT counts today: `other` is left out while `risk` is below the floor. */
   counted: number;
-  /** Other Products credit earned but not counted yet (0 once unlocked, and always 0 on the income route). */
+  /** Other Products credit earned but not counted yet (0 once unlocked). */
   locked: number;
   /** The Risk-Protection floor for this route. */
   riskFloor: number;
   /** Risk-Protection credit still needed to reach the floor (0 once there). */
   riskShortfall: number;
-  /** Income route only: income from business written this year, and its floor. null elsewhere. */
-  newBusiness: { value: number; floor: number; shortfall: number } | null;
-  /** True when every minimum inside the route is met (the total may still be short of the tier). */
+  /** True when the floor is met (the total may still be short of the tier). */
   gatesMet: boolean;
 }
 
@@ -519,12 +483,10 @@ function categoryOf(c: Case): MdrtCategory {
 }
 
 /**
- * Route credit over the cases inside [periodStart, periodEnd]. Pass a
- * pre-filtered list to control status (confirmed only, or confirmed +
- * pending). `otherIncome` is the advisor's non-case income for the income
- * route; it is ignored on the other routes.
+ * Route credit over the entries inside [periodStart, periodEnd]. Pass a
+ * pre-filtered list to control status (confirmed only, or confirmed + pending).
  */
-export function routeCredit(cases: Case[], metric: MdrtRouteMetric, periodStart: Date, periodEnd: Date, otherIncome = 0): RouteCredit {
+export function routeCredit(cases: Case[], metric: MdrtRouteMetric, periodStart: Date, periodEnd: Date): RouteCredit {
   const key = routeCaseValue(metric);
   let risk = 0;
   let other = 0;
@@ -537,35 +499,15 @@ export function routeCredit(cases: Case[], metric: MdrtRouteMetric, periodStart:
   }
   const floors = floorsFor(metric);
   const riskShortfall = Math.max(floors.risk - risk, 0);
-  if (metric === "mdrt_income") {
-    const nb = risk + other;
-    const total = nb + otherIncome;
-    const nbFloor = floors.newBusiness ?? 0;
-    const nbShortfall = Math.max(nbFloor - nb, 0);
-    return {
-      risk,
-      other,
-      otherIncome,
-      total,
-      counted: total,
-      locked: 0,
-      riskFloor: floors.risk,
-      riskShortfall,
-      newBusiness: { value: nb, floor: nbFloor, shortfall: nbShortfall },
-      gatesMet: riskShortfall === 0 && nbShortfall === 0,
-    };
-  }
   const unlocked = riskShortfall === 0;
   return {
     risk,
     other,
-    otherIncome: 0,
     total: risk + other,
     counted: unlocked ? risk + other : risk,
     locked: unlocked ? 0 : other,
     riskFloor: floors.risk,
     riskShortfall,
-    newBusiness: null,
     gatesMet: unlocked,
   };
 }
@@ -584,7 +526,7 @@ export interface MdrtRoute {
   goalThreshold: number;
   /** 0..1 progress of the counted credit toward the aimed-for tier. */
   goalProgress: number;
-  /** goalProgress, further limited by any minimum inside the route that is not met yet (income route). */
+  /** goalProgress (kept apart so a route-internal minimum could hold it back again later). */
   qualifyingProgress: number;
   goalReached: boolean;
   pace: Pace;
@@ -603,19 +545,15 @@ export interface MdrtSnapshot {
 export function mdrtSnapshot(advisorId: string, cases: Case[], today: Date, goalSet: GoalSet = defaultGoalSet): MdrtSnapshot {
   const period = periodBounds(metricDefinition("mdrt_commission").period_type, today);
   const goalTier = mdrtTierGoalFor(advisorId, today.getFullYear(), goalSet.mdrtTiers);
-  const otherIncome = advisorById(advisorId)?.income_other_ytd ?? 0;
   const mine = cases.filter((c) => c.advisor_id === advisorId && c.status !== "superseded");
   const confirmed = mine.filter((c) => c.status === "confirmed");
 
   const routes: MdrtRoute[] = MDRT_ROUTES.map((metric) => {
-    const credit = routeCredit(confirmed, metric, period.start, period.end, otherIncome);
-    const projectedCredit = routeCredit(mine, metric, period.start, period.end, otherIncome);
+    const credit = routeCredit(confirmed, metric, period.start, period.end);
+    const projectedCredit = routeCredit(mine, metric, period.start, period.end);
     const achieved = credit.counted;
     const goalThreshold = thresholdFor(metric, goalTier);
     const goalProgress = Math.min(achieved / goalThreshold, 1);
-    const gateRatios =
-      credit.newBusiness === null ? [] : [Math.min(credit.risk / credit.riskFloor, 1), Math.min(credit.newBusiness.value / credit.newBusiness.floor, 1)];
-    const qualifyingProgress = Math.min(goalProgress, ...gateRatios);
     const tiers = credit.gatesMet ? tierProgress(metric, achieved) : { reached: null, next: "mdrt" as Tier, progress: Math.min(achieved / thresholdFor(metric, "mdrt"), 1) };
     return {
       metric,
@@ -627,7 +565,7 @@ export function mdrtSnapshot(advisorId: string, cases: Case[], today: Date, goal
       tiers,
       goalThreshold,
       goalProgress,
-      qualifyingProgress,
+      qualifyingProgress: goalProgress,
       goalReached: achieved >= goalThreshold && credit.gatesMet,
       pace: pace(achieved, goalThreshold, period.start, period.end, today),
     };
@@ -638,301 +576,27 @@ export function mdrtSnapshot(advisorId: string, cases: Case[], today: Date, goal
   return { period, goalTier, routes, closer, contributing: contributingCases(mine, period.start, period.end) };
 }
 
-/**
- * Cumulative counted credit on a route at each bucket end (same buckets as
- * cumulativeSeries). Non-case income on the income route is spread evenly
- * over the part of the window that has elapsed, since only a year-to-date
- * figure exists for it.
- */
+/** Cumulative counted credit on a route at each bucket end (same buckets as cumulativeSeries). */
 export function routeSeries(advisorId: string, cases: Case[], metric: MdrtRouteMetric, period: Period, today: Date): SeriesPoint[] {
   const confirmed = cases.filter((c) => c.advisor_id === advisorId && c.status === "confirmed");
-  const otherIncome = metric === "mdrt_income" ? (advisorById(advisorId)?.income_other_ytd ?? 0) : 0;
-  const elapsedNow = Math.max(today.getTime() - period.start.getTime(), 1);
-  return cumulativeSeries(advisorId, cases, "commission", period, today).map((pt) => {
-    const share = Math.min(Math.max(pt.at.getTime() + MS_PER_DAY - period.start.getTime(), 0) / elapsedNow, 1);
-    return { at: pt.at, label: pt.label, value: routeCredit(confirmed, metric, period.start, pt.at, otherIncome * share).counted };
-  });
+  return cumulativeSeries(advisorId, cases, "commission", period, today).map((pt) => ({ at: pt.at, label: pt.label, value: routeCredit(confirmed, metric, period.start, pt.at).counted }));
 }
 
 /**
  * Whole clients needed on a route, each adding `riskPer` of Risk-Protection
  * credit and `otherPer` of Other Products credit, until the route qualifies
- * for `target`. On the commission and premium routes, Other Products credit
- * (the FC's locked credit included) starts counting the moment the
- * Risk-Protection floor is crossed; on the income route every minimum must
- * be met as well as the total. 0 when already there; null when the clients
- * add nothing that can get there.
+ * for `target`. Other Products credit (the FC's locked credit included)
+ * starts counting the moment the Risk-Protection floor is crossed. 0 when
+ * already there; null when the clients add nothing that can get there.
  */
 export function clientsNeededOnRoute(credit: RouteCredit, target: number, riskPer: number, otherPer: number): number | null {
   if (credit.counted >= target && credit.gatesMet) return 0;
   if (!(riskPer > 0) && !(otherPer > 0)) return null;
   if (!(riskPer > 0) && credit.riskShortfall > 0) return null; // the floor can never be reached with these products
-  const nbFloor = credit.newBusiness?.floor ?? 0;
   for (let n = 1; n <= 100_000; n++) {
     const risk = credit.risk + n * riskPer;
     const other = credit.other + n * otherPer;
-    if (credit.newBusiness) {
-      if (risk + other + credit.otherIncome >= target && risk >= credit.riskFloor && risk + other >= nbFloor) return n;
-    } else if ((risk >= credit.riskFloor ? risk + other : risk) >= target) {
-      return n;
-    }
+    if ((risk >= credit.riskFloor ? risk + other : risk) >= target) return n;
   }
   return null;
 }
-
-// ───────────────────────── This week ─────────────────────────
-
-export interface WeekTotals {
-  period: Period;
-  /** Commission of cases submitted in the week (confirmed and pending; superseded ignored). */
-  commission: number;
-  cases: number;
-}
-
-export interface WeekSnapshot {
-  thisWeek: WeekTotals;
-  lastWeek: WeekTotals;
-  /** 1..7, Monday = 1. */
-  dayOfWeek: number;
-  /** This week's commission extrapolated to a full week at the current daily rate. */
-  projection: number;
-  /** True when the projection beats last week (or this week already has). */
-  onPaceToBeatLastWeek: boolean;
-  /** How much more is needed to pass last week's figure; 0 when already ahead. */
-  toBeatLastWeek: number;
-}
-
-/** Monday–Sunday week containing `ref`. */
-export function weekBounds(ref: Date): Period {
-  const dow = (ref.getDay() + 6) % 7; // Monday = 0
-  const start = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() - dow);
-  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
-  return { start, end };
-}
-
-function weekTotals(cases: Case[], period: Period): WeekTotals {
-  let commission = 0;
-  let n = 0;
-  for (const c of cases) {
-    if (c.status === "superseded") continue;
-    if (!inPeriod(parseISODate(c.submitted_on), period.start, period.end)) continue;
-    commission += metricsForCase(c).commission;
-    n += 1;
-  }
-  return { period, commission, cases: n };
-}
-
-/**
- * The FC's activity this week against last week, by submission date, so a
- * case counts the day it is closed rather than when Merlin confirms it.
- */
-export function weekSnapshot(advisorId: string, cases: Case[], today: Date): WeekSnapshot {
-  const mine = cases.filter((c) => c.advisor_id === advisorId);
-  const thisPeriod = weekBounds(today);
-  const lastPeriod = weekBounds(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 7));
-  const thisWeek = weekTotals(mine, thisPeriod);
-  const lastWeek = weekTotals(mine, lastPeriod);
-  const dayOfWeek = ((today.getDay() + 6) % 7) + 1;
-  const projection = (thisWeek.commission * 7) / dayOfWeek;
-  const onPaceToBeatLastWeek = thisWeek.commission > lastWeek.commission || projection > lastWeek.commission;
-  return {
-    thisWeek,
-    lastWeek,
-    dayOfWeek,
-    projection,
-    onPaceToBeatLastWeek,
-    toBeatLastWeek: Math.max(lastWeek.commission - thisWeek.commission, 0),
-  };
-}
-
-// ───────────────────────── Progress over time ─────────────────────────
-
-export type Grain = "week" | "month";
-
-export interface PeriodPoint {
-  period: Period;
-  /** Short axis label: "31 Aug" for a week, "Sep" for a month. */
-  label: string;
-  /** "Week of 31 Aug" / "September 2026". */
-  longLabel: string;
-  /** Commission of cases submitted in the period (confirmed and pending; superseded ignored). */
-  commission: number;
-  gross: number;
-  cases: number;
-}
-
-const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-
-export function monthBounds(ref: Date): Period {
-  return { start: new Date(ref.getFullYear(), ref.getMonth(), 1), end: new Date(ref.getFullYear(), ref.getMonth() + 1, 0) };
-}
-
-export function grainBounds(grain: Grain, ref: Date): Period {
-  return grain === "week" ? weekBounds(ref) : monthBounds(ref);
-}
-
-/** The period `n` steps after `p` (negative for earlier). */
-export function shiftPeriod(grain: Grain, p: Period, n: number): Period {
-  if (grain === "week") return weekBounds(new Date(p.start.getFullYear(), p.start.getMonth(), p.start.getDate() + 7 * n));
-  return monthBounds(new Date(p.start.getFullYear(), p.start.getMonth() + n, 1));
-}
-
-function pointFor(grain: Grain, period: Period, cases: Case[]): PeriodPoint {
-  let commission = 0;
-  let gross = 0;
-  let n = 0;
-  for (const c of cases) {
-    if (c.status === "superseded") continue;
-    if (!inPeriod(parseISODate(c.submitted_on), period.start, period.end)) continue;
-    commission += metricsForCase(c).commission;
-    gross += c.gross_revenue;
-    n += 1;
-  }
-  const s = period.start;
-  return {
-    period,
-    label: grain === "week" ? `${s.getDate()} ${MONTH_SHORT[s.getMonth()]}` : MONTH_SHORT[s.getMonth()],
-    longLabel: grain === "week" ? `Week of ${s.getDate()} ${MONTH_SHORT[s.getMonth()]}` : `${MONTH_LONG[s.getMonth()]} ${s.getFullYear()}`,
-    commission,
-    gross,
-    cases: n,
-  };
-}
-
-/** The last `count` periods ending with the one containing `today`, oldest first. */
-export function periodSeries(advisorId: string, cases: Case[], grain: Grain, count: number, today: Date): PeriodPoint[] {
-  const mine = cases.filter((c) => c.advisor_id === advisorId);
-  const current = grainBounds(grain, today);
-  const out: PeriodPoint[] = [];
-  for (let i = count - 1; i >= 0; i--) out.push(pointFor(grain, shiftPeriod(grain, current, -i), mine));
-  return out;
-}
-
-export interface PeriodComparison {
-  grain: Grain;
-  current: PeriodPoint;
-  previous: PeriodPoint;
-  /** 0..1 share of the current period that has elapsed (inclusive of today). */
-  elapsedFraction: number;
-  /** Current commission extrapolated to the full period at today's rate. */
-  projection: number;
-  onPaceToBeatPrevious: boolean;
-  /** How much more is needed to pass the previous period; 0 when already ahead. */
-  toBeatPrevious: number;
-  /** Consecutive periods with at least one case, counting back from now (the current period may still be open). */
-  streak: number;
-}
-
-export function periodComparison(advisorId: string, cases: Case[], grain: Grain, today: Date): PeriodComparison {
-  const series = periodSeries(advisorId, cases, grain, 26, today);
-  const current = series[series.length - 1];
-  const previous = series[series.length - 2];
-  const totalDays = Math.round((current.period.end.getTime() - current.period.start.getTime()) / MS_PER_DAY) + 1;
-  const elapsedDays = Math.round((today.getTime() - current.period.start.getTime()) / MS_PER_DAY) + 1;
-  const elapsedFraction = Math.min(Math.max(elapsedDays / totalDays, 0), 1);
-  const projection = elapsedFraction > 0 ? current.commission / elapsedFraction : 0;
-  let streak = 0;
-  for (let i = series.length - 1; i >= 0; i--) {
-    if (series[i].cases > 0) streak++;
-    else if (i === series.length - 1) continue; // current period still open: don't break the streak yet
-    else break;
-  }
-  return {
-    grain,
-    current,
-    previous,
-    elapsedFraction,
-    projection,
-    onPaceToBeatPrevious: current.commission > previous.commission || projection > previous.commission,
-    toBeatPrevious: Math.max(previous.commission - current.commission, 0),
-    streak,
-  };
-}
-
-// ───────────────────────── Around The World lucky draw ─────────────────────────
-
-import { challenge_types, clients as allClients, draws, pass_ledger, prizes_won, type Client, type DrawRound, type PassAward, type PassType, type PrizeWon } from "../mock/data";
-
-export function challengeByCode(code: string) {
-  return challenge_types.find((c) => c.code === code);
-}
-
-export function clientsForAdvisor(advisorId: string, source: Client[] = allClients): Client[] {
-  return source.filter((c) => c.advisor_id === advisorId);
-}
-
-/** Cases link to clients by name in the mock (the real table carries client_id). Superseded cases are ignored. */
-export function casesForClient(client: Client, cases: Case[]): Case[] {
-  return cases
-    .filter((c) => c.advisor_id === client.advisor_id && c.client_name === client.name && c.status !== "superseded")
-    .sort((a, b) => (a.submitted_on < b.submitted_on ? 1 : -1));
-}
-
-/** Draw months in campaign order, with whether each has been drawn. */
-export function drawMonths(source: DrawRound[] = draws): { monthly_draw: string; draw_date: string; is_drawn: boolean }[] {
-  const seen = new Map<string, { monthly_draw: string; draw_date: string; is_drawn: boolean }>();
-  for (const d of source) {
-    const cur = seen.get(d.monthly_draw);
-    if (!cur) seen.set(d.monthly_draw, { monthly_draw: d.monthly_draw, draw_date: d.draw_date, is_drawn: d.is_drawn });
-    else cur.is_drawn = cur.is_drawn && d.is_drawn;
-  }
-  return [...seen.values()].sort((a, b) => (a.draw_date < b.draw_date ? -1 : 1));
-}
-
-/** The next draw that has not been held yet, else the last one. */
-export function currentDrawMonth(source: DrawRound[] = draws): string {
-  const months = drawMonths(source);
-  return (months.find((m) => !m.is_drawn) ?? months[months.length - 1]).monthly_draw;
-}
-
-export interface PassTotals {
-  gold: number;
-  blue: number;
-}
-
-export function passTotals(rows: PassAward[]): PassTotals {
-  let gold = 0;
-  let blue = 0;
-  for (const r of rows) {
-    if (r.pass_type === "gold") gold += r.passes;
-    else blue += r.passes;
-  }
-  return { gold, blue };
-}
-
-export function passesForClient(clientId: string, month: string | null, ledger: PassAward[] = pass_ledger): PassAward[] {
-  return ledger
-    .filter((r) => r.client_id === clientId && (month === null || r.monthly_draw === month))
-    .sort((a, b) => (challengeByCode(a.challenge_code)?.sort_order ?? 99) - (challengeByCode(b.challenge_code)?.sort_order ?? 99));
-}
-
-export function passesForAdvisor(advisorId: string, month: string | null, ledger: PassAward[] = pass_ledger): PassAward[] {
-  return ledger.filter((r) => r.advisor_id === advisorId && (month === null || r.monthly_draw === month));
-}
-
-export function prizesForClient(clientId: string, source: PrizeWon[] = prizes_won): PrizeWon[] {
-  return source.filter((p) => p.client_id === clientId);
-}
-
-export interface ClientSummary {
-  client: Client;
-  plans: Case[];
-  /** Passes in the selected draw month. */
-  month: PassTotals;
-  /** Passes across the whole campaign. */
-  allTime: PassTotals;
-  prizes: PrizeWon[];
-}
-
-export function clientSummary(client: Client, cases: Case[], month: string, ledger: PassAward[] = pass_ledger): ClientSummary {
-  return {
-    client,
-    plans: casesForClient(client, cases),
-    month: passTotals(passesForClient(client.id, month, ledger)),
-    allTime: passTotals(passesForClient(client.id, null, ledger)),
-    prizes: prizesForClient(client.id),
-  };
-}
-
-export const PASS_LABEL: Record<PassType, string> = { gold: "Gold", blue: "Blue" };

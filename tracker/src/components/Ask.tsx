@@ -1,12 +1,16 @@
 // The in-app assistant: a small button in every header and a bottom sheet
-// that answers questions about this advisor's own book. With the pipeline
+// that answers questions about this advisor's own production. With the
 // server connected the model picks tools and phrases the answer; without it
 // a keyword router understands the suggested kinds of question. Either way
 // every figure comes from the tools in src/lib/ask.ts, which use calc.ts.
-import { useEffect, useRef, useState, type FormEvent } from "react";
+// The sheet's foot also holds the server and sign-in settings, since the
+// server is what the assistant needs and the individual link is how an FA
+// gets their own rows.
+import { useRef, useState, type FormEvent } from "react";
 import { TODAY } from "../mock/data";
 import { toISODate } from "../lib/calc";
-import { askServer, loadApiSettings, type ApiSettings, type ChatMessage } from "../lib/packsApi";
+import { isoDay } from "../lib/format";
+import { askServer, checkHealth, hostLabel, normaliseUrl, type ApiSettings, type ChatMessage, type DataSource, type Session } from "../lib/api";
 import { SUGGESTIONS, TOOL_DEFS, localAnswer, runTool, type Answer, type AskContext } from "../lib/ask";
 import Sheet from "./Sheet";
 
@@ -78,21 +82,168 @@ async function askLive(api: ApiSettings, question: string, history: ChatMessage[
   throw new Error("That took too many steps. Try asking it another way.");
 }
 
-export default function AskSheet({ open, onClose, ctx }: { open: boolean; onClose: () => void; ctx: AskContext }) {
+const FIELD = "w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px] text-ink placeholder:text-faint focus:border-accent focus:outline-none";
+
+/** What the rows on screen came from, in one line. */
+function sourceLine(source: DataSource): { text: string; flag: boolean } {
+  switch (source.kind) {
+    case "sample":
+      return { text: "Showing the sample import.", flag: false };
+    case "server":
+      return { text: `Showing your production as of ${source.as_of ? isoDay(source.as_of) : "—"}.`, flag: false };
+    case "error":
+      return { text: source.message, flag: true };
+  }
+}
+
+/**
+ * Server and sign-in, at the foot of the sheet. A small row says where the
+ * app is pointed; opening it shows the server address and access code, and
+ * the sign-in for typing an individual link's code and key in by hand.
+ */
+function ServerBox({
+  api,
+  onApiChange,
+  session,
+  onSessionChange,
+  source,
+}: {
+  api: ApiSettings;
+  onApiChange: (a: ApiSettings) => void;
+  session: Session | null;
+  onSessionChange: (s: Session | null) => void;
+  source: DataSource;
+}) {
+  const live = api.url !== "";
+  const [open, setOpen] = useState(false);
+  const [url, setUrl] = useState(api.url);
+  const [code, setCode] = useState(api.code);
+  const [status, setStatus] = useState<string | null>(null);
+  const [fc, setFc] = useState("");
+  const [key, setKey] = useState("");
+  const save = async () => {
+    const next = { url: normaliseUrl(url), code: code.trim() };
+    onApiChange(next);
+    if (!next.url) {
+      setStatus(null);
+      setOpen(false);
+      return;
+    }
+    setStatus("Checking…");
+    try {
+      const h = await checkHealth(next);
+      setStatus(h.mock ? "Connected · mock mode (canned answers, no key used)" : `Connected · ${h.report ?? "model not set"}${h.import ? ` · import: ${h.import.advisers} advisers as of ${h.import.as_of ? isoDay(h.import.as_of) : "—"}` : ""}`);
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : "Could not reach the server.");
+    }
+  };
+  const disconnect = () => {
+    setUrl("");
+    setCode("");
+    setStatus(null);
+    onApiChange({ url: "", code: "" });
+    setOpen(false);
+  };
+  const signIn = (e: FormEvent) => {
+    e.preventDefault();
+    const fcCode = fc.trim().toUpperCase();
+    const linkKey = key.trim();
+    if (!fcCode || !linkKey) return;
+    onSessionChange({ fc_code: fcCode, key: linkKey });
+    setFc("");
+    setKey("");
+  };
+  const src = sourceLine(source);
+  return (
+    <section aria-label="Server and sign-in" className="mt-4 rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[11.5px] leading-[1.5] text-muted">
+      <div className="flex items-center justify-between gap-2">
+        <span className="min-w-0 truncate">
+          <span className="font-bold text-body">Server</span> · {live ? `live · ${hostLabel(api.url)}` : "stand-in"}
+        </span>
+        <button type="button" onClick={() => setOpen((o) => !o)} className="shrink-0 font-semibold text-accent">
+          {open ? "Close" : live ? "Change" : "Connect"}
+        </button>
+      </div>
+      {open && (
+        <div className="mt-2.5 flex flex-col gap-2">
+          <input
+            type="url"
+            inputMode="url"
+            autoComplete="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://finexis-packs-api.onrender.com"
+            aria-label="Server URL"
+            className={`tnum ${FIELD}`}
+          />
+          <input type="password" autoComplete="off" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Access code" aria-label="Access code" className={FIELD} />
+          <div className="flex gap-2">
+            <button type="button" onClick={() => void save()} className="btn-primary rounded-lg px-3.5 py-2 text-[12.5px] font-semibold">
+              Save
+            </button>
+            {live && (
+              <button type="button" onClick={disconnect} className="rounded-lg border border-line px-3.5 py-2 text-[12.5px] font-semibold text-body">
+                Disconnect
+              </button>
+            )}
+          </div>
+          {status && <p role="status">{status}</p>}
+          <div className="mt-1 border-t border-well pt-2.5">
+            <div className="font-bold text-body">Your sign-in</div>
+            {session ? (
+              <div className="mt-1.5 flex items-center justify-between gap-2">
+                <span className="tnum">Signed in as {session.fc_code}</span>
+                <button type="button" onClick={() => onSessionChange(null)} className="shrink-0 rounded-lg border border-line px-3.5 py-2 text-[12.5px] font-semibold text-body">
+                  Sign out
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={signIn} className="mt-1.5 flex flex-col gap-2">
+                <input type="text" autoComplete="off" autoCapitalize="characters" spellCheck={false} value={fc} onChange={(e) => setFc(e.target.value)} placeholder="FC code" aria-label="FC code" className={`tnum ${FIELD}`} />
+                <input type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder="Link key" aria-label="Link key" className={FIELD} />
+                <button type="submit" disabled={!fc.trim() || !key.trim()} className="btn-primary self-start rounded-lg px-3.5 py-2 text-[12.5px] font-semibold disabled:opacity-45">
+                  Sign in
+                </button>
+              </form>
+            )}
+            <p className="mt-1.5">Your individual link signs you in by itself. This is only for typing it in by hand.</p>
+          </div>
+        </div>
+      )}
+      <p className={`mt-1.5 ${src.flag ? "text-flag" : ""}`}>{src.text}</p>
+    </section>
+  );
+}
+
+export default function AskSheet({
+  open,
+  onClose,
+  ctx,
+  api,
+  onApiChange,
+  session,
+  onSessionChange,
+  source,
+}: {
+  open: boolean;
+  onClose: () => void;
+  ctx: AskContext;
+  api: ApiSettings;
+  onApiChange: (a: ApiSettings) => void;
+  session: Session | null;
+  onSessionChange: (s: Session | null) => void;
+  source: DataSource;
+}) {
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [asked, setAsked] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [api, setApi] = useState<ApiSettings>({ url: "", code: "" });
   const history = useRef<ChatMessage[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const live = api.url !== "";
-
-  // The server setting can change on the Packs tab; read it fresh each time the sheet opens.
-  useEffect(() => {
-    if (open) setApi(loadApiSettings());
-  }, [open]);
 
   const ask = async (q: string) => {
     const text = q.trim();
@@ -139,7 +290,7 @@ export default function AskSheet({ open, onClose, ctx }: { open: boolean; onClos
             type="text"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder="Clients, cases, pace, what-ifs…"
+            placeholder="Pace, Elite credits, months, what-ifs…"
             aria-label="Your question"
             autoComplete="off"
             enterKeyHint="send"
@@ -193,11 +344,12 @@ export default function AskSheet({ open, onClose, ctx }: { open: boolean; onClos
           </section>
         )}
         {!answer && !busy && !error && (
-          <p className="py-2 text-[12.5px] leading-[1.5] text-muted">Ask about your clients, your cases, your pace, or what one more case would do. Answers come only from what is in this app.</p>
+          <p className="py-2 text-[12.5px] leading-[1.5] text-muted">Ask about your pace, your Elite credits, your production by month, or what one more case would do. Answers come only from what is in this app.</p>
         )}
         <p className="mt-4 text-[11px] leading-[1.5] text-faint">
-          {live ? "Answers use only this app's data, fetched by the tools listed under each answer. Nothing outside it is looked up." : "Stand-in: understands the suggested kinds of question. Connect the server on Packs → New pack to ask anything in your own words."}
+          {live ? "Answers use only this app's data, fetched by the tools listed under each answer. Nothing outside it is looked up." : "Stand-in: understands the suggested kinds of question. Connect the server below to ask anything in your own words."}
         </p>
+        <ServerBox api={api} onApiChange={onApiChange} session={session} onSessionChange={onSessionChange} source={source} />
       </div>
     </Sheet>
   );
