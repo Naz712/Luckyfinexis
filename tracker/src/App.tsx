@@ -6,7 +6,7 @@
 // the signed-in FA's own rows from the server. Everything else is derived.
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import "./lib/privateRates";
-import { bandings, DEFAULT_USER_ID, import_rows, MANAGER_USER_ID, TODAY, type BandingCode, type ImportRow, type Tier } from "./mock/data";
+import { bandings, case_records, DEFAULT_USER_ID, import_rows, MANAGER_USER_ID, TODAY, type BandingCode, type ImportRow, type Tier } from "./mock/data";
 import { casesForAdvisor, defaultGoalSet, periodBounds, weeksLeftIn, withAdvisorTier, type GoalSet, type PrimaryGoal } from "./lib/calc";
 import { advisorsFromRows, asOf, entriesFromRows } from "./lib/importer";
 import { isoDay, pct } from "./lib/format";
@@ -113,6 +113,8 @@ export default function App() {
 
   const advisors = useMemo(() => advisorsFromRows(rows), [rows]);
   const cases = useMemo(() => entriesFromRows(rows), [rows]);
+  // Case-by-case records: the sample's made-up cases alongside the sample import; the server does not send any yet.
+  const records = source.kind === "server" ? [] : case_records;
   const me = advisors.find((a) => a.id === userId) ?? advisors.find((a) => a.id === DEFAULT_USER_ID) ?? advisors[0]!;
   const isManager = advisors.some((a) => a.manager_id === me.id);
   const teamView = isManager && (view ?? "team") === "team";
@@ -154,28 +156,32 @@ export default function App() {
     setView(teamView ? "me" : "team");
     setTab(teamView ? "home" : "team");
   };
-  const switchClass = "rounded-full border border-dashed border-hairline px-2.5 py-1 text-[11px] font-medium text-muted hover:border-accent hover:text-accent";
-  const viewSwitch: ReactNode =
+  // A readable chip on either background: outlined on the white header, tonal white on the blue hero.
+  const switchClass = {
+    light: "h-8 whitespace-nowrap rounded-full border border-hairline bg-surface px-3 text-[12px] font-semibold text-body hover:border-accent hover:text-accent",
+    dark: "h-8 whitespace-nowrap rounded-full bg-white/16 px-3 text-[12px] font-semibold text-white ring-1 ring-white/30 hover:bg-white/24",
+  } as const;
+  const viewSwitch = (tone: "light" | "dark"): ReactNode =>
     source.kind === "server" ? (
       isManager ? (
-        <button type="button" onClick={switchView} className={switchClass}>
+        <button type="button" onClick={switchView} className={switchClass[tone]}>
           {teamView ? "My numbers" : "My team"}
         </button>
       ) : null
     ) : (
-      <button type="button" onClick={switchUser} className={switchClass} title="Mockup only: switch between the sample FC and their manager's team view">
+      <button type="button" onClick={switchUser} className={switchClass[tone]} title="Mockup only: switch between the sample FC and their manager's team view">
         {isManager ? "FC view" : "Manager view"}
       </button>
     );
   const headerExtra: ReactNode = (
     <>
-      {viewSwitch}
+      {viewSwitch("light")}
       <AskButton onClick={() => setAskOpen(true)} />
     </>
   );
   const heroExtra: ReactNode = (
     <>
-      {viewSwitch}
+      {viewSwitch("dark")}
       <AskButton onClick={() => setAskOpen(true)} tone="dark" />
     </>
   );
@@ -236,7 +242,7 @@ export default function App() {
 
       <main className="flex-1 pb-[calc(84px+env(safe-area-inset-bottom))]">
         {activeTab === "home" && (
-          <Home key={me.id} advisor={me} cases={cases} goalSet={goalSet} primary={primaryGoal} onChangeGoal={() => setTab("goals")} identityExtra={heroExtra} source={source} />
+          <Home key={me.id} advisor={me} cases={cases} goalSet={goalSet} primary={primaryGoal} onChangeGoal={() => setTab("goals")} identityExtra={heroExtra} source={source} records={records} />
         )}
         {activeTab === "goals" && (
           <Goals key={me.id} advisor={me} cases={cases} goalSet={goalSet} onGoalSetChange={setGoalSet} primary={primaryGoal} onPrimaryChange={setPrimaryGoal} onTierChange={setTier} />
@@ -244,7 +250,7 @@ export default function App() {
         {activeTab === "calculator" && (
           <Calculator key={`${me.id}-${teamView}`} advisor={me} cases={myCases} goalSet={goalSet} primary={primaryGoal} band={bandInUse} onGoToGoals={() => setTab("goals")} personal={!teamView} />
         )}
-        {activeTab === "team" && teamView && <Team key={me.id} manager={me} advisors={advisors} cases={cases} goalSet={goalSet} source={source} />}
+        {activeTab === "team" && teamView && <Team key={me.id} manager={me} advisors={advisors} cases={cases} goalSet={goalSet} source={source} records={records} />}
       </main>
       <AskSheet
         open={askOpen}

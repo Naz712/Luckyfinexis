@@ -32,7 +32,7 @@ export function AskButton({ onClick, tone = "light" }: { onClick: () => void; to
       onClick={onClick}
       aria-label="Ask about your book"
       title="Ask about your book"
-      className={`grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full ${tone === "dark" ? "bg-white/16 text-white hover:bg-white/24" : "bg-accent-soft text-accent hover:bg-accent/16"}`}
+      className={`grid h-11 w-11 shrink-0 place-items-center rounded-full ${tone === "dark" ? "bg-white/16 text-white hover:bg-white/24" : "bg-accent-soft text-accent hover:bg-accent/16"}`}
     >
       <AskGlyph />
     </button>

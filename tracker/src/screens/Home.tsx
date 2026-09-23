@@ -1,12 +1,11 @@
 import { useState, type ReactNode } from "react";
-import { MDRT_MEMBERSHIP_YEAR, MDRT_THRESHOLDS_CONFIRMED, metric_definitions, TODAY, type Advisor, type Case, type MetricCode, type MetricUnit, type Tier } from "../mock/data";
+import { MDRT_MEMBERSHIP_YEAR, MDRT_THRESHOLDS_CONFIRMED, metric_definitions, TODAY, type Advisor, type Case, type CaseRecord, type MetricUnit, type Tier } from "../mock/data";
 import { ELITE, elitePeriodText, eliteTiersFor, isNewFc, type EliteTier } from "../lib/elite";
 import { elitePeriod, soloAim } from "../lib/aims";
 import {
   casesForAdvisor,
   mdrtSnapshot,
   metricSnapshot,
-  metricsForCase,
   pace as paceToward,
   parseISODate,
   ROUTE_WORD,
@@ -23,8 +22,7 @@ import {
 import { count, fmtMetric, paceText, pct, periodLabel, routeGateText, sgd, shortDate } from "../lib/format";
 import type { DataSource } from "../lib/api";
 import { Card, Label } from "../components/ui";
-import BarChart, { type BarPoint } from "../components/BarChart";
-import Page from "../components/Page";
+import DetailSheet, { type DetailTab } from "./Detail";
 
 const TIER_LABEL: Record<Tier, string> = { mdrt: "MDRT", cot: "COT", tot: "TOT" };
 
@@ -49,15 +47,7 @@ const ARC_TRANSITION = { transition: "stroke-dasharray .55s cubic-bezier(.22,1,.
 const arcDash = (frac: number) => `${(ARC * frac).toFixed(1)} ${ARC}`;
 
 /** The "This year" rows, in order. WAPE is a Custom goal only, not a Home row. */
-const TRACKED_ORDER: MetricCode[] = ["commission", "gross_revenue", "premium", "elite"];
-
-/** What each figure is, in a sentence, at the top of its page. */
-const METRIC_ABOUT: Partial<Record<MetricCode, string>> = {
-  commission: "Your first-year commission: your share of the gross revenue on your cases, by the firm's payout formula.",
-  gross_revenue: "First-year gross revenue: what the insurers paid Finexis on your cases. Your commission is a share of it, and Elite credits are counted on it.",
-  premium: "First-year premium on your cases, single premiums in full.",
-  elite: "Finexis Elite credits: first-year gross revenue times each product's Elite multiplier. Insurer cash incentives don't count.",
-};
+const TRACKED_ORDER: DetailTab[] = ["commission", "gross_revenue", "premium", "elite"];
 
 type Tone = "ok" | "accent" | "warn";
 const TONE: Record<Tone, { text: string; dot: string; fill: string; soft: string }> = {
@@ -66,23 +56,12 @@ const TONE: Record<Tone, { text: string; dot: string; fill: string; soft: string
   warn: { text: "text-warn", dot: "bg-warn", fill: "bg-warn", soft: "bg-warn/35" },
 };
 
-const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-
 // ───────────────────────── Small helpers ─────────────────────────
 
 function Chevron({ size = 13, strokeWidth = 1.9, className = "" }: { size?: number; strokeWidth?: number; className?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
       <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function Caret() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -259,159 +238,6 @@ function MetricRow({ snapshot, onOpen }: { snapshot: MetricSnapshot; onOpen: () 
   );
 }
 
-// ───────────────────────── A figure's own page ─────────────────────────
-
-interface MonthFigures {
-  key: string;
-  label: string;
-  date: Date;
-  pending: boolean;
-  values: Record<MetricCode, number>;
-}
-
-/** The imported months inside a window (newest first), each with every figure summed over its entries; a pending entry is its own row. */
-function monthsIn(cases: Case[], period: Period): MonthFigures[] {
-  const byKey = new Map<string, MonthFigures>();
-  for (const c of cases) {
-    const on = parseISODate(c.confirmed_on ?? c.submitted_on);
-    if (on < period.start || on > period.end) continue;
-    const pending = c.status === "pending";
-    const key = `${c.label ?? c.client_name}${pending ? "·p" : ""}`;
-    const m = metricsForCase(c);
-    const cur = byKey.get(key) ?? { key, label: c.label ?? c.client_name, date: on, pending, values: { commission: 0, gross_revenue: 0, premium: 0, mdrt_commission: 0, mdrt_premium: 0, elite: 0, wape: 0 } };
-    for (const code of Object.keys(cur.values) as MetricCode[]) cur.values[code] += m[code] ?? 0;
-    byKey.set(key, cur);
-  }
-  return [...byKey.values()].sort((a, b) => (a.pending !== b.pending ? (a.pending ? -1 : 1) : b.date.getTime() - a.date.getTime()));
-}
-
-function Tile({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className="bg-canvas px-[11px] py-[9px]">
-      <dt className="text-[11px] text-muted">{label}</dt>
-      <dd className={`tnum mt-0.5 text-[15px] font-semibold ${accent ? "text-accent" : "text-ink"}`}>{value}</dd>
-    </div>
-  );
-}
-
-/** Everything about one of the "This year" figures: where it stands, a chart of the months, and each month's full figures. */
-function MetricDetail({ snapshot, cases, advisor }: { snapshot: MetricSnapshot; cases: Case[]; advisor: Advisor }) {
-  const { definition: def, achieved, projected, target, gap, pace, period } = snapshot;
-  const unit = def.unit;
-  const fmt = (v: number) => fmtMetric(v, unit);
-  // A pending row only when it adds to this figure (pending cases carry no Elite credits, for one).
-  const months = monthsIn(cases, period).filter((m) => !m.pending || m.values[def.code] !== 0);
-  const confirmedMonths = months.filter((m) => !m.pending).reverse();
-  const [selected, setSelected] = useState(Math.max(confirmedMonths.length - 1, 0));
-  const [openMonth, setOpenMonth] = useState<string | null>(null);
-  const pending = Math.max(projected - achieved, 0);
-  const reached = target !== null && (gap ?? 0) === 0;
-  const tiers = eliteTiersFor(advisor);
-  const points: BarPoint[] = confirmedMonths.map((m) => ({
-    label: MONTH_SHORT[m.date.getMonth()]!,
-    longLabel: `${MONTH_LONG[m.date.getMonth()]} ${m.date.getFullYear()}`,
-    value: m.values[def.code],
-    detail: m.label,
-  }));
-  const estimated = def.code === "gross_revenue" && cases.some((c) => c.gr_estimated);
-
-  return (
-    <div className="flex flex-col gap-3 px-4 pb-10 pt-3.5">
-      <Card>
-        <div className="flex items-baseline gap-2">
-          <span className="tnum text-[40px] font-bold leading-none tracking-[-.03em] text-accent">{fmt(achieved)}</span>
-          <span className="text-[13px] text-muted">confirmed</span>
-        </div>
-        {pending > 0 && <p className="tnum mt-2 text-[12px] font-medium text-gold-ink">+{fmt(pending)} pending, waiting on the insurer</p>}
-        <p className="mt-2.5 text-pretty text-[12px] leading-[1.5] text-muted">
-          {METRIC_ABOUT[def.code]}
-          {estimated ? " Worked out from your commission at your band until the monthly import carries it." : ""}
-        </p>
-        {target !== null && target > 0 && def.code !== "elite" && (
-          <div className="mt-3 border-t border-line pt-3">
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-[12.5px] font-semibold text-ink">Your goal · {periodLabel(period)}</span>
-              <span className="tnum text-[12.5px] font-bold text-ink">{fmt(target)}</span>
-            </div>
-            <div className="mt-2 flex h-[6px] overflow-hidden rounded-full bg-accent-soft" aria-hidden="true">
-              <span className={reached ? "bg-ok" : "bg-accent"} style={{ width: `${Math.min(achieved / target, 1) * 100}%` }} />
-              <span className="bg-accent/35" style={{ width: `${Math.min(pending / target, Math.max(1 - achieved / target, 0)) * 100}%` }} />
-            </div>
-            <dl className="mt-2.5 grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-line">
-              <Tile label="Projected incl. pending" value={fmt(projected)} />
-              <Tile label={reached ? "Goal reached" : "Gap to goal"} value={reached ? pct(achieved / target) : fmt(gap ?? 0)} accent={!reached} />
-            </dl>
-            <p className={`tnum mt-2 text-[12px] font-medium ${reached ? "text-ok" : pace?.onTrack ? "text-accent" : "text-warn"}`}>{paceText(pace, unit, reached)}</p>
-          </div>
-        )}
-      </Card>
-
-      {def.code === "elite" && (
-        <Card>
-          <div className="flex items-center justify-between gap-2">
-            <Label>Distance to each tier</Label>
-            {isNewFc(advisor) && <span className="rounded bg-accent-soft px-1 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] text-accent">new FC tiers</span>}
-          </div>
-          <EliteLadder achieved={achieved} tiers={tiers} period={elitePeriod()} />
-          <p className="mt-1 text-[11px] leading-[1.5] text-muted">
-            {ELITE.name}, {elitePeriodText()}.{ELITE.tiers_confirmed ? "" : " Sample tiers."}
-          </p>
-        </Card>
-      )}
-
-      {points.length > 0 && (
-        <Card>
-          <Label>Month by month</Label>
-          <div className="mt-2">
-            <BarChart points={points} selected={Math.min(selected, points.length - 1)} onSelect={setSelected} formatValue={fmt} formatTick={(v) => (unit === "sgd" ? `${Math.round(v / 1000)}k` : count(v))} title={`${def.label} by month`} />
-          </div>
-        </Card>
-      )}
-
-      <Card className="overflow-hidden p-0">
-        <div className="flex items-baseline justify-between px-4 pb-2.5 pt-3">
-          <Label>Each month</Label>
-          <span className="text-[11px] text-muted">tap for all its figures</span>
-        </div>
-        {months.length === 0 ? (
-          <p className="border-t border-line px-4 py-3 text-[13px] text-muted">Nothing imported for this period yet.</p>
-        ) : (
-          months.map((m) => {
-            const open = openMonth === m.key;
-            return (
-              <div key={m.key} className={`border-t border-line ${open ? "bg-accent-soft/45" : ""}`}>
-                <button type="button" onClick={() => setOpenMonth(open ? null : m.key)} aria-expanded={open} className="flex w-full items-center justify-between gap-2.5 px-4 py-3 text-left">
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <span className="truncate text-[14px] font-medium text-ink">{m.label}</span>
-                    {m.pending && <span className="shrink-0 rounded bg-warn/12 px-1 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] text-warn">Pending</span>}
-                  </span>
-                  <span className="tnum flex shrink-0 items-center gap-1.5 text-[14px] font-semibold text-body">
-                    {fmt(m.values[def.code])}
-                    <span className={`text-muted transition-transform duration-200 ${open ? "rotate-180" : ""}`}>
-                      <Caret />
-                    </span>
-                  </span>
-                </button>
-                {open && (
-                  <dl className="drop-in mx-4 mb-3 grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-line">
-                    <Tile label="Commission" value={sgd(m.values.commission)} accent={def.code === "commission"} />
-                    <Tile label="Gross revenue" value={sgd(m.values.gross_revenue)} accent={def.code === "gross_revenue"} />
-                    <Tile label="Premium" value={sgd(m.values.premium)} accent={def.code === "premium"} />
-                    <Tile label="Elite credits" value={count(m.values.elite)} accent={def.code === "elite"} />
-                    <Tile label="MDRT commission credit" value={sgd(m.values.mdrt_commission)} />
-                    <Tile label="MDRT premium credit" value={sgd(m.values.mdrt_premium)} />
-                  </dl>
-                )}
-              </div>
-            )
-          })
-        )}
-      </Card>
-      <p className="px-1 text-center text-[11px] leading-[1.5] text-muted">From the monthly import: each month is the year-to-date change from the month before.</p>
-    </div>
-  );
-}
-
 // ───────────────────────── Home ─────────────────────────
 
 export default function Home({
@@ -422,6 +248,8 @@ export default function Home({
   onChangeGoal,
   identityExtra,
   source,
+  records = [],
+  showClients = true,
 }: {
   advisor: Advisor;
   cases: Case[];
@@ -431,6 +259,10 @@ export default function Home({
   identityExtra?: ReactNode;
   /** Where the rows came from; absent in the manager's read-only drill-down. */
   source?: DataSource;
+  /** Individual cases since the tracker's launch, for the detail sheet's case list. */
+  records?: CaseRecord[];
+  /** Clients' initials on those cases: false in a manager's drill-down. */
+  showClients?: boolean;
 }) {
   const mine = casesForAdvisor(advisor.id, cases);
   const mdrt = mdrtSnapshot(advisor.id, mine, TODAY, goalSet);
@@ -439,7 +271,7 @@ export default function Home({
   const [routeChoice, setRouteChoice] = useState<{ advisorId: string; metric: MdrtRouteMetric } | null>(null);
   const route: MdrtRouteMetric = routeChoice?.advisorId === advisor.id ? routeChoice.metric : mdrt.closer;
   const setRoute = (metric: MdrtRouteMetric) => setRouteChoice({ advisorId: advisor.id, metric });
-  const [openMetric, setOpenMetric] = useState<MetricCode | null>(null);
+  const [openTab, setOpenTab] = useState<DetailTab | null>(null);
 
   const views = mdrt.routes.map((r) => routeView(r, mdrt.period));
   const rv = views.find((v) => v.metric === route) ?? views[0]!;
@@ -502,9 +334,8 @@ export default function Home({
   const eliteTiers = eliteTiersFor(advisor);
   const newFc = isNewFc(advisor);
 
-  // This year: commission, gross revenue, premium and Elite credits; each opens its own page.
+  // This year: commission, gross revenue, premium and Elite credits; each opens the detail sheet on its tab.
   const tracked = TRACKED_ORDER.map((code) => (code === "elite" ? elite : metricSnapshot(advisor.id, mine, code, TODAY, goalSet)));
-  const opened = tracked.find((s) => s.definition.code === openMetric) ?? null;
 
   const note = source ? sourceNote(source) : null;
 
@@ -514,17 +345,17 @@ export default function Home({
       <section className="overflow-hidden bg-brand px-5 pb-6 pt-[max(6px,env(safe-area-inset-top))] text-white">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-[9px]">
-            <span className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full bg-white/16 text-[12px] font-bold" aria-hidden="true">
+            <span className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-full bg-white/16 text-[12px] font-bold" aria-hidden="true">
               {initials(advisor.name)}
             </span>
-            <span className="truncate text-[13px] font-semibold">{advisor.name}</span>
+            <div className="min-w-0">
+              <div className="text-pretty break-words text-[14px] font-semibold leading-[18px]">{advisor.name}</div>
+              <div className="text-[11px] leading-4 text-white/72">
+                {advisor.fc_code} · Band {advisor.banding_code.slice(1)}
+              </div>
+            </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {identityExtra}
-            <span className="text-[11px] text-white/72">
-              {advisor.fc_code} · Band {advisor.banding_code.slice(1)}
-            </span>
-          </div>
+          {identityExtra && <div className="flex shrink-0 items-center gap-2">{identityExtra}</div>}
         </div>
 
         <div className="mt-[18px] flex items-center justify-between gap-2.5">
@@ -576,7 +407,7 @@ export default function Home({
             <div className="relative mx-auto mt-3 h-[170px] w-[350px] max-w-full">
               <svg width="350" height="180" viewBox="0 0 350 180" className="pointer-events-none absolute left-1/2 top-0 -translate-x-1/2" aria-hidden="true">
                 <path d={ARC_PATH} fill="none" strokeWidth="14" strokeLinecap="round" className="stroke-white/18" />
-                <path d={ARC_PATH} fill="none" strokeWidth="14" strokeLinecap="round" className="stroke-white/45" strokeDasharray={arcDash(projectedFrac)} style={ARC_TRANSITION} />
+                <path d={ARC_PATH} fill="none" strokeWidth="14" strokeLinecap="round" className="stroke-[#8fa8ff]" strokeDasharray={arcDash(projectedFrac)} style={ARC_TRANSITION} />
                 <path d={ARC_PATH} fill="none" strokeWidth="14" strokeLinecap="round" className="stroke-white" strokeDasharray={arcDash(achievedFrac)} style={ARC_TRANSITION} />
               </svg>
               <div className="absolute inset-x-0 top-[56px] text-center">
@@ -585,6 +416,18 @@ export default function Home({
                   {fmt(hero.achieved)} of {fmt(goal.target)}
                 </div>
               </div>
+            </div>
+            <div className="tnum -mt-1 mb-1 flex items-center justify-center gap-4 text-[11px] text-white/78">
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-white" aria-hidden="true" />
+                Confirmed {pct(achievedFrac)}
+              </span>
+              {hero.projected > hero.achieved && (
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-[#8fa8ff]" aria-hidden="true" />
+                  With pending {pct(Math.min(hero.projected / goal.target, 1))}
+                </span>
+              )}
             </div>
 
             <div
@@ -654,7 +497,13 @@ export default function Home({
           others.map((o) => {
             const ratio = Math.min(o.achieved / o.target, 1);
             return (
-              <button key={o.metric} type="button" onClick={() => setRoute(o.metric)} className="btn-lift block w-full rounded-2xl border border-line bg-surface px-4 py-3.5 text-left">
+              <button
+                key={o.metric}
+                type="button"
+                onClick={() => setRoute(o.metric)}
+                aria-label={`${o.label} route, ${pct(ratio)}. Switch the goal above to it`}
+                className="btn-lift block w-full rounded-2xl border border-line bg-surface px-4 py-3.5 text-left"
+              >
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <Label>{o.label} route</Label>
@@ -665,9 +514,11 @@ export default function Home({
                   </div>
                   <div className="flex shrink-0 items-center gap-2.5">
                     <span className="tnum text-[17px] font-bold text-accent">{pct(ratio)}</span>
-                    <span className="flex items-center gap-0.5 rounded-full bg-accent-soft px-2.5 py-1 text-[11px] font-semibold text-accent">
-                      Show
-                      <Chevron size={10} strokeWidth={2.2} />
+                    <span className="flex h-9 items-center gap-1 rounded-full bg-accent-soft px-3.5 text-[13px] font-bold text-accent">
+                      Switch
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path d="M3 5.5h9.5M10 3l2.5 2.5L10 8M13 10.5H3.5M6 8l-2.5 2.5L6 13" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
                     </span>
                   </div>
                 </div>
@@ -705,16 +556,14 @@ export default function Home({
             <span className="text-[11px] text-muted">tap for the details</span>
           </div>
           {tracked.map((s) => (
-            <MetricRow key={s.definition.code} snapshot={s} onOpen={() => setOpenMetric(s.definition.code)} />
+            <MetricRow key={s.definition.code} snapshot={s} onOpen={() => setOpenTab(s.definition.code as DetailTab)} />
           ))}
         </Card>
       </div>
 
       {note && <p className={`tnum px-5 pb-5 text-center text-[11px] leading-[1.5] ${note.tone === "warn" ? "text-warn" : "text-muted"}`}>{note.text}</p>}
 
-      <Page open={opened !== null} onClose={() => setOpenMetric(null)} title={opened?.definition.label ?? ""} eyebrow={opened ? `${advisor.name} · ${periodLabel(opened.period)}` : undefined}>
-        {opened && <MetricDetail key={opened.definition.code} snapshot={opened} cases={mine} advisor={advisor} />}
-      </Page>
+      <DetailSheet tab={openTab} onTab={setOpenTab} onClose={() => setOpenTab(null)} advisor={advisor} cases={mine} records={records} goalSet={goalSet} showClients={showClients} />
     </div>
   );
 }

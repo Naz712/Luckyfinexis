@@ -32,6 +32,12 @@
   --color-gold: #e2b93b;
   --color-gold-ink: #7a5a00;
   --color-flag: #c82632;
+  /* Unselected chart bars; the "with pending" blue on goal bars; pending rows, tags and hatching. */
+  --color-bar: #c9d0e2;
+  --color-pend: #8fa8ff;
+  --color-pend-bg: #fffdf6;
+  --color-pend-tag: #f3ecd9;
+  --color-gold-soft: #fbf3dc;
   --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
@@ -66,6 +72,11 @@
     --color-warn: #e6b33a;
     --color-gold-ink: #f3cc62;
     --color-flag: #ff8a93;
+    --color-bar: #39456b;
+    --color-pend: #5169bd;
+    --color-pend-bg: #1c1a13;
+    --color-pend-tag: #3a3016;
+    --color-gold-soft: #3a3016;
   }
 }
 :root[data-theme="dark"] {
@@ -90,6 +101,11 @@
   --color-warn: #e6b33a;
   --color-gold-ink: #f3cc62;
   --color-flag: #ff8a93;
+  --color-bar: #39456b;
+  --color-pend: #5169bd;
+  --color-pend-bg: #1c1a13;
+  --color-pend-tag: #3a3016;
+  --color-gold-soft: #3a3016;
 }
 
 html {

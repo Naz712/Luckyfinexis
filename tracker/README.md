@@ -99,12 +99,22 @@ part of the deployment choice, written up separately.
 
 - **Home** — a blue hero that answers "am I on pace for the goal I set?" for
   whichever aim Goals has (with a Commission / Premium route switch for MDRT),
-  a progress arc (confirmed, pending, target), a verdict pill, "What it takes
-  from here" (per month, per week, at your current rate), a pending strip, the
-  other MDRT route as one card, the Finexis Elite card with the distance to
-  every tier, and "This year" rows (commission, gross revenue, premium, Elite
-  credits). Each row opens its own page, sliding up: where it stands against
-  any goal, a month-by-month chart, and every month's full figures.
+  a progress arc (confirmed, with pending, target, and a key under it), a
+  verdict pill, "What it takes from here" (per month, per week, at your
+  current rate), a pending strip, the other MDRT route as one card with a
+  Switch button, the Finexis Elite card with the distance to every tier, and
+  "This year" rows (commission, gross revenue, premium, Elite credits).
+- **Detail sheet** — slides up from a "This year" row, on that row's tab
+  (Commission, Revenue, Premium, Elite; switching tabs changes everything
+  below). A summary (confirmed, pending, then the goal bar with the gap and
+  what is needed each month; for premium, the MDRT premium route and the
+  year's average; for Elite, every tier), month by month as bars or a running
+  total (pending hatched in gold, the needed months dashed), the selected
+  month's four figures, all months, and the cases since the tracker's launch
+  (`TRACKER_LAUNCH` in `src/mock/data.ts`, a placeholder) by month, secured
+  or pending, five to a page. Clients' initials show to the FC only, not in a
+  manager's drill-down. The sample's cases are made up to add up to the
+  import; the server does not send cases yet.
 - **Goals** — three aims: ① MDRT / COT / TOT on commission or premium, ② an
   Elite tier, ③ a custom goal on commission, gross revenue or WAPE with a
   cadence. ("Final Sprint" on the business's whiteboard is the name for this

@@ -391,3 +391,70 @@ export const mdrt_tier_goals: MdrtTierGoal[] = [
   { advisor_id: "FC005", year: 2026, tier: "mdrt" },
   { advisor_id: "FC000", year: 2026, tier: "mdrt" },
 ];
+
+/**
+ * PLACEHOLDER: the day the tracker started keeping individual cases. The
+ * detail sheet lists cases, and offers their months, only from here on;
+ * everything before it comes from the monthly import alone.
+ */
+export const TRACKER_LAUNCH = "2026-07-01";
+
+/** One case as the tracker records it: what was sold, to whom (initials only), and what it adds. */
+export interface CaseRecord {
+  advisor_id: string;
+  /** The plan, in plain words: "Whole life", "Hospital plan + rider". */
+  product: string;
+  /** The client's initials only: "L.M." */
+  client: string;
+  /** ISO date; the case counts in this month. */
+  date: string;
+  policy: string;
+  /** Pending: submitted, waiting on the insurer. Secured: the insurer has confirmed it. */
+  status: "pending" | "secured";
+  commission: number;
+  /** First-year GR. Absent (pending cases here): worked out from commission at the FC's band, as the import does. */
+  gross_revenue?: number;
+  premium: number;
+}
+
+/**
+ * Sample cases since the launch date, made up so each FC's cases add up to
+ * their July and August figures in the import and to their pending totals.
+ * Nothing here is real.
+ */
+export const case_records: CaseRecord[] = [
+  { advisor_id: "FC001", product: "Whole life", client: "L.M.", date: "2026-08-29", policy: "POL-2026-005117", status: "pending", commission: 4587, premium: 9600 },
+  { advisor_id: "FC001", product: "Investment-linked plan", client: "R.S.", date: "2026-08-22", policy: "POL-2026-005063", status: "pending", commission: 2867, premium: 6000 },
+  { advisor_id: "FC001", product: "Term life", client: "A.N.", date: "2026-08-19", policy: "POL-2026-005021", status: "pending", commission: 1720, premium: 3600 },
+  { advisor_id: "FC001", product: "Term life", client: "B.F.", date: "2026-08-30", policy: "POL-2026-005010", status: "secured", commission: 278, gross_revenue: 556, premium: 317 },
+  { advisor_id: "FC001", product: "Whole life + early CI rider", client: "H.Z.", date: "2026-08-27", policy: "POL-2026-004964", status: "secured", commission: 323, gross_revenue: 646, premium: 359 },
+  { advisor_id: "FC001", product: "Endowment plan", client: "E.G.", date: "2026-08-23", policy: "POL-2026-004935", status: "secured", commission: 133, gross_revenue: 266, premium: 429 },
+  { advisor_id: "FC001", product: "Personal accident", client: "N.A.", date: "2026-08-18", policy: "POL-2026-004905", status: "secured", commission: 161, gross_revenue: 322, premium: 776 },
+  { advisor_id: "FC001", product: "Whole life", client: "K.W.", date: "2026-08-14", policy: "POL-2026-004878", status: "secured", commission: 280, gross_revenue: 560, premium: 493 },
+  { advisor_id: "FC001", product: "Whole life + early CI rider", client: "M.T.", date: "2026-08-12", policy: "POL-2026-004840", status: "secured", commission: 135, gross_revenue: 270, premium: 686 },
+  { advisor_id: "FC001", product: "Whole life + early CI rider", client: "S.R.", date: "2026-08-09", policy: "POL-2026-004799", status: "secured", commission: 314, gross_revenue: 628, premium: 534 },
+  { advisor_id: "FC001", product: "Investment-linked plan", client: "D.L.", date: "2026-08-06", policy: "POL-2026-004746", status: "secured", commission: 276, gross_revenue: 552, premium: 512 },
+  { advisor_id: "FC001", product: "Whole life", client: "C.Y.", date: "2026-08-02", policy: "POL-2026-004690", status: "secured", commission: 284, gross_revenue: 568, premium: 594 },
+  { advisor_id: "FC001", product: "Whole life", client: "W.H.", date: "2026-07-30", policy: "POL-2026-004655", status: "secured", commission: 113, gross_revenue: 226, premium: 1596 },
+  { advisor_id: "FC001", product: "Personal accident", client: "L.M.", date: "2026-07-24", policy: "POL-2026-004626", status: "secured", commission: 203, gross_revenue: 406, premium: 1042 },
+  { advisor_id: "FC001", product: "Critical illness", client: "R.S.", date: "2026-07-21", policy: "POL-2026-004588", status: "secured", commission: 252, gross_revenue: 504, premium: 583 },
+  { advisor_id: "FC001", product: "Hospital plan + rider", client: "A.N.", date: "2026-07-15", policy: "POL-2026-004566", status: "secured", commission: 117, gross_revenue: 234, premium: 554 },
+  { advisor_id: "FC001", product: "Personal accident", client: "J.O.", date: "2026-07-11", policy: "POL-2026-004543", status: "secured", commission: 286, gross_revenue: 572, premium: 1055 },
+  { advisor_id: "FC001", product: "Term life", client: "P.K.", date: "2026-07-08", policy: "POL-2026-004487", status: "secured", commission: 140, gross_revenue: 280, premium: 510 },
+  { advisor_id: "FC001", product: "Hospital plan + rider", client: "T.K.", date: "2026-07-03", policy: "POL-2026-004427", status: "secured", commission: 194, gross_revenue: 388, premium: 1160 },
+  { advisor_id: "FC002", product: "Hospital plan", client: "B.C.", date: "2026-08-15", policy: "POL-2026-003925", status: "secured", commission: 446, gross_revenue: 822, premium: 902 },
+  { advisor_id: "FC002", product: "Term life", client: "H.Q.", date: "2026-08-09", policy: "POL-2026-003981", status: "secured", commission: 352, gross_revenue: 1488, premium: 1629 },
+  { advisor_id: "FC002", product: "Whole life", client: "N.Z.", date: "2026-08-04", policy: "POL-2026-004041", status: "secured", commission: 623, gross_revenue: 1243, premium: 869 },
+  { advisor_id: "FC003", product: "Whole life", client: "G.P.", date: "2026-07-24", policy: "POL-2026-004097", status: "secured", commission: 1228, gross_revenue: 2477, premium: 7837 },
+  { advisor_id: "FC003", product: "Hospital plan", client: "L.W.", date: "2026-07-19", policy: "POL-2026-004148", status: "secured", commission: 1611, gross_revenue: 2804, premium: 3999 },
+  { advisor_id: "FC003", product: "Whole life + early CI rider", client: "M.Y.", date: "2026-07-05", policy: "POL-2026-004197", status: "secured", commission: 2361, gross_revenue: 2886, premium: 7103 },
+  { advisor_id: "FC003", product: "Critical illness", client: "F.N.", date: "2026-07-04", policy: "POL-2026-004236", status: "secured", commission: 1414, gross_revenue: 2856, premium: 4561 },
+  { advisor_id: "FC003", product: "Personal accident", client: "M.Y.", date: "2026-08-28", policy: "POL-2026-004276", status: "secured", commission: 2145, gross_revenue: 3946, premium: 4640 },
+  { advisor_id: "FC003", product: "Whole life + early CI rider", client: "R.M.", date: "2026-08-27", policy: "POL-2026-004334", status: "secured", commission: 1331, gross_revenue: 2529, premium: 2407 },
+  { advisor_id: "FC003", product: "Term life", client: "J.S.", date: "2026-08-26", policy: "POL-2026-004358", status: "secured", commission: 1922, gross_revenue: 4751, premium: 3650 },
+  { advisor_id: "FC003", product: "Term life", client: "B.C.", date: "2026-08-20", policy: "POL-2026-004408", status: "secured", commission: 1834, gross_revenue: 1984, premium: 1990 },
+  { advisor_id: "FC003", product: "Whole life + early CI rider", client: "K.V.", date: "2026-08-19", policy: "POL-2026-004447", status: "secured", commission: 2462, gross_revenue: 2947, premium: 4313 },
+  { advisor_id: "FC004", product: "Endowment plan", client: "E.L.", date: "2026-07-17", policy: "POL-2026-004480", status: "secured", commission: 478, gross_revenue: 1261, premium: 1479 },
+  { advisor_id: "FC004", product: "Hospital plan", client: "N.Z.", date: "2026-07-03", policy: "POL-2026-004515", status: "secured", commission: 544, gross_revenue: 2146, premium: 1921 },
+  { advisor_id: "FC005", product: "Hospital plan", client: "J.S.", date: "2026-08-07", policy: "POL-2026-004563", status: "pending", commission: 1982, premium: 4400 },
+];

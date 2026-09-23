@@ -12,13 +12,16 @@ export default function Page({
   onClose,
   title,
   eyebrow,
+  tabs,
   children,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
-  /** Small line above the title: "This year · Jan–Dec 2026". */
+  /** Small line above the title: "Tan Wei Lun · Jan–Dec 2026". */
   eyebrow?: string;
+  /** A row under the title that stays put while the page scrolls (the detail sheet's tabs). */
+  tabs?: ReactNode;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -67,14 +70,18 @@ export default function Page({
       aria-label={title}
       className="page-up fixed inset-0 z-30 mx-auto flex w-full max-w-[430px] flex-col bg-canvas focus:outline-none sm:border-x sm:border-line"
     >
-      <header className="flex shrink-0 items-center gap-3 border-b border-line bg-surface px-5 pb-3 pt-[max(12px,env(safe-area-inset-top))]">
-        <div className="min-w-0 flex-1">
-          {eyebrow && <div className="truncate text-[10px] font-bold uppercase tracking-[.1em] text-muted">{eyebrow}</div>}
-          <h2 className="truncate text-[20px] font-bold leading-tight tracking-[-.015em] text-ink">{title}</h2>
+      <header className="flex shrink-0 flex-col gap-3 border-b border-line bg-surface px-4 pb-3 pt-[max(8px,env(safe-area-inset-top))]">
+        <div className="h-1 w-9 self-center rounded bg-hairline" aria-hidden="true" />
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            {eyebrow && <div className="truncate text-[11px] font-bold uppercase leading-4 tracking-[.06em] text-muted">{eyebrow}</div>}
+            <h2 className="truncate text-[22px] font-extrabold leading-7 text-ink">{title}</h2>
+          </div>
+          <button type="button" onClick={close} className="h-11 shrink-0 rounded-full bg-accent-soft px-5 text-[14px] font-bold text-accent hover:bg-accent/15">
+            Done
+          </button>
         </div>
-        <button type="button" onClick={close} className="shrink-0 rounded-full bg-accent-soft px-3.5 py-1.5 text-[13px] font-semibold text-accent hover:bg-accent/15">
-          Done
-        </button>
+        {tabs}
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</div>
     </div>

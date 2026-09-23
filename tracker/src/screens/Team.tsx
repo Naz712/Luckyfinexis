@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { TODAY, type Advisor, type Case } from "../mock/data";
+import { TODAY, type Advisor, type Case, type CaseRecord } from "../mock/data";
 import { ELITE, isNewFc } from "../lib/elite";
 import { mdrtSnapshot, metricSnapshot, parseISODate, type GoalSet, type MdrtSnapshot, type MetricSnapshot } from "../lib/calc";
 import { CADENCE_PER, count, periodLabel, pct, sgd, shortDate } from "../lib/format";
@@ -52,12 +52,14 @@ export default function Team({
   cases,
   goalSet,
   source,
+  records = [],
 }: {
   manager: Advisor;
   advisors: Advisor[];
   cases: Case[];
   goalSet: GoalSet;
   source?: DataSource;
+  records?: CaseRecord[];
 }) {
   const [viewing, setViewing] = useState<Advisor | null>(null);
 
@@ -89,7 +91,8 @@ export default function Team({
             Viewing <span className="font-semibold">{viewing.name}</span> · read-only
           </span>
         </div>
-        <Home advisor={viewing} cases={cases} goalSet={goalSet} />
+        {/* Read-only, and without clients' initials on the cases: those stay with the FC. */}
+        <Home advisor={viewing} cases={cases} goalSet={goalSet} records={records} showClients={false} />
       </div>
     );
   }

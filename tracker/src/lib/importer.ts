@@ -186,7 +186,7 @@ export function monthLabel(iso: string): string {
 }
 
 /** GR behind an amount of commission at a band, by the payout formula run backwards. */
-function grFromCommission(commission: number, band: BandingCode): number {
+export function grFromCommission(commission: number, band: BandingCode): number {
   const share = fcShare(band);
   return share > 0 ? commission / share : 0;
 }
