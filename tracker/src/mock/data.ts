@@ -308,8 +308,15 @@ export interface MdrtTierGoal {
 export const DEFAULT_USER_ID = "FC001";
 export const MANAGER_USER_ID = "FC000";
 
-/** Pinned so the mockup reads the same on any day: a Sunday in September, the week after the August import. */
-export const TODAY = new Date("2026-09-06T00:00:00");
+/**
+ * Pinned so the mockup reads the same on any day: a Sunday in September, the
+ * week after the August import. A build made with VITE_REAL_DATE=1 (a copy
+ * for real use) takes the phone's own date instead, so pace and which
+ * incentives are running follow the calendar.
+ */
+const REAL_DATE = (import.meta.env.VITE_REAL_DATE as string | undefined) === "1";
+const NOW = new Date();
+export const TODAY = REAL_DATE ? new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate()) : new Date("2026-09-06T00:00:00");
 
 /**
  * The sample import: one manager and five FAs, January to August 2026,

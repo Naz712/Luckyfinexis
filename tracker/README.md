@@ -227,6 +227,11 @@ and neutrals all flip. Screens never hard-code a colour.
 attachment without a server. If `src/private/rates.local.json` is present it
 carries the confidential rates, so treat the file accordingly.
 
+The app's date is pinned to 6 Sep 2026 so the sample reads the same every day.
+For a copy to use for real, build with `VITE_REAL_DATE=1 npm run share`: it
+takes the phone's own date, so pace and the incentives running follow the
+calendar.
+
 ## Trying it on a phone
 
 Every push to the tracker branch runs `.github/workflows/tracker-pages.yml`,
