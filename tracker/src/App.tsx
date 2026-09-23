@@ -168,13 +168,7 @@ export default function App() {
   const weeksLeft = weeksLeftIn(yearPeriod, TODAY);
   const headerNote: Record<Exclude<Tab, "home">, ReactNode> = {
     goals: `${weeksLeft} weeks left in ${TODAY.getFullYear()}`,
-    calculator: (
-      <>
-        Commission per client
-        <br />
-        before you meet them
-      </>
-    ),
+    calculator: null,
     team: (
       <>
         {advisors.filter((a) => a.manager_id === me.id).length} FCs
@@ -191,7 +185,7 @@ export default function App() {
           <div className="flex items-end justify-between gap-2.5">
             <div className="min-w-0">
               <div className="whitespace-nowrap text-[10px] font-bold uppercase tracking-[.13em] text-accent">Finexis tracker</div>
-              <div className="mt-0.5 text-[22px] font-bold leading-tight tracking-[-.015em] text-ink">{TABS.find((t) => t.id === activeTab)?.label}</div>
+              <div className="mt-0.5 truncate text-[22px] font-bold leading-tight tracking-[-.015em] text-ink">{TABS.find((t) => t.id === activeTab)?.label}</div>
             </div>
             <div className="flex shrink-0 items-end gap-2">
               {headerExtra}

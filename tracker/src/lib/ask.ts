@@ -4,13 +4,11 @@
 // router at the bottom) only decides which tool to call and how to phrase
 // the result. The tools never see anything beyond this advisor's own
 // production and, for a manager, their team's.
-import { ELITE_RULES_CONFIRMED, elite_tiers, MDRT_MEMBERSHIP_YEAR, metric_definitions, products, TODAY, type Advisor, type Case, type Product, type Tier } from "../mock/data";
+import { ELITE_RULES_CONFIRMED, elite_tiers, MDRT_MEMBERSHIP_YEAR, metric_definitions, TODAY, type Advisor, type Case, type Tier } from "../mock/data";
 import {
   aggregate,
   casesForAdvisor,
-  commissionForCase,
   effectiveDate,
-  estimateGrossRevenue,
   goalFor,
   inPeriod,
   mdrtSnapshot,
@@ -20,7 +18,6 @@ import {
   pace,
   parseISODate,
   periodBounds,
-  productById,
   ROUTE_LABEL,
   toISODate,
   UNTRACKED_METRICS,
@@ -29,6 +26,7 @@ import {
   type MdrtRoute,
 } from "./calc";
 import { CADENCE_PER, count, fmtMetric, paceText, sgd, shortDate } from "./format";
+import { CATALOGUE, CATALOGUE_IS_PRIVATE, findPolicy, quote, variantForTerm } from "./policies";
 
 export interface AnswerRow {
   label: string;
@@ -86,8 +84,8 @@ export const TOOL_DEFS = [
         type: "object",
         properties: {
           premium: { type: "number", description: "Annual premium in dollars (lump sum for single-premium products)." },
-          product: { type: "string", description: "Product name or part of it (term, critical illness, ILP, endowment, hospital, whole life). Empty when not said." },
-          term_years: { type: "integer", description: "Policy term in years. 0 when not said." },
+          product: { type: "string", description: "Policy name as the adviser said it, or a kind of plan (term, critical illness, ILP, whole life). Empty when not said." },
+          term_years: { type: "integer", description: "Premium term in years. 0 when not said." },
           when: { type: "string", description: "Confirmation date as YYYY-MM-DD, or empty for today." },
         },
         required: ["premium", "product", "term_years", "when"],
@@ -136,7 +134,6 @@ const clip = (n: unknown, lo: number, hi: number, dflt: number) => {
   const v = Number(n);
   return Number.isFinite(v) && v > 0 ? Math.min(hi, Math.max(lo, Math.round(v))) : dflt;
 };
-const commissionOf = (c: Case) => commissionForCase(c.gross_revenue, c.banding_code_at_time);
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 /** "14 Jan" this year, "14 Jan 2025" otherwise. */
@@ -144,37 +141,6 @@ const dayOf = (iso: string) => {
   const d = parseISODate(iso);
   return d.getFullYear() === TODAY.getFullYear() ? shortDate(d) : `${shortDate(d)} ${d.getFullYear()}`;
 };
-/** The products a what-if can name: the panel without the import's two buckets. */
-const offered = () => products.filter((p) => !p.hidden);
-
-function findProduct(hint: string): Product | null {
-  const h = hint.trim().toLowerCase();
-  if (!h) return null;
-  const panel = offered();
-  const exact = panel.find((p) => p.id === h || p.name.toLowerCase() === h);
-  if (exact) return exact;
-  const byName = panel.find((p) => p.name.toLowerCase().includes(h));
-  if (byName) return byName;
-  const kinds: [RegExp, (p: Product) => boolean][] = [
-    [/critical|\bci\b/, (p) => /critical/i.test(p.name)],
-    [/hospital|shield/, (p) => /hospital/i.test(p.name)],
-    [/whole life/, (p) => /whole life/i.test(p.name)],
-    [/\bterm\b/, (p) => /\bterm\b/i.test(p.name)],
-    [/\bilp\b|investment.linked/, (p) => p.category === "ilp"],
-    [/endowment|retirement|savings/, (p) => p.category === "endowment"],
-  ];
-  for (const [re, pick] of kinds) if (re.test(h)) return panel.find(pick) ?? null;
-  return null;
-}
-
-/** The product this advisor writes most, for a what-if that names none. Import entries carry only the two hidden buckets, so this usually lands on a term plan. */
-function usualProduct(ctx: AskContext): Product {
-  const counts = new Map<string, number>();
-  for (const c of mine(ctx)) if (!productById(c.product_id)?.hidden) counts.set(c.product_id, (counts.get(c.product_id) ?? 0) + 1);
-  const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
-  const panel = offered();
-  return (top && productById(top)) || panel.find((p) => /\bterm\b/i.test(p.name)) || panel[0] || products[0]!;
-}
 
 const routeOf = (snap: ReturnType<typeof mdrtSnapshot>): MdrtRoute => snap.routes.find((r) => r.metric === snap.closer) ?? snap.routes[0]!;
 const pctOf = (r: MdrtRoute) => `${Math.round(Math.min(1, r.projected / r.goalThreshold) * 100)}%`;
@@ -208,49 +174,54 @@ function paceStatus(ctx: AskContext): ToolResult {
 function whatIf(ctx: AskContext, args: Record<string, unknown>): ToolResult {
   const premium = Number(args.premium);
   if (!Number.isFinite(premium) || premium <= 0) return { label: "What if", summary: "I need the premium amount to work that out.", rows: [], facts: { error: "premium missing" } };
-  const named = findProduct(String(args.product ?? ""));
-  const product = named ?? usualProduct(ctx);
-  const term = product.premium_type === "single" ? 1 : clip(args.term_years, 1, 60, 20);
+  const named = findPolicy(String(args.product ?? ""));
+  const policy = named ?? CATALOGUE.policies.find((p) => p.category === "Term") ?? CATALOGUE.policies[0]!;
+  const termArg = Number(args.term_years);
+  const variant = variantForTerm(policy, Number.isFinite(termArg) && termArg > 0 ? termArg : null);
   const whenRaw = String(args.when ?? "");
   const when = /^\d{4}-\d{2}-\d{2}$/.test(whenRaw) ? whenRaw : toISODate(TODAY);
   const cs = mine(ctx);
+  // The same quote the Calculator shows: the schedule's rate, running incentives, the FC's share at their band.
+  const q = quote({ policy, variant, premium, band: ctx.advisor.banding_code, today: TODAY });
   const hypo: Case = {
     id: "case_what_if",
     advisor_id: ctx.advisor.id,
     client_name: "(what if)",
-    product_id: product.id,
+    product_id: policy.mdrt_category === "other" ? "import_other" : "import_risk",
     premium_amount: premium,
-    premium_term_years: term,
-    gross_revenue: estimateGrossRevenue(premium, product),
+    premium_term_years: variant.term ?? 1,
+    gross_revenue: q.gr,
     banding_code_at_time: ctx.advisor.banding_code,
     status: "confirmed",
     source: "manual",
     submitted_on: when,
     confirmed_on: when,
+    metrics: { commission: q.earnings, gross_revenue: q.gr, premium, mdrt_commission: q.mdrtCommission, mdrt_premium: q.mdrtPremium, elite: q.elite, wape: 0 },
   };
   const before = mdrtSnapshot(ctx.advisor.id, cs, TODAY, ctx.goalSet);
   const after = mdrtSnapshot(ctx.advisor.id, [...cs, hypo], TODAY, ctx.goalSet);
   const rb = routeOf(before);
   const ra = after.routes.find((r) => r.metric === rb.metric) ?? routeOf(after);
-  const commission = commissionOf(hypo);
+  const commission = q.earnings;
   const credit = Math.max(0, ra.projected - rb.projected);
   const toGo = Math.max(0, ra.goalThreshold - ra.projected);
-  const lump = product.premium_type === "single";
+  const lump = !!variant.single;
   return {
-    label: `If you sell ${product.name} at ${sgd(premium)}${lump ? "" : "/yr"}`,
+    label: `If you sell ${policy.name} at ${sgd(premium)}${lump ? "" : "/yr"}`,
     summary: ra.goalReached
       ? `That case would take you over the line for ${TIER_LABEL[after.goalTier]} on the ${ROUTE_LABEL[ra.metric].toLowerCase()} route.`
       : `It pays you ${sgd(commission)} and adds ${sgd(credit)} of ${ROUTE_LABEL[ra.metric].toLowerCase()}-route credit, taking you from ${pctOf(rb)} to ${pctOf(ra)} of ${TIER_LABEL[after.goalTier]} with ${sgd(toGo)} still to go. ${paceText(ra.pace, "sgd", false)} after it.`,
     rows: [
-      { label: "Case", value: `${sgd(premium)}${lump ? " lump sum" : "/yr"}`, sub: `${product.name}${lump ? "" : ` · ${term} years`}${named ? "" : " · your usual product, as none was named"}` },
+      { label: "Case", value: `${sgd(premium)}${lump ? " lump sum" : "/yr"}`, sub: `${policy.insurer} ${policy.name} · ${variant.label}${named ? "" : " · a term plan, as none was named"}` },
+      { label: "Gross revenue, year 1", value: sgd(q.gr), sub: q.lines.length > 1 ? `incl. ${q.lines.filter((l) => l.kind !== "base").map((l) => l.label).join(", ")}` : `${Number((variant.years[0] ?? 0).toFixed(2))}% of premium` },
       { label: "Commission to you", value: sgd(commission), sub: `band ${ctx.advisor.banding_code}` },
       { label: `${ROUTE_LABEL[ra.metric]} credit added`, value: sgd(credit) },
       { label: "Progress", value: `${pctOf(rb)} → ${pctOf(ra)}`, sub: `of ${sgd(ra.goalThreshold)} for ${TIER_LABEL[after.goalTier]}` },
       { label: "Still to go", value: sgd(toGo) },
       { label: "Pace after", value: paceText(ra.pace, "sgd", ra.goalReached), sub: `before: ${paceText(rb.pace, "sgd", rb.goalReached)}` },
     ],
-    note: `Assumes the case is confirmed on ${dayOf(when)}. Revenue uses the product's placeholder rate, like the Calculator.`,
-    facts: { product: product.name, product_id: product.id, premium, term_years: term, confirmed_on: when, commission: Math.round(commission), route: ra.metric, credit_added: Math.round(credit), progress_before: rb.projected / rb.goalThreshold, progress_after: ra.projected / ra.goalThreshold, to_go_after: Math.round(toGo), goal_reached_after: ra.goalReached, required_per_week_after: ra.pace.requiredPerWeek === null ? null : Math.round(ra.pace.requiredPerWeek) },
+    note: `Assumes the case is confirmed on ${dayOf(when)}. Rates as in the Calculator${CATALOGUE_IS_PRIVATE ? "" : " (sample rates on this build)"}; MDRT credit leaves out cash incentives.`,
+    facts: { policy: policy.name, insurer: policy.insurer, option: variant.label, premium, gross_revenue: Math.round(q.gr), confirmed_on: when, commission: Math.round(commission), route: ra.metric, credit_added: Math.round(credit), progress_before: rb.projected / rb.goalThreshold, progress_after: ra.projected / ra.goalThreshold, to_go_after: Math.round(toGo), goal_reached_after: ra.goalReached, required_per_week_after: ra.pace.requiredPerWeek === null ? null : Math.round(ra.pace.requiredPerWeek) },
   };
 }
 

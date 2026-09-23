@@ -26,6 +26,8 @@ import {
   type Tier,
 } from "../mock/data";
 
+import { fcShare } from "./policies";
+
 export type { MdrtRouteMetric } from "../mock/data";
 
 // ───────────────────────── Lookups ─────────────────────────
@@ -100,8 +102,9 @@ export function casesForAdvisor(advisorId: string, source: Case[]): Case[] {
 
 // ───────────────────────── Per-case maths ─────────────────────────
 
+/** The FC's commission on gross revenue at a band, by the firm's payout formula (see src/lib/policies.ts). */
 export function commissionForCase(grossRevenue: number, bandingCode: BandingCode): number {
-  return grossRevenue * bandingRate(bandingCode);
+  return grossRevenue * fcShare(bandingCode);
 }
 
 /**

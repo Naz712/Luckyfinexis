@@ -24,7 +24,8 @@ npm run build      # typecheck + production build into dist/
 | `src/lib/calc.ts` | Pure calculations: entries → metrics, the two MDRT routes and the Risk-Protection floor, pace, series, goals. |
 | `src/lib/format.ts` | Display formatting only (`S$12,345`, no decimals). |
 | `src/lib/api.ts` | The server client: where it is, the signed-in FA, `/me` and `/ask`. |
-| `src/lib/privateRates.ts`, `src/private/` | Confidential rates, loaded from a gitignored file when present. |
+| `src/lib/policies.ts`, `src/mock/policies.sample.ts` | The policy catalogue: types, the quote (gross revenue, incentives, the FC's share, later years), and the public made-up sample. |
+| `src/lib/privateRates.ts`, `src/private/` | Confidential schedules, incentives, payout formula and bandings, loaded from gitignored files when present. |
 | `src/lib/ask.ts`, `src/components/Ask.tsx` | The assistant: its tools over the FA's own production, the stand-in keyword router, and the sheet, which also holds Connect and sign-in. |
 | `src/screens/` | Home, Goals (+ editor), Calculator, Team. Screens read only through `calc.ts`. |
 | `src/components/` | Small shared pieces (card, select, money input, segmented control), the SVG column chart, the product picker, the bottom sheet. |
@@ -98,11 +99,16 @@ part of the deployment choice, written up separately.
   both routes, a projection chart (confirmed line, run rate, the pace that
   reaches the goal), custom targets edited in place with a cadence, and every
   metric's goal. Elite credits can carry their own target.
-- **Calculator** — band strip in the header, product cards from the picker
-  (Singlife, HSBC Life, FWD), typical premium and estimated gross revenue
-  pre-filled, commission at the band, MDRT credit and Elite credits per
-  product, a pinned total per client, and "How far this gets you" against the
-  goal with a what-if figure.
+- **Calculator** — band strip in the header; one card per policy with two
+  dropdowns (the policy, grouped by insurer and category, then its option:
+  premium term, plan, MIP, premium charge) and the premium. Each card shows
+  gross revenue for year 1 (the schedule's rate, plus every insurer
+  incentive running that day: commission uplifts, APE-based cash rewards,
+  cash on sales), the FC's earnings by the firm's payout formula, the later
+  policy years, trip credits and conditions as notes, and the schedule's
+  small print. "Your quarter so far" takes the rest of the quarter where a
+  tier depends on it. A pinned total per client and "How far this gets you"
+  against the goal set in Goals (MDRT credit leaves cash incentives out).
 - **Team** (managers) — team commission, on-track count, MDRT qualified, one row
   per FC with commission, MDRT progress and Elite credits, tap for their Home
   read-only, and a note on the latest import.
@@ -138,12 +144,22 @@ Global edition dated 14 Mar 2026), Singapore row, entered 14 Sep 2026
 
 ## Confidential rates
 
-The real commission rates, credit rates, Elite rates and banding table stay out
-of the repo. Put them in `src/private/rates.local.json` (shape in
-`rates.example.json`); the app applies them on top of the placeholders at build
-time. `npm run dev` and `npm run share` on that machine use the real figures;
-the public GitHub Pages build never has the file. The Calculator's small print
-says which is in use. Details in `src/private/README.md`.
+The insurers' schedules and incentive circulars, the firm's payout formula
+(FC earnings = share × (banding rate − deduction) × gross revenue) and the
+banding table stay out of the repo. They live in `src/private/`
+(gitignored): `policies.local.json` for the policy catalogue and payout
+formula, `rates.local.json` for bandings. The app applies them at build
+time. `npm run dev` and `npm run share` on a machine that has them use the
+real figures; the public GitHub Pages build never has them and shows a
+made-up sample catalogue instead. The Calculator's footnote says which is in
+use. Details in `src/private/README.md`.
+
+What the catalogue covers today: HSBC Life's remuneration schedule of 7 Sep
+2026 (regular and single premium plans, universal life, and rider groups)
+and FWD's schedule of July 2026 (plans open to new business), with the Q3
+2026 incentives from both insurers' circulars. Left out: products with no
+commission, riders that follow the basic plan's rate, group (EB) products,
+trailer commissions, and FWD products the schedule marks withdrawn.
 
 ## Ask: the assistant
 
