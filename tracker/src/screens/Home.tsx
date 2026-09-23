@@ -249,7 +249,6 @@ export default function Home({
   identityExtra,
   source,
   records = [],
-  showClients = true,
 }: {
   advisor: Advisor;
   cases: Case[];
@@ -261,8 +260,6 @@ export default function Home({
   source?: DataSource;
   /** Individual cases since the tracker's launch, for the detail sheet's case list. */
   records?: CaseRecord[];
-  /** Clients' initials on those cases: false in a manager's drill-down. */
-  showClients?: boolean;
 }) {
   const mine = casesForAdvisor(advisor.id, cases);
   const mdrt = mdrtSnapshot(advisor.id, mine, TODAY, goalSet);
@@ -563,7 +560,7 @@ export default function Home({
 
       {note && <p className={`tnum px-5 pb-5 text-center text-[11px] leading-[1.5] ${note.tone === "warn" ? "text-warn" : "text-muted"}`}>{note.text}</p>}
 
-      <DetailSheet tab={openTab} onTab={setOpenTab} onClose={() => setOpenTab(null)} advisor={advisor} cases={mine} records={records} goalSet={goalSet} showClients={showClients} />
+      <DetailSheet tab={openTab} onTab={setOpenTab} onClose={() => setOpenTab(null)} advisor={advisor} cases={mine} records={records} goalSet={goalSet} />
     </div>
   );
 }

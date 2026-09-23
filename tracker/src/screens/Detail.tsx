@@ -144,7 +144,6 @@ export default function DetailSheet({
   cases,
   records,
   goalSet,
-  showClients,
 }: {
   /** The open tab, or null when the sheet is closed. */
   tab: DetailTab | null;
@@ -156,8 +155,6 @@ export default function DetailSheet({
   /** The FC's individual cases since the tracker's launch. */
   records: CaseRecord[];
   goalSet: GoalSet;
-  /** Clients' initials on each case: the FC's own view only, not a manager's drill-down. */
-  showClients: boolean;
 }) {
   const year = periodBounds("jan_dec", TODAY);
   const code: DetailTab = tab ?? "commission";
@@ -188,7 +185,7 @@ export default function DetailSheet({
         </div>
       }
     >
-      {tab !== null && <DetailBody code={code} onTab={onTab} advisor={advisor} cases={cases} records={records} goalSet={goalSet} showClients={showClients} year={year} />}
+      {tab !== null && <DetailBody code={code} onTab={onTab} advisor={advisor} cases={cases} records={records} goalSet={goalSet} year={year} />}
     </Page>
   );
 }
@@ -200,7 +197,6 @@ function DetailBody({
   cases,
   records,
   goalSet,
-  showClients,
   year,
 }: {
   code: DetailTab;
@@ -209,7 +205,6 @@ function DetailBody({
   cases: Case[];
   records: CaseRecord[];
   goalSet: GoalSet;
-  showClients: boolean;
   year: Period;
 }) {
   // Chart view, selected month and the case list's state all survive a tab switch.
@@ -737,7 +732,7 @@ function DetailBody({
                         <span className="text-[14px] font-bold text-ink">{r.product}</span>
                         {isPending && <span className="shrink-0 rounded bg-pend-tag px-[5px] py-px text-[9px] font-extrabold tracking-[.06em] text-gold-ink">PENDING</span>}
                       </span>
-                      <span className="text-[12px] text-muted">{showClients ? `Client ${r.client} · ${dayText(r.date)}` : dayText(r.date)}</span>
+                      <span className="text-[12px] text-muted">Client {r.client} · {dayText(r.date)}</span>
                       <span className="font-mono text-[11px] text-faint">{r.policy}</span>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-0.5">

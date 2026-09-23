@@ -112,9 +112,9 @@ part of the deployment choice, written up separately.
   total (pending hatched in gold, the needed months dashed), the selected
   month's four figures, all months, and the cases since the tracker's launch
   (`TRACKER_LAUNCH` in `src/mock/data.ts`, a placeholder) by month, secured
-  or pending, five to a page. Clients' initials show to the FC only, not in a
-  manager's drill-down. The sample's cases are made up to add up to the
-  import; the server does not send cases yet.
+  or pending, five to a page, each with the client's initials (the FC and
+  their manager both see them). The sample's cases are made up to add up to
+  the import; the server does not send cases yet.
 - **Goals** — three aims: ① MDRT / COT / TOT on commission or premium, ② an
   Elite tier, ③ a custom goal on commission, gross revenue or WAPE with a
   cadence. ("Final Sprint" on the business's whiteboard is the name for this

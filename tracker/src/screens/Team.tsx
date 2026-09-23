@@ -91,8 +91,7 @@ export default function Team({
             Viewing <span className="font-semibold">{viewing.name}</span> · read-only
           </span>
         </div>
-        {/* Read-only, and without clients' initials on the cases: those stay with the FC. */}
-        <Home advisor={viewing} cases={cases} goalSet={goalSet} records={records} showClients={false} />
+        <Home advisor={viewing} cases={cases} goalSet={goalSet} records={records} />
       </div>
     );
   }
