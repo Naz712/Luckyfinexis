@@ -343,12 +343,6 @@ export default function AskSheet({
             {answer.basis.length > 0 && <p className="mt-2 text-[11px] text-faint">From: {answer.basis.join(" · ")}</p>}
           </section>
         )}
-        {!answer && !busy && !error && (
-          <p className="py-2 text-[12.5px] leading-[1.5] text-muted">Ask about your pace, your Elite credits, your production by month, or what one more case would do. Answers come only from what is in this app.</p>
-        )}
-        <p className="mt-4 text-[11px] leading-[1.5] text-faint">
-          {live ? "Answers use only this app's data, fetched by the tools listed under each answer. Nothing outside it is looked up." : "Stand-in: understands the suggested kinds of question. Connect the server below to ask anything in your own words."}
-        </p>
         <ServerBox api={api} onApiChange={onApiChange} session={session} onSessionChange={onSessionChange} source={source} />
       </div>
     </Sheet>

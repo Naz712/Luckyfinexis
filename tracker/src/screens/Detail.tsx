@@ -1,6 +1,6 @@
 import { useState, type CSSProperties } from "react";
 import { MDRT_MEMBERSHIP_YEAR, TODAY, TRACKER_LAUNCH, type Advisor, type Case, type CaseRecord, type Tier } from "../mock/data";
-import { ELITE, elitePeriodText, eliteTiersFor, isNewFc } from "../lib/elite";
+import { eliteTiersFor } from "../lib/elite";
 import { elitePeriod } from "../lib/aims";
 import { effectiveDate, mdrtSnapshot, metricSnapshot, metricsForCase, pace as paceToward, parseISODate, periodBounds, type GoalSet, type MdrtRoute, type Period } from "../lib/calc";
 import { grFromCommission } from "../lib/importer";
@@ -19,14 +19,6 @@ const TABS: { code: DetailTab; tab: string; name: string; money: boolean }[] = [
   { code: "premium", tab: "Premium", name: "Premium", money: true },
   { code: "elite", tab: "Elite", name: "Elite credits", money: false },
 ];
-
-/** What each figure is, in a sentence, at the top of its tab. */
-const ABOUT: Record<DetailTab, string> = {
-  commission: "Your first-year commission: your share of the gross revenue on your cases, by the firm's payout formula.",
-  gross_revenue: "First-year gross revenue: what the insurers paid Finexis on your cases. Your commission is a share of it, and Elite credits are counted on it.",
-  premium: "First-year premium on your cases, single premiums in full.",
-  elite: "Finexis Elite credits: first-year gross revenue times each product's Elite multiplier. Insurer cash incentives don't count.",
-};
 
 const TIER_LABEL: Record<Tier, string> = { mdrt: "MDRT", cot: "COT", tot: "TOT" };
 const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -237,12 +229,6 @@ function DetailBody({
   // Without a goal: where this figure counts toward MDRT, if it does, and where this year's average lands.
   const mdrt = mdrtSnapshot(advisor.id, cases, TODAY, goalSet);
   const route: MdrtRoute | null = goal ? null : code === "premium" ? (mdrt.routes.find((r) => r.metric === "mdrt_premium") ?? null) : code === "commission" ? (mdrt.routes.find((r) => r.metric === "mdrt_commission") ?? null) : null;
-  const topTwo = v
-    .map((x, i) => ({ x, i }))
-    .sort((a, b) => b.x - a.x)
-    .slice(0, 2)
-    .sort((a, b) => a.i - b.i);
-  const topShare = total > 0 && elapsed >= 4 ? (topTwo[0]!.x + topTwo[1]!.x) / total : 0;
 
   // Elite: every tier and how far.
   const tiers = eliteTiersFor(advisor);
@@ -310,10 +296,12 @@ function DetailBody({
             <span className="text-[13px] leading-[18px] text-gold-ink">+{f(pending)} waiting on the insurer</span>
           </div>
         )}
-        <p className="m-0 text-pretty text-[13px] leading-[19px] text-muted">
-          {ABOUT[code]}
-          {estimated ? " Worked out from your commission at your band until the monthly import carries it." : ""}
-        </p>
+        {/* Gross revenue worked out from commission at the band, when the import has no GR column. */}
+        {estimated && (
+          <span className="self-start rounded bg-well px-1.5 py-0.5 text-[10px] font-extrabold tracking-[.06em] text-muted" title="Worked out from your commission at your band">
+            ESTIMATED
+          </span>
+        )}
 
         {goal && (
           <div className="flex flex-col gap-2.5 border-t border-line pt-3">
@@ -348,12 +336,6 @@ function DetailBody({
                 </>
               )}
             </div>
-            {goal.pace.gap > 0 && (
-              <p className="m-0 text-[12px] leading-[17px] text-muted">
-                Projected with pending: {f(snap.projected)}.{" "}
-                {snap.projected >= goal.target ? "That reaches your goal once the insurer confirms." : `That still leaves ${f(goal.target - snap.projected)} to find by ${shortDate(goal.period.end)}.`}
-              </p>
-            )}
           </div>
         )}
 
@@ -379,11 +361,6 @@ function DetailBody({
               <Stat label="Monthly average" value={f(avg)} />
               <Stat label={`At that pace, by ${shortDate(year.end)}`} value={f(avg * 12)} />
             </div>
-            {topShare >= 0.5 && (
-              <p className="m-0 text-[12px] leading-[17px] text-muted">
-                {MONTH_LONG[topTwo[0]!.i]} and {MONTH_LONG[topTwo[1]!.i]} make up {Math.round(topShare * 100)}% of the year so far, so the monthly bars below are best read with the running total.
-              </p>
-            )}
           </div>
         )}
 
@@ -420,10 +397,6 @@ function DetailBody({
                 );
               })}
             </ul>
-            <p className="m-0 pt-2 text-[11px] leading-[1.5] text-faint">
-              {ELITE.name}, {elitePeriodText()}.{isNewFc(advisor) ? " New-FC tiers." : ""}
-              {ELITE.tiers_confirmed ? "" : " Sample tiers."}
-            </p>
           </div>
         )}
       </section>
@@ -622,7 +595,6 @@ function DetailBody({
         <section className="flex flex-col overflow-hidden rounded-2xl border border-line bg-surface">
           <div className="flex items-baseline px-4 pb-1.5 pt-3.5">
             <SectionTitle>All months</SectionTitle>
-            <span className="text-[11px] text-faint">Tap a month to see it above</span>
           </div>
           {(() => {
             const maxV = Math.max(...v, pending, 1);

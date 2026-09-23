@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { MDRT_MEMBERSHIP_YEAR, MDRT_THRESHOLDS_CONFIRMED, metric_definitions, TODAY, type Advisor, type Case, type CaseRecord, type MetricUnit, type Tier } from "../mock/data";
-import { ELITE, elitePeriodText, eliteTiersFor, isNewFc, type EliteTier } from "../lib/elite";
+import { ELITE, eliteTiersFor, isNewFc, type EliteTier } from "../lib/elite";
 import { elitePeriod, soloAim } from "../lib/aims";
 import {
   casesForAdvisor,
@@ -9,7 +9,6 @@ import {
   pace as paceToward,
   parseISODate,
   ROUTE_WORD,
-  weeksLeftIn,
   type GoalSet,
   type MdrtRoute,
   type MdrtRouteMetric,
@@ -316,7 +315,6 @@ export default function Home({
   const verdict = goal ? verdictFor(goal.pace, hero.achieved, hero.unit) : { tone: "warn" as const, text: "" };
 
   // What it takes from here: the gap spread over what is left of the window, and where the current rate lands.
-  const weeksLeft = weeksLeftIn(hero.period, TODAY);
   const landingWord = `by ${shortDate(hero.period.end)}`;
 
   // Pending strip: the latest month's figures the insurer has not confirmed yet.
@@ -475,9 +473,6 @@ export default function Home({
                 <div className="text-[11px] text-muted">{landingWord}</div>
               </div>
             </div>
-            <p className="tnum mt-2.5 text-[12px] leading-[1.5] text-muted">
-              Gap of {fmt(hero.gap)} over the {weeksLeft} {weeksLeft === 1 ? "week" : "weeks"} left, to {shortDate(hero.period.end)} {hero.period.end.getFullYear()}.
-            </p>
           </Card>
         )}
 
@@ -502,17 +497,11 @@ export default function Home({
             <span className="text-[15px] font-medium text-muted">credits this year</span>
           </div>
           <EliteLadder achieved={elite.achieved} tiers={eliteTiers} period={elitePeriod()} />
-          <p className="mt-1 text-pretty text-[11px] leading-[1.5] text-muted">
-            First-year gross revenue times each product's Elite multiplier, {elitePeriodText()}; insurer cash incentives don't count. Tracked apart from MDRT.
-            {newFc ? ` You qualify at the ${ELITE.new_fc_label.replace(/^New FCs/, "new-FC")} tiers.` : ""}
-            {ELITE.tiers_confirmed ? "" : " The tiers shown are samples."}
-          </p>
         </Card>
 
         <Card className="overflow-hidden p-0">
           <div className="flex items-baseline justify-between px-4 pb-2.5 pt-3">
             <Label>This year</Label>
-            <span className="text-[11px] text-muted">tap for the details</span>
           </div>
           {tracked.map((s) => (
             <MetricRow key={s.definition.code} snapshot={s} onOpen={() => setOpenTab(s.definition.code as DetailTab)} />
@@ -520,7 +509,7 @@ export default function Home({
         </Card>
       </div>
 
-      {note && <p className={`tnum px-5 pb-5 text-center text-[11px] leading-[1.5] ${note.tone === "warn" ? "text-warn" : "text-muted"}`}>{note.text}</p>}
+      {note && note.tone === "warn" && <p className="tnum px-5 pb-5 text-center text-[11px] leading-[1.5] text-warn">{note.text}</p>}
 
       <DetailSheet tab={openTab} onTab={setOpenTab} onClose={() => setOpenTab(null)} advisor={advisor} cases={mine} records={records} goalSet={goalSet} />
     </div>

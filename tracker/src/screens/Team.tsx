@@ -127,7 +127,7 @@ export default function Team({
       <Card className="p-0">
         <div className="flex items-baseline justify-between px-4 pt-4">
           <Label>Your FCs</Label>
-          <span className="text-[11px] text-muted">Tap a row for their dashboard</span>
+
         </div>
         <ul className="mt-2 divide-y divide-line border-t border-line">
           {rows.map(({ advisor, commission, elite, mdrt }) => {
@@ -189,17 +189,7 @@ export default function Team({
         </ul>
       </Card>
 
-      <Card className="px-4 py-[13px]">
-        <Label>Monthly import</Label>
-        <p className="mt-1.5 text-pretty text-[12px] leading-[1.5] text-body">
-          Production figures come from the firm's monthly import, loaded on the server by the admin. FCs never upload anything.
-        </p>
-        {note && <p className={`tnum mt-1.5 text-[12px] leading-[1.5] ${note.tone === "warn" ? "text-warn" : "text-muted"}`}>{note.text}</p>}
-      </Card>
-
-      <p className="px-1 text-center text-[11px] text-muted">
-        Commission is confirmed production only. Pace compares each FC's run rate with their own goal.
-      </p>
+      {note && note.tone === "warn" && <p className="tnum px-1 text-center text-[12px] leading-[1.5] text-warn">{note.text}</p>}
     </div>
   );
 }

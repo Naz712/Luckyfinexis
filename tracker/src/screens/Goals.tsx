@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   MDRT_MEMBERSHIP_YEAR,
-  MDRT_PRODUCTION_YEAR,
-  MDRT_THRESHOLDS_CONFIRMED,
   TODAY,
   type Advisor,
   type Case,
@@ -17,7 +15,6 @@ import {
   aggregate,
   importHasWape,
   cumulativeSeries,
-  floorsFor,
   goalFor,
   goalPeriod,
   mdrtSnapshot,
@@ -36,10 +33,10 @@ import {
   type PrimaryGoal,
   type SeriesPoint,
 } from "../lib/calc";
-import { CADENCE_LABEL, CADENCE_PER, count, dateRange, fmtMetric, paceText, pct, periodLabel, routeGateText, sgd, shortDate } from "../lib/format";
+import { CADENCE_LABEL, CADENCE_PER, count, fmtMetric, paceText, pct, periodLabel, routeGateText, sgd, shortDate } from "../lib/format";
 import { Card, Label } from "../components/ui";
 import { CUSTOM_METRICS, eliteTierOf, soloAim, type SoloAim } from "../lib/aims";
-import { ELITE, elitePeriodText, eliteTiersFor, isNewFc } from "../lib/elite";
+import { eliteTiersFor } from "../lib/elite";
 
 export type { PrimaryGoal } from "../lib/calc";
 
@@ -188,7 +185,6 @@ function ProjectionCard({
   const todayX = x(now).toFixed(1);
   const todayY = y(achieved).toFixed(1);
 
-  const weeksLeft = weeksLeftIn(period, TODAY);
   const tiles = [
     { label: "Run rate finishes at", value: fmt(pace.runRateProjection), ink: pace.onTrack ? "text-ok" : "text-ink" },
     { label: "Pending would add", value: `+${fmt(projected - achieved)}`, ink: "text-warn" },
@@ -196,14 +192,6 @@ function ProjectionCard({
       ? { label: "Short by", value: fmt(pace.gap), ink: "text-accent" }
       : { label: "Needed each week", value: fmt(pace.requiredPerWeek), ink: "text-accent" },
   ];
-  const note =
-    pace.gap === 0
-      ? `Goal reached with ${weeksLeft} weeks still to run.`
-      : pace.onTrack
-        ? `Hold this rate and you clear the goal before ${shortDate(period.end)}.`
-        : pace.requiredPerWeek === null
-          ? `${paceText(pace, unit, false)}.`
-          : `The amber line is the pace that reaches the goal: ${fmt(pace.requiredPerWeek)} a week for the ${weeksLeft} weeks left.`;
 
   const legendItem = "flex items-center gap-[5px] text-[11px] text-muted";
   return (
@@ -266,7 +254,6 @@ function ProjectionCard({
         ))}
       </div>
 
-      <p className="tnum mt-[11px] text-pretty text-[12px] leading-[1.5] text-muted">{note}</p>
     </Card>
   );
 }
@@ -392,7 +379,6 @@ export default function Goals({
   const custom = soloAim(advisor, cases, goalSet, { kind: "custom", metric: customMetric }, TODAY);
   const solo = primary.kind === "elite" ? elite : primary.kind === "custom" ? custom : null;
   const cv = view(customMetric);
-  const cvFmt = (v: number) => fmtMetric(v, cv.definition.unit);
   const soloFmt = (v: number) => fmtMetric(v, solo?.unit ?? "sgd");
   const progressOf = (a: SoloAim) => (a.target ? `${pct(Math.min(a.achieved / a.target, 1))} there` : "no target set");
 
@@ -504,7 +490,6 @@ export default function Goals({
       <Card>
         <div className="flex items-baseline justify-between gap-2.5">
           <Label>What you are aiming at</Label>
-          <span className="shrink-0 text-[11px] text-muted">one at a time</span>
         </div>
         <div role="radiogroup" aria-label="What you are aiming at" className="mt-[11px] grid grid-cols-2 gap-2">
           <AimCard
@@ -575,10 +560,6 @@ export default function Goals({
                   </button>
                 );
               })}
-              <p className="tnum text-pretty text-[11px] leading-[1.5] text-muted">
-                {ELITE.name}, {elitePeriodText()}. {isNewFc(advisor) ? `You qualify at the ${ELITE.new_fc_label.replace(/^New FCs/, "new-FC")} tiers. ` : ""}
-                {ELITE.tiers_confirmed ? "" : "Sample tiers."}
-              </p>
             </div>
           )}
 
@@ -656,12 +637,7 @@ export default function Goals({
                 })}
               </div>
 
-              <p className="tnum mt-[9px] text-pretty text-[11px] leading-[1.5] text-muted">
-                {cv.inImport
-                  ? `${cv.definition.label} counts over ${periodLabel(cv.period)} (${dateRange(cv.period)}). Achieved so far ${cvFmt(cv.achieved)}.`
-                  : `${cv.definition.label} counts over ${periodLabel(cv.period)}, but the monthly import doesn't carry it yet.`}
-                {customMetric === "wape" ? " WAPE is Finexis's weighted premium figure, taken from the import as it comes." : ""}
-              </p>
+              {!cv.inImport && <p className="tnum mt-[9px] text-pretty text-[11px] leading-[1.5] text-warn">The monthly import doesn't carry {cv.definition.label} yet.</p>}
             </>
           )}
         </div>
@@ -671,7 +647,6 @@ export default function Goals({
       <Card className="overflow-hidden">
         <div className="flex items-baseline justify-between gap-2.5">
           <Label>Your custom goals</Label>
-          <span className="shrink-0 text-[11px] text-muted">tap to focus above</span>
         </div>
         <div className="-mx-4 -mb-4 mt-[11px]">
           {CUSTOM_METRICS.map((m) => {
@@ -717,14 +692,6 @@ export default function Goals({
         </div>
       </Card>
 
-      {/* 5 · Footnote */}
-      <p className="tnum px-1 text-pretty text-center text-[11px] leading-[1.55] text-muted">
-        {`MDRT, COT and TOT use the ${MDRT_MEMBERSHIP_YEAR} thresholds: your ${MDRT_PRODUCTION_YEAR} production counts toward ${MDRT_MEMBERSHIP_YEAR} membership.${
-          MDRT_THRESHOLDS_CONFIRMED ? "" : ` Singapore figures still to be confirmed against the ${MDRT_MEMBERSHIP_YEAR} chart.`
-        } Other Products credit (hospital plans, funds, portfolios) counts only once Risk-Protection credit reaches ${sgd(floorsFor("mdrt_commission").risk)} of commission or ${sgd(
-          floorsFor("mdrt_premium").risk,
-        )} of premium. Custom goals are yours and reset each period.`}
-      </p>
     </div>
   );
 }
