@@ -111,7 +111,10 @@ part of the deployment choice, written up separately.
   last-quarter push the whole app serves, not a goal of its own.) One at a time: a
   distance card, a projection chart (confirmed line, run rate, the pace that
   reaches the goal), and the chosen aim's settings.
-- **Calculator** — band strip in the header; one card per policy, filled in
+- **Calculator** — band strip in the header; at the top, every insurer
+  incentive running today (opens in place; tapping a plan adds it), and
+  plans carrying one are tagged "· incentive" in the product dropdown; one
+  card per policy, filled in
   the business's order: company and product dropdowns (Singlife greyed out
   until its schedule comes; riders are not products of their own: "Add a
   rider" on a plan offers the riders the schedule lists for it, on the plan's

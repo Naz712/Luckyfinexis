@@ -8,7 +8,7 @@
 // riders the schedule lists for it. The full breakdown (later years, incentive
 // conditions, the schedule's fine print) opens under the card. Nothing here
 // is saved.
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { MDRT_MEMBERSHIP_YEAR, TODAY, type Advisor, type BandingCode, type Case, type MetricUnit } from "../mock/data";
 import { soloAim } from "../lib/aims";
 import {
@@ -30,6 +30,8 @@ import {
   categoriesOf,
   defaultPay,
   incentivesFor,
+  incentivesOnPolicy,
+  incentivesRunning,
   insurerList,
   isoShort,
   isRider,
@@ -301,6 +303,78 @@ function Dropdown({
 /** Every company the catalogue lists, with its plans (riders are added onto a plan, not picked here; none yet for a schedule still to come). */
 const COMPANIES = insurerList().map((c) => ({ ...c, policies: c.policies.filter((p) => !isRider(p)) }));
 
+/** Plans with money from an insurer incentive running today (information-only ones aside), for the "· incentive" tag. */
+const hasMoneyIncentive = (p: Policy) => incentivesOnPolicy(p, TODAY).some((i) => i.kind !== "info");
+
+/** A plan's name without its insurer ("Future First"), for tight spaces. */
+const shortName = (p: Policy) => p.name.replace(new RegExp(`^${p.insurer}\\s+`), "");
+
+/**
+ * The insurer incentives running today, at the top of the Calculator so they
+ * can be found without knowing which plans carry them. Opens in place; each
+ * plan in it adds that plan below.
+ */
+function IncentivesPanel({ onTry }: { onTry: (p: Policy) => void }) {
+  const [open, setOpen] = useState(false);
+  const running = incentivesRunning(TODAY);
+  if (running.length === 0) return null;
+  const until = running.map((i) => i.period[1]).sort()[0]!;
+  const insurers = [...new Set(running.map((i) => i.insurer))];
+  return (
+    <section className="overflow-hidden rounded-2xl border border-ok/30 bg-surface">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex w-full items-center gap-3 bg-ok/7 px-4 py-3 text-left">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ok/15 text-ok" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M8 1.8l1.8 3.9 4.2.5-3.1 2.9.8 4.2L8 11.2l-3.7 2.1.8-4.2L2 6.2l4.2-.5L8 1.8z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+          </svg>
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13.5px] font-bold text-ink">
+            {running.length} insurer {running.length === 1 ? "incentive" : "incentives"} running
+          </span>
+          <span className="block truncate text-[11.5px] text-muted">
+            {insurers.join(" and ")} · first ends {isoShort(until).replace(/ \d{4}$/, "")}
+          </span>
+        </span>
+        <span className={`shrink-0 text-muted transition-transform duration-200 ${open ? "rotate-180" : ""}`}>
+          <CaretIcon />
+        </span>
+      </button>
+      {open && (
+        <div className="drop-in divide-y divide-line border-t border-ok/20">
+          {running.map((i) => (
+            <div key={i.id} className="px-4 py-3">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="min-w-0 text-[13px] font-semibold text-ink">{i.name}</span>
+                <span className="shrink-0 text-[11px] text-muted">
+                  {i.insurer} · to {isoShort(i.period[1])}
+                </span>
+              </div>
+              <p className="mt-1 text-[12px] leading-[1.45] text-body">{i.detail}</p>
+              <div className="mt-2 flex flex-wrap gap-1.5" aria-label={`Plans for ${i.name}`}>
+                {i.targets
+                  .map((t) => policyById(t.policy))
+                  .filter((p): p is Policy => !!p && !isRider(p))
+                  .map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => onTry(p)}
+                      className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11.5px] font-semibold text-accent hover:border-accent hover:bg-accent-soft"
+                    >
+                      + {shortName(p)}
+                    </button>
+                  ))}
+              </div>
+            </div>
+          ))}
+          <p className="px-4 py-2.5 text-[11px] leading-[1.45] text-muted">Tap a plan to add it below. Each policy's ② shows what its incentives add.</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
 /** A numbered output, ① to ④, as the business's whiteboard lists them. */
 function Step({ n }: { n: number }) {
   return (
@@ -362,7 +436,7 @@ function PolicyCard({
   const single = variant?.single ?? option.variant?.single ?? false;
 
   return (
-    <div className={`overflow-hidden rounded-2xl border bg-surface ${parent ? "ml-5 border-line border-l-[3px] border-l-accent/45" : "border-line"}`}>
+    <div id={`card-${row.key}`} className={`scroll-mt-[150px] overflow-hidden rounded-2xl border bg-surface ${parent ? "ml-5 border-line border-l-[3px] border-l-accent/45" : "border-line"}`}>
       <div className="flex flex-col gap-[11px] px-4 pb-3.5 pt-3">
         <div className="flex items-baseline justify-between gap-2">
           <span className="min-w-0 truncate text-[11px] font-bold uppercase tracking-[.08em] text-muted">{parent ? `Rider on ${parent.name}` : "Policy"}</span>
@@ -398,7 +472,10 @@ function PolicyCard({
               id={`policy-${row.key}`}
               label="Product"
               value={policy.id}
-              groups={categoriesOf(COMPANIES.find((c) => c.name === policy.insurer)?.policies ?? [policy]).map((g) => ({ label: g.label, options: g.policies.map((p) => ({ value: p.id, label: p.name })) }))}
+              groups={categoriesOf(COMPANIES.find((c) => c.name === policy.insurer)?.policies ?? [policy]).map((g) => ({
+                label: g.label,
+                options: g.policies.map((p) => ({ value: p.id, label: `${p.name}${hasMoneyIncentive(p) ? " · incentive" : ""}` })),
+              }))}
               onChange={(id) => onPatch(switchPolicy(row, policyById(id)!))}
             />
           </div>
@@ -917,10 +994,23 @@ export default function Calculator({
       return [...rs.slice(0, at + 1), riderRowFor(base, rider), ...rs.slice(at + 1)];
     });
   const plans = rows.filter((r) => r.parent === undefined).length;
+  // A plan tapped in the incentives panel is added at the end and scrolled to.
+  const [scrollTo, setScrollTo] = useState<number | null>(null);
+  const tryPlan = (p: Policy) => {
+    const row = rowFor(p);
+    setRows((rs) => [...rs, row]);
+    setScrollTo(row.key);
+  };
+  useEffect(() => {
+    if (scrollTo === null) return;
+    document.getElementById(`card-${scrollTo}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setScrollTo(null);
+  }, [scrollTo]);
 
   return (
     <>
       <div className="flex flex-col gap-2.5 px-4 pb-24 pt-3">
+        <IncentivesPanel onTry={tryPlan} />
         {computed.map(({ r, q }) => (
           <PolicyCard
             key={r.row.key}
