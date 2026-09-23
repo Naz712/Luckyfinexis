@@ -74,7 +74,7 @@ interface ActiveGoal {
   /** The commission route's credit as MDRT splits it when the aim is a tier (the Risk-Protection floor applies); null otherwise. */
   credit: RouteCredit | null;
   /** What one client like this adds toward it: MDRT commission credit, earnings, gross revenue or Elite credits; null for WAPE, which the Calculator doesn't estimate. */
-  per: "mdrt" | "earnings" | "gr" | "elite" | null;
+  per: "mdrt" | "earnings" | "gr" | "premium" | "elite" | null;
   unit: MetricUnit;
 }
 
@@ -145,7 +145,7 @@ function activeGoalFor(advisor: Advisor, cases: Case[], goalSet: GoalSet, primar
     };
   }
   const aim = soloAim(advisor, cases, goalSet, primary, TODAY);
-  const per = aim.metric === "commission" ? "earnings" : aim.metric === "gross_revenue" ? "gr" : aim.metric === "elite" ? "elite" : null;
+  const per = aim.metric === "commission" ? "earnings" : aim.metric === "gross_revenue" ? "gr" : aim.metric === "premium" ? "premium" : aim.metric === "elite" ? "elite" : null;
   return {
     label: aim.name,
     target: aim.target,
@@ -827,10 +827,12 @@ export default function Calculator({
   const goalNum = whatIf === null ? savedTarget : parseMoney(whatIf);
   const gap = Math.max(goalNum - goal.achieved, 0);
   // A tier aim counts MDRT commission credit (the schedule's commission, not cash incentives); the others count their own figure.
-  const perClient = goal.per === "mdrt" ? mdrtRisk + mdrtOther : goal.per === "earnings" ? totalEarnings : goal.per === "gr" ? totalGr : goal.per === "elite" ? totalElite : 0;
+  const totalPremium = computed.reduce((t, c) => t + (c.q ? c.r.premium : 0), 0);
+  const perClient =
+    goal.per === "mdrt" ? mdrtRisk + mdrtOther : goal.per === "earnings" ? totalEarnings : goal.per === "gr" ? totalGr : goal.per === "premium" ? totalPremium : goal.per === "elite" ? totalElite : 0;
   const needed = goal.credit ? clientsNeededOnRoute(goal.credit, goalNum, mdrtRisk, mdrtOther) : clientsNeeded(gap, perClient);
   const gfmt = (v: number) => fmtMetric(v, goal.unit);
-  const perWord = { mdrt: " of MDRT commission credit", earnings: " to you", gr: " of gross revenue", elite: " Elite credits" } as const;
+  const perWord = { mdrt: " of MDRT commission credit", earnings: " to you", gr: " of gross revenue", premium: " of premium", elite: " Elite credits" } as const;
   const goalName = whatIf === null ? goal.label : "that figure";
   const floorHolds = goal.credit !== null && goal.credit.riskShortfall > 0 && mdrtOther > 0;
 

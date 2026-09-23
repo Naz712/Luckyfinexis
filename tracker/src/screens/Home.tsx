@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { MDRT_MEMBERSHIP_YEAR, MDRT_THRESHOLDS_CONFIRMED, metric_definitions, TODAY, type Advisor, type Case, type MetricCode, type MetricUnit, type Tier } from "../mock/data";
 import { ELITE, elitePeriodText, eliteTiersFor, isNewFc, type EliteTier } from "../lib/elite";
-import { elitePeriod, soloAim } from "../lib/aims";
+import { elitePeriod, FINAL_SPRINT, soloAim } from "../lib/aims";
 import {
   casesForAdvisor,
   mdrtSnapshot,
@@ -156,14 +156,26 @@ interface HeroView {
   notStarted: boolean;
   /** A figure the import doesn't carry (WAPE without its column). */
   missing: boolean;
+  /** Final Sprint: Finexis sets the targets, so there is nothing for the FC to set. */
+  campaign: boolean;
 }
 
 // ───────────────────────── Finexis Elite: every tier and how far ─────────────────────────
 
+/** One rung of a ladder: an Elite tier or a Final Sprint tier. */
+interface Rung {
+  code: string;
+  name: string;
+  target: number;
+  perk?: string;
+}
+const eliteRungs = (tiers: EliteTier[]): Rung[] => tiers.map((t) => ({ code: t.code, name: t.name, target: t.credits, perk: t.perk }));
+
 /** A track to the top tier with a mark at each, then one line per tier: reached, or what is left and the monthly pace to get there. */
-function EliteLadder({ achieved, tiers, period }: { achieved: number; tiers: EliteTier[]; period: Period }) {
-  const top = tiers[tiers.length - 1]?.credits ?? 1;
-  const next = tiers.find((t) => t.credits > achieved) ?? null;
+function TierLadder({ achieved, tiers, period, unit, what }: { achieved: number; tiers: Rung[]; period: Period; unit: MetricUnit; what: string }) {
+  const fmt = (v: number) => fmtMetric(v, unit);
+  const top = tiers[tiers.length - 1]?.target ?? 1;
+  const next = tiers.find((t) => t.target > achieved) ?? null;
   return (
     <div>
       <div className="relative mt-3 h-2.5 rounded-full bg-accent-soft" aria-hidden="true">
@@ -171,15 +183,15 @@ function EliteLadder({ achieved, tiers, period }: { achieved: number; tiers: Eli
         {tiers.map((t) => (
           <span
             key={t.code}
-            className={`absolute top-1/2 h-4 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-surface ${achieved >= t.credits ? "bg-ok" : "bg-ink/45"}`}
-            style={{ left: `${Math.min(t.credits / top, 1) * 100}%` }}
+            className={`absolute top-1/2 h-4 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-surface ${achieved >= t.target ? "bg-ok" : "bg-ink/45"}`}
+            style={{ left: `${Math.min(t.target / top, 1) * 100}%` }}
           />
         ))}
       </div>
-      <ul className="mt-3 divide-y divide-line" aria-label="Elite tiers">
+      <ul className="mt-3 divide-y divide-line" aria-label="Tiers">
         {tiers.map((t) => {
-          const reached = achieved >= t.credits;
-          const p = reached ? null : paceToward(achieved, t.credits, period.start, period.end, TODAY);
+          const reached = achieved >= t.target;
+          const p = reached ? null : paceToward(achieved, t.target, period.start, period.end, TODAY);
           const isNext = t === next;
           return (
             <li key={t.code} className="flex items-center justify-between gap-3 py-2">
@@ -199,13 +211,14 @@ function EliteLadder({ achieved, tiers, period }: { achieved: number; tiers: Eli
                 <span className="min-w-0">
                   <span className={`block truncate text-[13px] font-semibold ${isNext ? "text-ink" : "text-body"}`}>{t.name}</span>
                   <span className="tnum block truncate text-[11px] text-muted">
-                    {count(t.credits)} credits{t.perk ? ` · ${t.perk}` : ""}
+                    {unit === "count" ? `${count(t.target)} ${what}` : `${fmt(t.target)} ${what}`}
+                    {t.perk ? ` · ${t.perk}` : ""}
                   </span>
                 </span>
               </span>
               <span className="tnum shrink-0 text-right">
-                <span className={`block text-[13px] font-bold ${reached ? "text-ok" : isNext ? "text-accent" : "text-body"}`}>{reached ? "Reached" : `${count(t.credits - achieved)} to go`}</span>
-                {p && p.requiredPerMonth !== null && <span className="block text-[11px] text-muted">{count(p.requiredPerMonth)}/month</span>}
+                <span className={`block text-[13px] font-bold ${reached ? "text-ok" : isNext ? "text-accent" : "text-body"}`}>{reached ? "Reached" : `${fmt(t.target - achieved)} to go`}</span>
+                {p && p.requiredPerMonth !== null && <span className="block text-[11px] text-muted">{fmt(p.requiredPerMonth)}/month</span>}
               </span>
             </li>
           );
@@ -353,7 +366,7 @@ function MetricDetail({ snapshot, cases, advisor }: { snapshot: MetricSnapshot; 
             <Label>Distance to each tier</Label>
             {isNewFc(advisor) && <span className="rounded bg-accent-soft px-1 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] text-accent">new FC tiers</span>}
           </div>
-          <EliteLadder achieved={achieved} tiers={tiers} period={elitePeriod()} />
+          <TierLadder achieved={achieved} tiers={eliteRungs(tiers)} period={elitePeriod()} unit="count" what="credits" />
           <p className="mt-1 text-[11px] leading-[1.5] text-muted">
             {ELITE.name}, {elitePeriodText()}.{ELITE.tiers_confirmed ? "" : " Sample tiers."}
           </p>
@@ -463,6 +476,7 @@ export default function Home({
       gate: routeGateText(rv.credit),
       notStarted: false,
       missing: false,
+      campaign: false,
     };
   } else {
     const aim = soloAim(advisor, mine, goalSet, primary, TODAY);
@@ -481,6 +495,7 @@ export default function Home({
       gate: aim.inImport ? null : aim.blurb,
       notStarted: aim.notStarted,
       missing: !aim.inImport,
+      campaign: aim.kind === "sprint",
     };
   }
   const fmt = (v: number) => fmtMetric(v, hero.unit);
@@ -499,6 +514,11 @@ export default function Home({
   const pendingLine = goal
     ? `${fmt(pendingValue)} pending would take you to ${pct(hero.projected / goal.target)} once the insurer confirms.`
     : `${fmt(pendingValue)} is waiting on the insurer.`;
+
+  // Final Sprint: Finexis's last-quarter campaign, on the figure and tiers Finexis sets.
+  const sprint = soloAim(advisor, mine, goalSet, { kind: "sprint", tier: null }, TODAY);
+  const sprintEnded = TODAY > sprint.period.end;
+  const sprintFmt = (v: number) => fmtMetric(v, sprint.unit);
 
   // Finexis Elite: the in-house scheme, tracked apart from MDRT, with the distance to every tier.
   const elite = metricSnapshot(advisor.id, mine, "elite", TODAY, goalSet);
@@ -604,9 +624,13 @@ export default function Home({
           <div className="mt-4 rounded-2xl border border-dashed border-white/34 px-[18px] py-5 text-center">
             <div className="tnum text-[22px] font-bold tracking-[-.015em]">{fmt(hero.achieved)}</div>
             <p className="mt-2 text-pretty text-[13px] leading-[1.5] text-white/80">
-              {hero.missing ? hero.gate : `No target set for ${hero.title.replace(/^Your /, "your ")}. Your ${hero.word} so far is tracked, but there is nothing to pace it against.`}
+              {hero.missing
+                ? hero.gate
+                : hero.campaign
+                  ? `Finexis sets Final Sprint's targets; your distance shows here once the campaign sheet is in. ${hero.notStarted ? `It starts ${shortDate(hero.period.start)}.` : `Your ${hero.word} since ${shortDate(hero.period.start)} is tracked.`}`
+                  : `No target set for ${hero.title.replace(/^Your /, "your ")}. Your ${hero.word} so far is tracked, but there is nothing to pace it against.`}
             </p>
-            {onChangeGoal && (
+            {onChangeGoal && !hero.campaign && (
               <button
                 type="button"
                 onClick={onChangeGoal}
@@ -683,6 +707,34 @@ export default function Home({
 
         <Card>
           <div className="flex items-center justify-between gap-2">
+            <Label>
+              {FINAL_SPRINT.name} {sprint.period.end.getFullYear()}
+            </Label>
+            <span className={`rounded px-1 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] ${sprint.notStarted || sprintEnded ? "bg-canvas text-muted" : "bg-ok/12 text-ok"}`}>
+              {sprint.notStarted ? `starts ${shortDate(sprint.period.start)}` : sprintEnded ? "ended" : `on until ${shortDate(sprint.period.end)}`}
+            </span>
+          </div>
+          <div className="mt-2 flex items-baseline gap-1.5">
+            <span className="tnum text-[36px] font-bold leading-none tracking-[-.025em] text-accent">{sprintFmt(sprint.achieved)}</span>
+            <span className="text-[15px] font-medium text-muted">{sprint.notStarted ? "so far" : "this quarter"}</span>
+          </div>
+          {FINAL_SPRINT.tiers.length > 0 ? (
+            <TierLadder
+              achieved={sprint.achieved}
+              tiers={FINAL_SPRINT.tiers.map((t) => ({ code: t.code, name: t.name, target: t.target, perk: t.prize }))}
+              period={sprint.period}
+              unit={sprint.unit}
+              what={{ gross_revenue: "first-year GR", commission: "commission", premium: "premium", elite: "credits" }[FINAL_SPRINT.metric]}
+            />
+          ) : null}
+          <p className="mt-2 text-pretty text-[11px] leading-[1.5] text-muted">
+            Finexis's campaign for the last quarter. {FINAL_SPRINT.basis}
+            {FINAL_SPRINT.tiers.length === 0 ? " The targets and prizes appear here once the campaign sheet is in." : FINAL_SPRINT.confirmed ? "" : " The tiers shown are samples."}
+          </p>
+        </Card>
+
+        <Card>
+          <div className="flex items-center justify-between gap-2">
             <Label>Finexis {ELITE.name}</Label>
             {newFc ? (
               <span className="rounded bg-accent-soft px-1 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] text-accent">new FC tiers</span>
@@ -694,7 +746,7 @@ export default function Home({
             <span className="tnum text-[36px] font-bold leading-none tracking-[-.025em] text-accent">{count(elite.achieved)}</span>
             <span className="text-[15px] font-medium text-muted">credits this year</span>
           </div>
-          <EliteLadder achieved={elite.achieved} tiers={eliteTiers} period={elitePeriod()} />
+          <TierLadder achieved={elite.achieved} tiers={eliteRungs(eliteTiers)} period={elitePeriod()} unit="count" what="credits" />
           <p className="mt-1 text-pretty text-[11px] leading-[1.5] text-muted">
             First-year gross revenue times each product's Elite multiplier, {elitePeriodText()}; insurer cash incentives don't count. Tracked apart from MDRT.
             {newFc ? ` You qualify at the ${ELITE.new_fc_label.replace(/^New FCs/, "new-FC")} tiers.` : ""}

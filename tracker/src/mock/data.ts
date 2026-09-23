@@ -298,13 +298,6 @@ export interface Goal {
 }
 
 /** Which MDRT tier the FC is aiming for this year. Both routes pace toward this tier. */
-/** The FC's own target for Final Sprint, the last quarter's campaign. */
-export interface SprintGoal {
-  advisor_id: string;
-  year: number;
-  target_value: number;
-}
-
 export interface MdrtTierGoal {
   advisor_id: string;
   year: number;
@@ -390,9 +383,6 @@ export const goals: Goal[] = [
 ];
 
 /** Self-set MDRT aspiration for 2026. Defaults to MDRT; an FC can raise it to COT or TOT. */
-/** Sample Final Sprint targets (first-year GR over the last quarter). */
-export const sprint_goals: SprintGoal[] = [{ advisor_id: "FC001", year: 2026, target_value: 30000 }];
-
 export const mdrt_tier_goals: MdrtTierGoal[] = [
   { advisor_id: "FC001", year: 2026, tier: "mdrt" },
   { advisor_id: "FC002", year: 2026, tier: "mdrt" },

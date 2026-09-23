@@ -26,7 +26,7 @@ npm run build      # typecheck + production build into dist/
 | `src/lib/api.ts` | The server client: where it is, the signed-in FA, `/me` and `/ask`. |
 | `src/lib/policies.ts`, `src/mock/policies.sample.ts` | The policy catalogue: types, pay options and term ranges, the quote (gross revenue, incentives, the FC's share, MDRT and Elite credit, later years), and the public made-up sample. |
 | `src/lib/elite.ts` | Finexis Elite: the scheme's tiers (new-FC tiers too) and qualifying period, read from the catalogue. |
-| `src/lib/aims.ts` | The aims beyond MDRT (Final Sprint, an Elite tier, a custom goal) as figures, shared by Home, Goals and the Calculator. |
+| `src/lib/aims.ts` | The aims beyond MDRT (a Final Sprint tier, an Elite tier, a custom goal) as figures, shared by Home, Goals and the Calculator; Final Sprint's campaign rules. |
 | `src/lib/privateRates.ts`, `src/private/` | Confidential schedules, incentives, payout formula and bandings, loaded from gitignored files when present. |
 | `src/lib/ask.ts`, `src/components/Ask.tsx` | The assistant: its tools over the FA's own production, the stand-in keyword router, and the sheet, which also holds Connect and sign-in. |
 | `src/screens/` | Home, Goals (+ editor), Calculator, Team. Screens read only through `calc.ts`. |
@@ -98,15 +98,17 @@ part of the deployment choice, written up separately.
   whichever aim Goals has (with a Commission / Premium route switch for MDRT),
   a progress arc (confirmed, pending, target), a verdict pill, "What it takes
   from here" (per month, per week, at your current rate), a pending strip, the
-  other MDRT route as one card, the Finexis Elite card with the distance to
-  every tier, and "This year" rows (commission, gross revenue, premium, Elite
+  other MDRT route as one card, the Final Sprint card (the campaign's
+  quarter so far and the distance to each of its tiers), the Finexis Elite
+  card with the distance to every tier, and "This year" rows (commission, gross revenue, premium, Elite
   credits). Each row opens its own page, sliding up: where it stands against
   any goal, a month-by-month chart, and every month's full figures.
 - **Goals** — the four aims, as the business's whiteboard numbers them: ①
-  Final Sprint (the last quarter's campaign: first-year GR from 1 Oct to 31
-  Dec against the FC's target, until the campaign's own rules are supplied),
-  ② MDRT / COT / TOT on commission or premium, ③ an Elite tier, ④ a custom
-  goal on commission, gross revenue or WAPE with a cadence. One at a time: a
+  a tier of Final Sprint, Finexis's campaign for the last quarter (Finexis
+  sets what counts and the targets, in the catalogue's `final_sprint` block;
+  until they are supplied it tracks first-year GR from 1 Oct to 31 Dec with
+  no targets), ② MDRT / COT / TOT on commission or premium, ③ an Elite tier,
+  ④ a custom goal on commission, gross revenue or WAPE with a cadence. One at a time: a
   distance card, a projection chart (confirmed line, run rate, the pace that
   reaches the goal), and the chosen aim's settings.
 - **Calculator** — band strip in the header; one card per policy, filled in

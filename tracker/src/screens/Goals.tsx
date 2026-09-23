@@ -38,7 +38,7 @@ import {
 } from "../lib/calc";
 import { CADENCE_LABEL, CADENCE_PER, count, dateRange, fmtMetric, paceText, pct, periodLabel, routeGateText, sgd, shortDate } from "../lib/format";
 import { Card, Label } from "../components/ui";
-import { CUSTOM_METRICS, eliteTierOf, FINAL_SPRINT, soloAim, sprintTargetFor, withSprintTarget, type SoloAim } from "../lib/aims";
+import { CUSTOM_METRICS, eliteTierOf, FINAL_SPRINT, soloAim, sprintTierOf, type SoloAim } from "../lib/aims";
 import { ELITE, elitePeriodText, eliteTiersFor, isNewFc } from "../lib/elite";
 
 export type { PrimaryGoal } from "../lib/calc";
@@ -301,6 +301,8 @@ export default function Goals({
   const customMetric: MetricCode = primary.kind === "custom" ? primary.metric : lastCustom;
   const [lastElite, setLastElite] = useState<string>(primary.kind === "elite" ? primary.tier : eliteTiers[0]!.code);
   const eliteCode = primary.kind === "elite" ? primary.tier : lastElite;
+  const [lastSprint, setLastSprint] = useState<string | null>(primary.kind === "sprint" ? primary.tier : (FINAL_SPRINT.tiers[0]?.code ?? null));
+  const sprintCode = primary.kind === "sprint" ? primary.tier : lastSprint;
 
   // Editor state per metric: the text in the amount field, and the cadence chosen while no target exists yet.
   // The GoalSet itself is the source of truth for every figure; these only carry what it cannot.
@@ -317,7 +319,6 @@ export default function Goals({
     for (const m of CUSTOM_METRICS) init[m.code] = goalFor(advisor.id, m.code, year, goalSet.targets)?.cadence ?? "year";
     return init;
   });
-  const [sprintDraft, setSprintDraft] = useState(() => String(sprintTargetFor(advisor.id, year, goalSet) ?? ""));
 
   const cadenceOf = (metric: MetricCode): GoalCadence => goalFor(advisor.id, metric, year, goalSet.targets)?.cadence ?? cadences[metric] ?? "year";
 
@@ -370,15 +371,14 @@ export default function Goals({
     setCadences((c) => ({ ...c, [metric]: cadence }));
     writeGoal(metric, drafts[metric] ?? "", cadence);
   };
-  const setSprint = (value: string) => {
-    setSprintDraft(value);
-    const n = Number(value);
-    onGoalSetChange(withSprintTarget(goalSet, advisor.id, year, Number.isFinite(n) && n > 0 ? n : null));
-  };
 
   const pickTier = (t: Tier) => {
     onTierChange(t);
     onPrimaryChange({ kind: "tier" });
+  };
+  const pickSprint = (code: string | null) => {
+    setLastSprint(code);
+    onPrimaryChange({ kind: "sprint", tier: code });
   };
   const pickElite = (code: string) => {
     setLastElite(code);
@@ -394,7 +394,8 @@ export default function Goals({
   const others = mdrt.routes.filter((r) => r.metric !== mdrt.closer);
   /** How far a route's counted credit is toward a tier. */
   const routeRatio = (r: MdrtRoute, t: Tier) => Math.min(r.achieved / thresholdFor(r.metric, t), 1);
-  const sprint = soloAim(advisor, cases, goalSet, { kind: "sprint" }, TODAY);
+  const sprint = soloAim(advisor, cases, goalSet, { kind: "sprint", tier: sprintCode }, TODAY);
+  const sprintFmt = (v: number) => fmtMetric(v, sprint.unit);
   const elite = soloAim(advisor, cases, goalSet, { kind: "elite", tier: eliteCode }, TODAY);
   const custom = soloAim(advisor, cases, goalSet, { kind: "custom", metric: customMetric }, TODAY);
   const solo = primary.kind === "sprint" ? sprint : primary.kind === "elite" ? elite : primary.kind === "custom" ? custom : null;
@@ -469,7 +470,9 @@ export default function Goals({
         ) : (
           <div className="mt-3 rounded-xl border border-dashed border-white/36 p-4 text-center">
             <div className="tnum text-[22px] font-bold tracking-[-.02em]">{soloFmt(solo.achieved)} so far</div>
-            <p className="mt-1.5 text-pretty text-[12px] leading-[1.5] text-white/80">Enter an amount below and this card shows your distance, pace and projection.</p>
+            <p className="mt-1.5 text-pretty text-[12px] leading-[1.5] text-white/80">
+              {solo.kind === "sprint" ? "Finexis sets the campaign's targets; your distance and pace show here once they are in." : "Enter an amount below and this card shows your distance, pace and projection."}
+            </p>
           </div>
         )}
       </Card>
@@ -513,7 +516,14 @@ export default function Goals({
           <span className="shrink-0 text-[11px] text-muted">one at a time</span>
         </div>
         <div role="radiogroup" aria-label="What you are aiming at" className="mt-[11px] grid grid-cols-2 gap-2">
-          <AimCard n={1} name="Final Sprint" hint="Q4 campaign · first-year GR" progress={progressOf(sprint)} selected={primary.kind === "sprint"} onPick={() => onPrimaryChange({ kind: "sprint" })} />
+          <AimCard
+            n={1}
+            name="Final Sprint"
+            hint={`Finexis's Q4 campaign${sprintTierOf(sprintCode) ? ` · ${sprintTierOf(sprintCode)!.name}` : ""}`}
+            progress={progressOf(sprint)}
+            selected={primary.kind === "sprint"}
+            onPick={() => pickSprint(sprintCode)}
+          />
           <AimCard
             n={2}
             name="MDRT / COT / TOT"
@@ -531,34 +541,45 @@ export default function Goals({
             <span className="tnum flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-accent-soft text-[10px] font-bold text-accent" aria-hidden="true">
               {aimNumber[primary.kind]}
             </span>
-            <Label>{primary.kind === "sprint" ? "Your Final Sprint target" : primary.kind === "tier" ? "Which tier" : primary.kind === "elite" ? "Which Elite tier" : "Which metric, and how much"}</Label>
+            <Label>{primary.kind === "sprint" ? (FINAL_SPRINT.tiers.length > 0 ? "Which Final Sprint tier" : "Final Sprint's targets") : primary.kind === "tier" ? "Which tier" : primary.kind === "elite" ? "Which Elite tier" : "Which metric, and how much"}</Label>
           </div>
 
-          {primary.kind === "sprint" && (
-            <>
-              <div className="relative mt-[11px] flex items-center">
-                <span className={`tnum pointer-events-none absolute left-[13px] text-[16px] font-semibold ${sprintDraft === "" ? "text-faint" : "text-ink"}`} aria-hidden="true">
-                  S$
-                </span>
-                <input
-                  id="sprint-target"
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  step={1000}
-                  value={sprintDraft}
-                  placeholder="No target"
-                  aria-label="Final Sprint target, first-year gross revenue"
-                  onChange={(e) => setSprint(e.target.value)}
-                  className="tnum w-full rounded-xl border border-line bg-surface py-3 pl-11 pr-3.5 text-[17px] font-semibold text-ink placeholder:font-normal placeholder:text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16"
-                />
+          {primary.kind === "sprint" &&
+            (FINAL_SPRINT.tiers.length > 0 ? (
+              <div role="radiogroup" aria-label="Final Sprint tier" className="mt-[11px] flex flex-col gap-2">
+                {FINAL_SPRINT.tiers.map((t) => {
+                  const on = sprintCode === t.code;
+                  const reached = sprint.achieved >= t.target;
+                  return (
+                    <button
+                      key={t.code}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      onClick={() => pickSprint(t.code)}
+                      className={`btn-lift flex items-center justify-between gap-3 rounded-xl border-[1.5px] px-3 py-2.5 text-left ${on ? "border-accent bg-accent-soft" : "border-line bg-surface"}`}
+                    >
+                      <span className="min-w-0">
+                        <span className={`block text-[14px] font-bold ${on ? "text-accent" : "text-ink"}`}>{t.name}</span>
+                        <span className="tnum block truncate text-[11px] text-muted">
+                          {sprintFmt(t.target)}
+                          {t.prize ? ` · ${t.prize}` : ""}
+                        </span>
+                      </span>
+                      <span className={`tnum shrink-0 text-[12px] font-semibold ${reached ? "text-ok" : on ? "text-accent" : "text-muted"}`}>{reached ? "Reached" : `${sprintFmt(t.target - sprint.achieved)} to go`}</span>
+                    </button>
+                  );
+                })}
+                <p className="tnum text-pretty text-[11px] leading-[1.5] text-muted">
+                  {FINAL_SPRINT.basis} {shortDate(sprint.period.start)} to {shortDate(sprint.period.end)} {year}.{FINAL_SPRINT.confirmed ? "" : " Sample tiers."}
+                </p>
               </div>
-              <p className="tnum mt-[9px] text-pretty text-[11px] leading-[1.5] text-muted">
-                First-year gross revenue from {shortDate(sprint.period.start)} to {shortDate(sprint.period.end)} {year}.
-                {FINAL_SPRINT.rulesConfirmed ? "" : " The campaign's own rules and prizes go in once Finexis shares them."}
+            ) : (
+              <p className="tnum mt-[11px] rounded-xl bg-canvas px-3.5 py-3 text-pretty text-[12px] leading-[1.5] text-muted">
+                Finexis sets Final Sprint's targets, so there is nothing to type here. So far: {sprintFmt(sprint.achieved)} of first-year gross revenue
+                {sprint.notStarted ? `, from ${shortDate(sprint.period.start)}` : ` since ${shortDate(sprint.period.start)}`}. The campaign's tiers and prizes appear here once the campaign sheet is in.
               </p>
-            </>
-          )}
+            ))}
 
           {primary.kind === "tier" && (
             <div role="radiogroup" aria-label="MDRT tier" className="mt-[11px] grid grid-cols-3 gap-2">
