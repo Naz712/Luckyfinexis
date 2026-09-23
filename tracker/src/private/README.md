@@ -10,7 +10,8 @@ Two files can live here:
 - **`policies.local.json`**: the policy catalogue the Calculator and the
   assistant's what-ifs read. Each policy lists its schedule rows (premium
   term ranges, plans, MIPs, premium charges) with the commission rate by
-  policy year, and the incentives running on top of it (commission uplifts,
+  policy year (riders name the plans they attach to), and the incentives
+  running on top of it (commission uplifts,
   APE-based cash rewards, trip credits). It also carries the payout formula
   (`fc_formula`: FC earnings = share × (banding rate − deduction) × gross
   revenue), the companies the Calculator lists (`insurers`) and the Finexis

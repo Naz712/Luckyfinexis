@@ -113,7 +113,9 @@ part of the deployment choice, written up separately.
   reaches the goal), and the chosen aim's settings.
 - **Calculator** — band strip in the header; one card per policy, filled in
   the business's order: company and product dropdowns (Singlife greyed out
-  until its schedule comes), premium type where there is a choice (regular or
+  until its schedule comes; riders are not products of their own: "Add a
+  rider" on a plan offers the riders the schedule lists for it, on the plan's
+  term, and Future First's riders go into its own premium at its rates), premium type where there is a choice (regular or
   limited pay, single premium, a plan), the annual premium and the premium
   term typed in years. The typed term lands on the schedule row that covers it ("20" →
   "10 to 24 years"); a term the schedule doesn't list says so. Each card then

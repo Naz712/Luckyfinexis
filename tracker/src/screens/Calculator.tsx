@@ -4,7 +4,8 @@
 // lands on the schedule row that covers it. Each policy then shows four
 // figures: ① the FC's commission at the schedule's rate, ② the insurer's
 // running incentives, ③ MDRT credit and ④ Finexis Elite credits, with the
-// distance left to the next tier. The full breakdown (later years, incentive
+// distance left to the next tier. Riders are added onto their plan, from the
+// riders the schedule lists for it. The full breakdown (later years, incentive
 // conditions, the schedule's fine print) opens under the card. Nothing here
 // is saved.
 import { useState, type ReactNode } from "react";
@@ -31,10 +32,12 @@ import {
   incentivesFor,
   insurerList,
   isoShort,
+  isRider,
   payOptionByKey,
   payOptions,
   policyById,
   quote,
+  ridersFor,
   rowForTerm,
   termsText,
   type Incentive,
@@ -60,6 +63,8 @@ interface Row {
   premiumTouched: boolean;
   /** Universal life only: the target premium, when lower than the premium. */
   target: string;
+  /** A rider: the key of the plan row it is added onto. */
+  parent?: number;
 }
 
 /** The aim chosen in Goals, as the calculator reads it. */
@@ -111,7 +116,14 @@ function switchPolicy(row: Row, policy: Policy): Partial<Row> {
 
 /** The first policy the screen opens with, so it is never empty: the first term plan in the catalogue. */
 function firstPolicy(): Policy {
-  return CATALOGUE.policies.find((p) => p.category === "Term") ?? CATALOGUE.policies[0]!;
+  return CATALOGUE.policies.find((p) => p.category === "Term" && !isRider(p)) ?? CATALOGUE.policies.find((p) => !isRider(p))!;
+}
+
+/** A rider row for a plan row: the plan's first rider, on the plan's premium term when the rider's schedule has it. */
+function riderRowFor(base: Row, rider: Policy): Row {
+  const row = { ...rowFor(rider), parent: base.key };
+  const option = payOptionByKey(rider, row.payKey);
+  return base.years !== "" && rowForTerm(option, Number(base.years)) ? { ...row, years: base.years } : row;
 }
 
 /** "share × (band − deduction) = N% of gross revenue", in the payout formula's own figures. */
@@ -286,8 +298,8 @@ function Dropdown({
   );
 }
 
-/** Every company the catalogue lists, with its products (none yet for a schedule still to come). */
-const COMPANIES = insurerList();
+/** Every company the catalogue lists, with its plans (riders are added onto a plan, not picked here; none yet for a schedule still to come). */
+const COMPANIES = insurerList().map((c) => ({ ...c, policies: c.policies.filter((p) => !isRider(p)) }));
 
 /** A numbered output, ① to ④, as the business's whiteboard lists them. */
 function Step({ n }: { n: number }) {
@@ -325,6 +337,8 @@ function PolicyCard({
   onPatch,
   onRemove,
   elite,
+  parent,
+  onAddRider,
 }: {
   r: Resolved;
   q: Quote | null;
@@ -332,6 +346,10 @@ function PolicyCard({
   canRemove: boolean;
   onPatch: (p: Partial<Row>) => void;
   onRemove: () => void;
+  /** For a rider: the plan it is added onto. */
+  parent: Policy | null;
+  /** For a plan with riders in the schedule: adds one under it. */
+  onAddRider: (() => void) | null;
   /** The FC's Elite credits so far and the tiers that apply to them, for the distance after this case; null in a manager's team view. */
   elite: { achieved: number; tiers: EliteTier[] } | null;
 }) {
@@ -344,10 +362,10 @@ function PolicyCard({
   const single = variant?.single ?? option.variant?.single ?? false;
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-line bg-surface">
+    <div className={`overflow-hidden rounded-2xl border bg-surface ${parent ? "ml-5 border-line border-l-[3px] border-l-accent/45" : "border-line"}`}>
       <div className="flex flex-col gap-[11px] px-4 pb-3.5 pt-3">
         <div className="flex items-baseline justify-between gap-2">
-          <span className="text-[11px] font-bold uppercase tracking-[.08em] text-muted">Policy</span>
+          <span className="min-w-0 truncate text-[11px] font-bold uppercase tracking-[.08em] text-muted">{parent ? `Rider on ${parent.name}` : "Policy"}</span>
           {canRemove && (
             <button type="button" onClick={onRemove} aria-label={`Remove ${policy.name}`} className="shrink-0 text-[11px] font-semibold text-muted hover:text-flag">
               Remove
@@ -355,26 +373,36 @@ function PolicyCard({
           )}
         </div>
 
-        {/* Company, then its products by category: the business's order. */}
-        <div className="grid grid-cols-[minmax(0,.8fr)_minmax(0,1.6fr)] gap-2.5">
+        {/* A rider picks from its plan's riders; a plan from its company's plans, company first, the business's order. */}
+        {parent ? (
           <Dropdown
-            id={`company-${row.key}`}
-            label="Company"
-            value={policy.insurer}
-            groups={[{ options: COMPANIES.map((c) => ({ value: c.name, label: c.policies.length > 0 ? c.name : `${c.name} (schedule to come)`, disabled: c.policies.length === 0 })) }]}
-            onChange={(name) => {
-              const first = COMPANIES.find((c) => c.name === name)?.policies[0];
-              if (first) onPatch(switchPolicy(row, first));
-            }}
-          />
-          <Dropdown
-            id={`policy-${row.key}`}
-            label="Product"
+            id={`rider-${row.key}`}
+            label="Rider"
             value={policy.id}
-            groups={categoriesOf(COMPANIES.find((c) => c.name === policy.insurer)?.policies ?? [policy]).map((g) => ({ label: g.label, options: g.policies.map((p) => ({ value: p.id, label: p.name })) }))}
+            groups={[{ options: ridersFor(parent).map((p) => ({ value: p.id, label: p.short_name ?? p.name })) }]}
             onChange={(id) => onPatch(switchPolicy(row, policyById(id)!))}
           />
-        </div>
+        ) : (
+          <div className="grid grid-cols-[minmax(0,.8fr)_minmax(0,1.6fr)] gap-2.5">
+            <Dropdown
+              id={`company-${row.key}`}
+              label="Company"
+              value={policy.insurer}
+              groups={[{ options: COMPANIES.map((c) => ({ value: c.name, label: c.policies.length > 0 ? c.name : `${c.name} (schedule to come)`, disabled: c.policies.length === 0 })) }]}
+              onChange={(name) => {
+                const first = COMPANIES.find((c) => c.name === name)?.policies[0];
+                if (first) onPatch(switchPolicy(row, first));
+              }}
+            />
+            <Dropdown
+              id={`policy-${row.key}`}
+              label="Product"
+              value={policy.id}
+              groups={categoriesOf(COMPANIES.find((c) => c.name === policy.insurer)?.policies ?? [policy]).map((g) => ({ label: g.label, options: g.policies.map((p) => ({ value: p.id, label: p.name })) }))}
+              onChange={(id) => onPatch(switchPolicy(row, policyById(id)!))}
+            />
+          </div>
+        )}
 
         {policy.status && <p className="rounded-lg bg-warn/9 px-3 py-2 text-[11.5px] leading-[1.45] text-gold-ink">{policy.status}</p>}
 
@@ -461,6 +489,7 @@ function PolicyCard({
             </p>
           ))}
         {!row.premiumTouched && <p className="-mt-1.5 text-[11px] text-muted">Premium pre-filled with a typical case; type the client's.</p>}
+        {policy.riders_in_premium && <p className="-mt-1.5 text-[11px] leading-[1.45] text-muted">Its riders pay this plan's rates: include their premium in the annual premium.</p>}
         {policy.target_premium && (
           <div>
             <div className="flex items-baseline justify-between gap-2">
@@ -581,6 +610,14 @@ function PolicyCard({
             </div>
           )}
         </>
+      )}
+      {onAddRider && (
+        <button type="button" onClick={onAddRider} className="flex w-full items-center gap-1.5 border-t border-line px-4 py-2.5 text-left text-[12.5px] font-semibold text-accent hover:bg-accent-soft/50">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+          Add a rider to {policy.name}
+        </button>
       )}
     </div>
   );
@@ -818,7 +855,8 @@ export default function Calculator({
   const totalElite = quotes.reduce((t, q) => t + q.elite, 0);
   const mdrtRisk = computed.filter((c) => c.r.policy.mdrt_category === "risk_protection").reduce((t, c) => t + (c.q?.mdrtCommission ?? 0), 0);
   const mdrtOther = computed.filter((c) => c.r.policy.mdrt_category === "other").reduce((t, c) => t + (c.q?.mdrtCommission ?? 0), 0);
-  const filled = quotes.filter((q) => q.gr > 0).length;
+  const filled = computed.filter((c) => c.q && c.q.gr > 0 && c.r.row.parent === undefined).length;
+  const filledRiders = computed.filter((c) => c.q && c.q.gr > 0 && c.r.row.parent !== undefined).length;
 
   // ── The goal set in Goals, and the what-if figure laid over it ──
   const goal = activeGoalFor(advisor, cases, goalSet, primary);
@@ -865,8 +903,20 @@ export default function Calculator({
     };
   }
 
-  const patch = (key: number, p: Partial<Row>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...p } : r)));
-  const remove = (key: number) => setRows((rs) => rs.filter((r) => r.key !== key));
+  // A plan moved to another product keeps only the riders that go on the new one; removing a plan removes its riders.
+  const patch = (key: number, p: Partial<Row>) =>
+    setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...p } : r)).filter((r) => r.parent !== key || !p.policyId || !!policyById(r.policyId)!.attaches_to?.includes(p.policyId)));
+  const remove = (key: number) => setRows((rs) => rs.filter((r) => r.key !== key && r.parent !== key));
+  const addRider = (baseKey: number) =>
+    setRows((rs) => {
+      const base = rs.find((r) => r.key === baseKey)!;
+      const rider = ridersFor(policyById(base.policyId)!)[0];
+      if (!rider) return rs;
+      let at = rs.indexOf(base);
+      while (rs[at + 1]?.parent === baseKey) at++;
+      return [...rs.slice(0, at + 1), riderRowFor(base, rider), ...rs.slice(at + 1)];
+    });
+  const plans = rows.filter((r) => r.parent === undefined).length;
 
   return (
     <>
@@ -877,10 +927,12 @@ export default function Calculator({
             r={r}
             q={q}
             band={band}
-            canRemove={rows.length > 1}
+            canRemove={r.row.parent !== undefined || plans > 1}
             onPatch={(p) => patch(r.row.key, p)}
             onRemove={() => remove(r.row.key)}
             elite={personal ? eliteNow : null}
+            parent={r.row.parent !== undefined ? policyById(rows.find((x) => x.key === r.row.parent)!.policyId)! : null}
+            onAddRider={r.row.parent === undefined && ridersFor(r.policy).length > 0 ? () => addRider(r.row.key) : null}
           />
         ))}
 
@@ -892,7 +944,7 @@ export default function Calculator({
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>
-          Add another policy or rider
+          Add another policy
         </button>
 
         {(quarterIncentives.size > 0 || flatIncentives.size > 0) && (
@@ -1023,7 +1075,8 @@ export default function Calculator({
         <div className="min-w-0">
           <div className="text-[10px] font-bold uppercase tracking-[.08em] text-white/72">To you, year 1 per client</div>
           <div className="tnum mt-0.5 truncate text-[11px] text-white/78">
-            {filled} {filled === 1 ? "policy" : "policies"} · GR {sgd(totalGr)} · MDRT prem. {sgd(totalMdrtPremium)}
+            {filled} {filled === 1 ? "policy" : "policies"}
+            {filledRiders > 0 ? ` + ${filledRiders} ${filledRiders === 1 ? "rider" : "riders"}` : ""} · GR {sgd(totalGr)} · MDRT prem. {sgd(totalMdrtPremium)}
             {totalElite >= 0.5 ? ` · Elite +${count(totalElite)}` : ""}
           </div>
         </div>

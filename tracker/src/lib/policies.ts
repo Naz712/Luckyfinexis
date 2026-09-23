@@ -48,6 +48,12 @@ export interface Policy {
   target_premium?: boolean;
   /** Elite credits per S$1 of first-year GR; the scheme's default applies when absent. */
   elite_multiplier?: number;
+  /** A rider: the base plans it can be added to. Riders are added onto a plan, never picked on their own. */
+  attaches_to?: string[];
+  /** A rider's name without its base plan ("CI Plus, Payer Premium Eraser"), for the rider picker. */
+  short_name?: string;
+  /** The plan's riders pay the plan's own rates, so their premium goes in with the plan's. */
+  riders_in_premium?: boolean;
   source: string;
 }
 
@@ -405,6 +411,14 @@ export function quote(input: QuoteInput): Quote {
     elite: commissionGr * eliteMultiplier,
     share,
   };
+}
+
+/** A rider (added onto a base plan) rather than a plan of its own. */
+export const isRider = (p: Policy) => (p.attaches_to?.length ?? 0) > 0;
+
+/** The riders that can go on a base plan. */
+export function ridersFor(base: Policy): Policy[] {
+  return CATALOGUE.policies.filter((p) => p.attaches_to?.includes(base.id));
 }
 
 /** Elite credits per S$1 of first-year GR on this policy. */

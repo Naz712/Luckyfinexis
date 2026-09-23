@@ -51,6 +51,22 @@ export const SAMPLE_CATALOGUE: Catalogue = {
       source: SRC,
     },
     {
+      id: "sample_term_ci_rider",
+      insurer: "Insurer A",
+      name: "Sample CI rider on the term plan",
+      short_name: "Sample CI rider",
+      category: "Rider",
+      mdrt_category: "risk_protection",
+      variant_label: "Premium term",
+      typical_premium: 600,
+      variants: [
+        { id: "5", label: "5 to 9 years", years: [35, 15, 5, 3, 3], term: 5, term_to: 9 },
+        { id: "10", label: "10 years or more", years: [55, 25, 10, 3, 3, 3], term: 10, term_to: null },
+      ],
+      attaches_to: ["sample_term"],
+      source: SRC,
+    },
+    {
       id: "sample_ci",
       insurer: "Insurer A",
       name: "Sample critical illness plan",
