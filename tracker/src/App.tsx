@@ -184,7 +184,7 @@ export default function App() {
         <header className="sticky top-0 z-10 border-b border-line bg-surface px-5 pb-3 pt-[max(6px,env(safe-area-inset-top))]">
           <div className="flex items-end justify-between gap-2.5">
             <div className="min-w-0">
-              <div className="whitespace-nowrap text-[10px] font-bold uppercase tracking-[.13em] text-accent">Finexis tracker</div>
+              <div className="whitespace-nowrap text-[10px] font-bold uppercase tracking-[.13em] text-accent">Final Sprint tracker</div>
               <div className="mt-0.5 truncate text-[22px] font-bold leading-tight tracking-[-.015em] text-ink">{TABS.find((t) => t.id === activeTab)?.label}</div>
             </div>
             <div className="flex shrink-0 items-end gap-2">

@@ -13,7 +13,7 @@ const css = files.filter((f) => f.endsWith(".css")).map((f) => readFileSync(join
 // "</script" inside the bundle would end the inline tag early; escape it.
 const safeJs = js.replace(/<\/script/gi, "<\\/script");
 
-const body = `<title>Finexis Tracker</title>
+const body = `<title>Final Sprint tracker</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <link rel="icon" href="data:," />
 <style>${css}</style>

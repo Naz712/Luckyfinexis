@@ -154,7 +154,7 @@ const server = http.createServer(async (req, res) => {
   const ms = () => `${Date.now() - started} ms`;
   try {
     if (req.method === "GET" && path === "/") {
-      send(res, 200, { ok: true, this_is: "the Finexis tracker assistant server", next: "Open the app (npm run dev, http://localhost:5173), tap the speech bubble, then Connect, and enter this address there." }, cors);
+      send(res, 200, { ok: true, this_is: "the Final Sprint tracker assistant server", next: "Open the app (npm run dev, http://localhost:5173), tap the speech bubble, then Connect, and enter this address there." }, cors);
       return;
     }
     if (req.method === "GET" && path === "/health") {
