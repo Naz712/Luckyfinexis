@@ -13,10 +13,8 @@ Two files can live here:
   policy year, and the incentives running on top of it (commission uplifts,
   APE-based cash rewards, trip credits). It also carries the payout formula
   (`fc_formula`: FC earnings = share × (banding rate − deduction) × gross
-  revenue), the companies the Calculator lists (`insurers`), the Finexis
-  Elite scheme (`elite`: tiers, new-FC tiers, qualifying period, multipliers)
-  and, once Finexis supplies it, Final Sprint (`final_sprint`: period, what
-  counts, tiers and prizes; the `Campaign` type). The shape is the `Catalogue` type in `src/lib/policies.ts`;
+  revenue), the companies the Calculator lists (`insurers`) and the Finexis
+  Elite scheme (`elite`: tiers, new-FC tiers, qualifying period, multipliers). The shape is the `Catalogue` type in `src/lib/policies.ts`;
   `src/mock/policies.sample.ts` is a made-up example of it. Without this
   file the app uses that sample.
 - **`rates.local.json`**: optional overrides for the banding table and the

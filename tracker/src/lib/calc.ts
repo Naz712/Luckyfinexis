@@ -70,12 +70,11 @@ export const defaultGoalSet: GoalSet = { targets: goals, mdrtTiers: mdrt_tier_go
 
 /**
  * The one aim the FC is working toward, as the business's whiteboard lists
- * them: a tier of Final Sprint (Finexis's last-quarter campaign), their MDRT
- * tier (held in GoalSet.mdrtTiers), a Finexis Elite tier, or one of their own
- * targets.
+ * them: their MDRT tier (held in GoalSet.mdrtTiers), a Finexis Elite tier, or
+ * one of their own targets.
  * src/lib/aims.ts turns the non-MDRT ones into figures.
  */
-export type PrimaryGoal = { kind: "sprint"; tier: string | null } | { kind: "tier" } | { kind: "elite"; tier: string } | { kind: "custom"; metric: MetricCode };
+export type PrimaryGoal = { kind: "tier" } | { kind: "elite"; tier: string } | { kind: "custom"; metric: MetricCode };
 
 export function goalFor(advisorId: string, metric: MetricCode, year: number, targets: Goal[] = goals): Goal | null {
   return targets.find((x) => x.advisor_id === advisorId && x.metric === metric && x.year === year) ?? null;

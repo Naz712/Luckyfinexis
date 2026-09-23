@@ -34,21 +34,6 @@ export const SAMPLE_CATALOGUE: Catalogue = {
     rules: ["Sample only: every plan counts its first-year GR once."],
     source: "Sample Elite rules (made up)",
   },
-  // Made-up campaign tiers: the real Final Sprint's figures stay out of the public site.
-  final_sprint: {
-    name: "Sample Final Sprint",
-    period: ["2026-10-01", "2026-12-31"],
-    metric: "gross_revenue",
-    basis: "First-year gross revenue on cases from 1 Oct to 31 Dec.",
-    tiers: [
-      { code: "sprint_1", name: "Sprint I", target: 20000, prize: "sample prize" },
-      { code: "sprint_2", name: "Sprint II", target: 40000 },
-      { code: "sprint_3", name: "Sprint III", target: 80000 },
-    ],
-    rules: ["Sample only."],
-    confirmed: false,
-    source: "Sample campaign (made up)",
-  },
   policies: [
     {
       id: "sample_term",

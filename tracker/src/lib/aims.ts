@@ -1,41 +1,12 @@
-// The aims an FC can work toward, beyond MDRT, in the business's order:
-// a tier of Final Sprint (Finexis's last-quarter campaign), Finexis Elite (a
-// tier of the trip scheme), and a custom goal on commission, gross revenue or WAPE. MDRT,
+// The aims an FC can work toward beyond MDRT, in the business's order:
+// Finexis Elite (a tier of the trip scheme) and a custom goal on commission,
+// gross revenue or WAPE. MDRT,
 // COT and TOT stay in calc.ts (mdrtSnapshot), with their two routes. Home's
 // hero, Goals and the Calculator's "how far this gets you" read the other
 // aims through soloAim, so all three agree.
-import { metric_definitions, TODAY, type Advisor, type Case, type MetricCode, type MetricUnit } from "../mock/data";
+import { metric_definitions, type Advisor, type Case, type MetricCode, type MetricUnit } from "../mock/data";
 import { aggregate, goalFor, goalPeriod, importHasWape, metricDefinition, pace, parseISODate, periodBounds, type GoalSet, type Pace, type Period, type PrimaryGoal } from "./calc";
 import { ELITE, eliteTiersFor, type EliteTier } from "./elite";
-import { CATALOGUE, type Campaign } from "./policies";
-
-/**
- * Final Sprint: Finexis's campaign for the last quarter. Finexis sets what
- * counts and the targets (the catalogue's final_sprint block). Until the
- * campaign sheet is in, the last quarter's first-year gross revenue is
- * tracked with no targets.
- */
-export const FINAL_SPRINT: Campaign = CATALOGUE.final_sprint ?? {
-  name: "Final Sprint",
-  period: [`${TODAY.getFullYear()}-10-01`, `${TODAY.getFullYear()}-12-31`],
-  metric: "gross_revenue",
-  basis: "First-year gross revenue on cases from 1 Oct to 31 Dec, until Finexis's rules for the campaign are in.",
-  tiers: [],
-  rules: [],
-  confirmed: false,
-  source: "",
-};
-
-export type SprintTier = Campaign["tiers"][number];
-
-export function sprintPeriod(): Period {
-  return { start: parseISODate(FINAL_SPRINT.period[0]), end: parseISODate(FINAL_SPRINT.period[1]) };
-}
-
-/** The campaign tier an aim names, or the lowest; null while Finexis hasn't set any. */
-export function sprintTierOf(code: string | null): SprintTier | null {
-  return FINAL_SPRINT.tiers.find((t) => t.code === code) ?? FINAL_SPRINT.tiers[0] ?? null;
-}
 
 /** Elite's qualifying period. */
 export function elitePeriod(): Period {
@@ -53,8 +24,8 @@ export const CUSTOM_METRICS = (["commission", "gross_revenue", "wape"] as Metric
 
 /** One non-MDRT aim as figures: what counts, over which window, how far along, and the pace. */
 export interface SoloAim {
-  kind: "sprint" | "elite" | "custom";
-  /** "Final Sprint 2026", an Elite tier with the year, "Your gross revenue goal". */
+  kind: "elite" | "custom";
+  /** An Elite tier with the year, "Your gross revenue goal". */
   name: string;
   metric: MetricCode;
   unit: MetricUnit;
@@ -68,13 +39,11 @@ export interface SoloAim {
   gap: number;
   /** A sentence on what counts. */
   blurb: string;
-  /** True before the window opens (Final Sprint before October). */
-  notStarted: boolean;
   /** False when the import has no figures for the metric (WAPE without its column). */
   inImport: boolean;
 }
 
-/** The figures for a Final Sprint, Elite or custom aim. */
+/** The figures for an Elite or custom aim. */
 export function soloAim(advisor: Advisor, cases: Case[], goalSet: GoalSet, primary: Exclude<PrimaryGoal, { kind: "tier" }>, today: Date): SoloAim {
   const year = today.getFullYear();
   const mine = cases.filter((c) => c.advisor_id === advisor.id && c.status !== "superseded");
@@ -88,26 +57,8 @@ export function soloAim(advisor: Advisor, cases: Case[], goalSet: GoalSet, prima
       target,
       pace: target !== null && target > 0 ? pace(achieved, target, period.start, period.end, today) : null,
       gap: target !== null ? Math.max(target - achieved, 0) : 0,
-      notStarted: today < period.start,
     };
   };
-
-  if (primary.kind === "sprint") {
-    const tier = sprintTierOf(primary.tier);
-    const period = sprintPeriod();
-    return {
-      kind: "sprint",
-      name: tier ? `${FINAL_SPRINT.name} · ${tier.name}` : `${FINAL_SPRINT.name} ${year}`,
-      metric: FINAL_SPRINT.metric,
-      unit: FINAL_SPRINT.metric === "elite" ? "count" : "sgd",
-      period,
-      ...figures(FINAL_SPRINT.metric, period, tier?.target ?? null),
-      blurb: `Finexis's campaign for the last quarter. ${FINAL_SPRINT.basis}${tier?.prize ? ` ${tier.name}: ${tier.prize}.` : ""}${
-        FINAL_SPRINT.tiers.length === 0 ? " Finexis sets the targets; they appear here once the campaign sheet is in." : ""
-      }`,
-      inImport: true,
-    };
-  }
 
   if (primary.kind === "elite") {
     const tier = eliteTierOf(advisor, primary.tier);

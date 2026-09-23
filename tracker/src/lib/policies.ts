@@ -123,27 +123,6 @@ export interface EliteRules {
   source: string;
 }
 
-/**
- * Final Sprint: Finexis's campaign for the last quarter. Finexis sets what
- * counts and the targets; each FC tracks toward them, not toward a figure
- * of their own.
- */
-export interface Campaign {
-  name: string;
-  /** ISO dates, inclusive. */
-  period: [string, string];
-  /** What counts: first-year gross revenue, commission, premium or Elite credits. */
-  metric: "gross_revenue" | "commission" | "premium" | "elite";
-  /** One sentence on what counts. */
-  basis: string;
-  /** Lowest first; empty until Finexis supplies them. */
-  tiers: { code: string; name: string; target: number; prize?: string }[];
-  rules: string[];
-  /** False while the campaign's rules are stand-ins. */
-  confirmed: boolean;
-  source: string;
-}
-
 export interface Catalogue {
   version: string;
   confidential?: boolean;
@@ -151,8 +130,6 @@ export interface Catalogue {
   /** Companies in the order the picker lists them, including any whose schedule has not come in yet. */
   insurers?: string[];
   elite: EliteRules;
-  /** Final Sprint; the app assumes a last-quarter campaign on first-year GR when absent. */
-  final_sprint?: Campaign;
   /** FC earnings = share × (banding rate − band_deduction) × GR. */
   fc_formula: { share: number; band_deduction: number };
   policies: Policy[];
