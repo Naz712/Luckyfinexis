@@ -19,7 +19,7 @@ import {
   type PrimaryGoal,
   type RouteCredit,
 } from "../lib/calc";
-import { count, fmtMetric, paceText, pct, periodLabel, routeGateText, sgd, shortDate } from "../lib/format";
+import { count, fmtMetric, paceText, pct, periodLabel, routeGateText, shortDate } from "../lib/format";
 import type { DataSource } from "../lib/api";
 import { Card, Label } from "../components/ui";
 import DetailSheet, { type DetailTab } from "./Detail";
@@ -272,7 +272,6 @@ export default function Home({
 
   const views = mdrt.routes.map((r) => routeView(r, mdrt.period));
   const rv = views.find((v) => v.metric === route) ?? views[0]!;
-  const others = views.filter((v) => v.metric !== rv.metric);
 
   // The hero: MDRT on the chosen route, or the single figure of an Elite or custom aim.
   let hero: HeroView;
@@ -488,43 +487,6 @@ export default function Home({
             <span className="tnum text-[12px] leading-[1.45] text-gold-ink">{pendingLine}</span>
           </div>
         )}
-
-        {/* The other MDRT route, one tap to switch the hero to it. */}
-        {primary.kind === "tier" &&
-          others.map((o) => {
-            const ratio = Math.min(o.achieved / o.target, 1);
-            return (
-              <button
-                key={o.metric}
-                type="button"
-                onClick={() => setRoute(o.metric)}
-                aria-label={`${o.label} route, ${pct(ratio)}. Switch the goal above to it`}
-                className="btn-lift block w-full rounded-2xl border border-line bg-surface px-4 py-3.5 text-left"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <Label>{o.label} route</Label>
-                    <div className="tnum mt-1 flex items-baseline gap-1.5">
-                      <span className="text-[17px] font-bold text-ink">{sgd(o.achieved)}</span>
-                      <span className="truncate text-[12px] text-muted">of {sgd(o.target)}</span>
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2.5">
-                    <span className="tnum text-[17px] font-bold text-accent">{pct(ratio)}</span>
-                    <span className="flex h-9 items-center gap-1 rounded-full bg-accent-soft px-3.5 text-[13px] font-bold text-accent">
-                      Switch
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                        <path d="M3 5.5h9.5M10 3l2.5 2.5L10 8M13 10.5H3.5M6 8l-2.5 2.5L6 13" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </span>
-                  </div>
-                </div>
-                <div className="mt-2.5 h-[5px] overflow-hidden rounded-full bg-accent-soft" aria-hidden="true">
-                  <span className="block h-full rounded-full bg-accent/70" style={{ width: `${ratio * 100}%` }} />
-                </div>
-              </button>
-            );
-          })}
 
         <Card>
           <div className="flex items-center justify-between gap-2">

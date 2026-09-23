@@ -101,9 +101,9 @@ part of the deployment choice, written up separately.
   whichever aim Goals has (with a Commission / Premium route switch for MDRT),
   a progress arc (confirmed, with pending, target, and a key under it), a
   verdict pill, "What it takes from here" (per month, per week, at your
-  current rate), a pending strip, the other MDRT route as one card with a
-  Switch button, the Finexis Elite card with the distance to every tier, and
-  "This year" rows (commission, gross revenue, premium, Elite credits).
+  current rate), a pending strip, the Finexis Elite card with the distance to
+  every tier, and "This year" rows (commission, gross revenue, premium, Elite
+  credits).
 - **Detail sheet** — slides up from a "This year" row, on that row's tab
   (Commission, Revenue, Premium, Elite; switching tabs changes everything
   below). A summary (confirmed, pending, then the goal bar with the gap and
