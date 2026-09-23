@@ -1,5 +1,7 @@
-// The shell: who is signed in, where the data comes from, the four tabs and
-// the header. Data is the monthly production import: the bundled sample
+// The shell: who is signed in, where the data comes from, the tabs and the
+// header. A manager has two views: their own numbers (Home, Goals,
+// Calculator, like any FC) and their team (Team and the Calculator), never
+// both on one screen. Data is the monthly production import: the bundled sample
 // (the stand-in) or, with a server connected and an individual link opened,
 // the signed-in FA's own rows from the server. Everything else is derived.
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -76,6 +78,8 @@ export default function App() {
   const [source, setSource] = useState<DataSource>({ kind: "sample" });
   const [userId, setUserId] = useState(DEFAULT_USER_ID);
   const [askOpen, setAskOpen] = useState(false);
+  /** A manager's view: their team or their own numbers; null means the default, the team. */
+  const [view, setView] = useState<"me" | "team" | null>(null);
 
   // With a server and an individual link, the FA's own rows replace the sample. Anything else keeps the sample and says why.
   useEffect(() => {
@@ -111,9 +115,11 @@ export default function App() {
   const cases = useMemo(() => entriesFromRows(rows), [rows]);
   const me = advisors.find((a) => a.id === userId) ?? advisors.find((a) => a.id === DEFAULT_USER_ID) ?? advisors[0]!;
   const isManager = advisors.some((a) => a.manager_id === me.id);
+  const teamView = isManager && (view ?? "team") === "team";
   const myCases = casesForAdvisor(me.id, cases);
-  const visibleTabs = TABS.filter((t) => !t.managerOnly || isManager);
-  const activeTab = visibleTabs.some((t) => t.id === tab) ? tab : "home";
+  // The team view is the team and the Calculator; the own view is what any FC sees.
+  const visibleTabs = teamView ? (["team", "calculator"] as Tab[]).map((id) => TABS.find((t) => t.id === id)!) : TABS.filter((t) => !t.managerOnly);
+  const activeTab = visibleTabs.some((t) => t.id === tab) ? tab : visibleTabs[0]!.id;
 
   // Self-set goals, in memory only. Goals edits them in place; Home and Calculator read them.
   const [goalSet, setGoalSet] = useState<GoalSet>(defaultGoalSet);
@@ -132,22 +138,32 @@ export default function App() {
     setSession(next);
   };
 
-  /** Stand-in only: flips between the sample FC and their manager so every screen can be reviewed. */
+  /** Stand-in only: flips between the sample FC and their manager (who opens on the team) so every screen can be reviewed. */
   const switchUser = () => {
     setPrimaryGoal({ kind: "tier" });
     setBand(null);
+    setView(null);
     const manager = advisors.find((a) => advisors.some((b) => b.manager_id === a.id))?.id ?? MANAGER_USER_ID;
     const fc = advisors.find((a) => a.manager_id !== null)?.id ?? DEFAULT_USER_ID;
     setUserId(isManager ? fc : manager);
+    setTab(isManager ? "home" : "team");
   };
+  /** A signed-in manager: between the team and their own numbers. */
+  const switchView = () => {
+    setBand(null);
+    setView(teamView ? "me" : "team");
+    setTab(teamView ? "home" : "team");
+  };
+  const switchClass = "rounded-full border border-dashed border-hairline px-2.5 py-1 text-[11px] font-medium text-muted hover:border-accent hover:text-accent";
   const viewSwitch: ReactNode =
-    source.kind === "server" ? null : (
-      <button
-        type="button"
-        onClick={switchUser}
-        className="rounded-full border border-dashed border-hairline px-2.5 py-1 text-[11px] font-medium text-muted hover:border-accent hover:text-accent"
-        title="Mockup only: switch between the sample FC and their manager"
-      >
+    source.kind === "server" ? (
+      isManager ? (
+        <button type="button" onClick={switchView} className={switchClass}>
+          {teamView ? "My numbers" : "My team"}
+        </button>
+      ) : null
+    ) : (
+      <button type="button" onClick={switchUser} className={switchClass} title="Mockup only: switch between the sample FC and their manager's team view">
         {isManager ? "FC view" : "Manager view"}
       </button>
     );
@@ -225,8 +241,10 @@ export default function App() {
         {activeTab === "goals" && (
           <Goals key={me.id} advisor={me} cases={cases} goalSet={goalSet} onGoalSetChange={setGoalSet} primary={primaryGoal} onPrimaryChange={setPrimaryGoal} onTierChange={setTier} />
         )}
-        {activeTab === "calculator" && <Calculator key={me.id} advisor={me} cases={myCases} goalSet={goalSet} primary={primaryGoal} band={bandInUse} onGoToGoals={() => setTab("goals")} />}
-        {activeTab === "team" && isManager && <Team key={me.id} manager={me} advisors={advisors} cases={cases} goalSet={goalSet} source={source} />}
+        {activeTab === "calculator" && (
+          <Calculator key={`${me.id}-${teamView}`} advisor={me} cases={myCases} goalSet={goalSet} primary={primaryGoal} band={bandInUse} onGoToGoals={() => setTab("goals")} personal={!teamView} />
+        )}
+        {activeTab === "team" && teamView && <Team key={me.id} manager={me} advisors={advisors} cases={cases} goalSet={goalSet} source={source} />}
       </main>
       <AskSheet
         open={askOpen}

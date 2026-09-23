@@ -97,7 +97,8 @@ export default function Team({
   return (
     <div className="space-y-3 px-4 pb-6 pt-3">
       <Card tone="accent">
-        <div className="flex items-baseline justify-between">
+        <div className="text-[13px] font-semibold">{manager.name}'s team</div>
+        <div className="mt-2.5 flex items-baseline justify-between">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-white/70">Team commission</div>
           {period && <div className="text-[11px] text-white/70">{periodLabel(period)}</div>}
         </div>

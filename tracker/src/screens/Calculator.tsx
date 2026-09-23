@@ -332,12 +332,12 @@ function PolicyCard({
   canRemove: boolean;
   onPatch: (p: Partial<Row>) => void;
   onRemove: () => void;
-  /** The FC's Elite credits so far and the tiers that apply to them, for the distance after this case. */
-  elite: { achieved: number; tiers: EliteTier[] };
+  /** The FC's Elite credits so far and the tiers that apply to them, for the distance after this case; null in a manager's team view. */
+  elite: { achieved: number; tiers: EliteTier[] } | null;
 }) {
   const { row, policy, option, variant } = r;
   const [open, setOpen] = useState(false);
-  const nextTier = q ? (elite.tiers.find((t) => t.credits > elite.achieved + q.elite) ?? null) : null;
+  const nextTier = q && elite ? (elite.tiers.find((t) => t.credits > elite.achieved + q.elite) ?? null) : null;
   const options = payOptions(policy);
   const years = Number(row.years);
   const out = q ? outputsOf(q) : null;
@@ -541,7 +541,7 @@ function PolicyCard({
                 <span className="tnum block text-[11.5px] leading-[1.4] text-muted">
                   {q ? `first-year GR ${sgd(q.fygr)} × ${q.eliteMultiplier}${ELITE.multipliers_confirmed ? "" : " (default for now)"}` : "first-year GR × multiplier"}
                 </span>
-                {q && (
+                {q && elite && (
                   <span className="tnum block text-[11.5px] leading-[1.4] text-accent">
                     {nextTier ? `Then ${count(nextTier.credits - elite.achieved - q.elite)} to ${nextTier.name}` : `Every ${ELITE.name} tier reached with this`}
                   </span>
@@ -750,6 +750,7 @@ export default function Calculator({
   primary,
   band,
   onGoToGoals,
+  personal = true,
 }: {
   advisor: Advisor;
   cases: Case[];
@@ -757,6 +758,8 @@ export default function Calculator({
   primary: PrimaryGoal;
   band: BandingCode;
   onGoToGoals: () => void;
+  /** False in a manager's team view: the policies and their figures only, none of the viewer's own goal or Elite position. */
+  personal?: boolean;
 }) {
   const [rows, setRows] = useState<Row[]>(() => [rowFor(firstPolicy())]);
   /** The what-if goal figure while the box is open; null means "use my goals". Never saved. */
@@ -877,7 +880,7 @@ export default function Calculator({
             canRemove={rows.length > 1}
             onPatch={(p) => patch(r.row.key, p)}
             onRemove={() => remove(r.row.key)}
-            elite={eliteNow}
+            elite={personal ? eliteNow : null}
           />
         ))}
 
@@ -922,87 +925,89 @@ export default function Calculator({
           </Card>
         )}
 
-        <Card className="mt-0.5">
-          <div className="flex items-baseline justify-between gap-2.5">
-            <Label>How far this gets you</Label>
-            <button type="button" onClick={onGoToGoals} className="-my-1.5 flex shrink-0 items-center gap-[3px] py-1.5 text-[11px] font-semibold text-accent underline-offset-2 hover:underline">
-              Set in Goals
-              <ChevronIcon />
-            </button>
-          </div>
+        {personal && (
+          <Card className="mt-0.5">
+            <div className="flex items-baseline justify-between gap-2.5">
+              <Label>How far this gets you</Label>
+              <button type="button" onClick={onGoToGoals} className="-my-1.5 flex shrink-0 items-center gap-[3px] py-1.5 text-[11px] font-semibold text-accent underline-offset-2 hover:underline">
+                Set in Goals
+                <ChevronIcon />
+              </button>
+            </div>
 
-          <div className="mt-2.5 rounded-xl bg-accent-soft px-[13px] py-3">
-            <div className="flex items-baseline justify-between gap-[9px]">
-              <span className="min-w-0 truncate text-[13px] font-semibold text-ink">{goal.label}</span>
-              <span className="tnum shrink-0 text-[15px] font-bold text-accent">{goal.target === null ? "Not set" : gfmt(goal.target)}</span>
-            </div>
-            <div className="mt-[9px] flex h-1.5 overflow-hidden rounded-full bg-accent/18" role="progressbar" aria-label={goal.label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(ratio * 100)}>
-              <span className="bg-accent" style={{ width: pct(ratio) }} />
-            </div>
-            <div className="tnum mt-2 flex items-baseline justify-between gap-[9px] text-[11px] text-muted">
-              <span>
-                {gfmt(goal.achieved)} so far · {goal.target === null ? goal.window : `${pct(ratio)} · ${goal.window}`}
-              </span>
-              <span className="shrink-0">{goal.target === null ? "no target" : toGo === 0 ? "reached" : `${gfmt(toGo)} to go`}</span>
-            </div>
-          </div>
-
-          {goal.unit !== "sgd" ? null : whatIf === null ? (
-            <button type="button" onClick={() => setWhatIf(goal.target === null ? "" : String(goal.target))} className="mt-[9px] text-[11px] font-semibold text-accent">
-              Try a different figure
-            </button>
-          ) : (
-            <div className="mt-2.5 rounded-xl border border-dashed border-dash bg-accent-soft/40 px-3 py-[11px]">
-              <div className="flex items-baseline justify-between gap-2.5">
-                <label htmlFor="what-if" className="text-[11px] font-bold uppercase tracking-[.06em] text-muted">
-                  What if the goal were
-                </label>
-                <button type="button" onClick={() => setWhatIf(null)} className="shrink-0 text-[11px] font-semibold text-accent">
-                  Use my goals
-                </button>
+            <div className="mt-2.5 rounded-xl bg-accent-soft px-[13px] py-3">
+              <div className="flex items-baseline justify-between gap-[9px]">
+                <span className="min-w-0 truncate text-[13px] font-semibold text-ink">{goal.label}</span>
+                <span className="tnum shrink-0 text-[15px] font-bold text-accent">{goal.target === null ? "Not set" : gfmt(goal.target)}</span>
               </div>
-              <MoneyField id="what-if" value={whatIf} onChange={setWhatIf} compact className="mt-2" />
-              <div className="mt-[7px] text-[11px] text-muted">Not saved. Change it for real in Goals.</div>
-            </div>
-          )}
-
-          <div className="mt-[13px] border-t border-line pt-[13px]">
-            <div className="tnum flex flex-wrap items-baseline gap-2">
-              <span className={`text-[38px] font-bold leading-none tracking-[-.03em] ${verdict.ink}`}>{verdict.figure}</span>
-              {verdict.unit && <span className="text-[14px] font-medium text-body">{verdict.unit}</span>}
-            </div>
-            <div className="tnum mt-2 text-pretty text-[12px] leading-normal text-muted">{verdict.note}</div>
-          </div>
-
-          {totalElite >= 0.5 && (
-            <div className="mt-[13px] border-t border-line pt-[11px]">
-              <div className="flex items-baseline justify-between gap-2">
-                <Label>Finexis {ELITE.name}</Label>
-                <span className="tnum shrink-0 text-[11px] text-muted">{count(eliteNow.achieved)} credits now</span>
+              <div className="mt-[9px] flex h-1.5 overflow-hidden rounded-full bg-accent/18" role="progressbar" aria-label={goal.label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(ratio * 100)}>
+                <span className="bg-accent" style={{ width: pct(ratio) }} />
               </div>
-              <ul className="mt-1.5 divide-y divide-line">
-                {eliteNow.tiers.map((t) => {
-                  const left = t.credits - eliteNow.achieved;
-                  const n = clientsNeeded(left, totalElite);
-                  return (
-                    <li key={t.code} className="tnum flex items-baseline justify-between gap-3 py-1.5 text-[12px]">
-                      <span className="font-semibold text-body">{t.name}</span>
-                      <span className="text-right text-muted">
-                        {left <= 0 ? (
-                          <span className="font-semibold text-ok">Reached</span>
-                        ) : (
-                          <>
-                            {count(left)} to go · <span className="font-semibold text-accent">{n}</span> {n === 1 ? "client" : "clients"} like this
-                          </>
-                        )}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
+              <div className="tnum mt-2 flex items-baseline justify-between gap-[9px] text-[11px] text-muted">
+                <span>
+                  {gfmt(goal.achieved)} so far · {goal.target === null ? goal.window : `${pct(ratio)} · ${goal.window}`}
+                </span>
+                <span className="shrink-0">{goal.target === null ? "no target" : toGo === 0 ? "reached" : `${gfmt(toGo)} to go`}</span>
+              </div>
             </div>
-          )}
-        </Card>
+
+            {goal.unit !== "sgd" ? null : whatIf === null ? (
+              <button type="button" onClick={() => setWhatIf(goal.target === null ? "" : String(goal.target))} className="mt-[9px] text-[11px] font-semibold text-accent">
+                Try a different figure
+              </button>
+            ) : (
+              <div className="mt-2.5 rounded-xl border border-dashed border-dash bg-accent-soft/40 px-3 py-[11px]">
+                <div className="flex items-baseline justify-between gap-2.5">
+                  <label htmlFor="what-if" className="text-[11px] font-bold uppercase tracking-[.06em] text-muted">
+                    What if the goal were
+                  </label>
+                  <button type="button" onClick={() => setWhatIf(null)} className="shrink-0 text-[11px] font-semibold text-accent">
+                    Use my goals
+                  </button>
+                </div>
+                <MoneyField id="what-if" value={whatIf} onChange={setWhatIf} compact className="mt-2" />
+                <div className="mt-[7px] text-[11px] text-muted">Not saved. Change it for real in Goals.</div>
+              </div>
+            )}
+
+            <div className="mt-[13px] border-t border-line pt-[13px]">
+              <div className="tnum flex flex-wrap items-baseline gap-2">
+                <span className={`text-[38px] font-bold leading-none tracking-[-.03em] ${verdict.ink}`}>{verdict.figure}</span>
+                {verdict.unit && <span className="text-[14px] font-medium text-body">{verdict.unit}</span>}
+              </div>
+              <div className="tnum mt-2 text-pretty text-[12px] leading-normal text-muted">{verdict.note}</div>
+            </div>
+
+            {totalElite >= 0.5 && (
+              <div className="mt-[13px] border-t border-line pt-[11px]">
+                <div className="flex items-baseline justify-between gap-2">
+                  <Label>Finexis {ELITE.name}</Label>
+                  <span className="tnum shrink-0 text-[11px] text-muted">{count(eliteNow.achieved)} credits now</span>
+                </div>
+                <ul className="mt-1.5 divide-y divide-line">
+                  {eliteNow.tiers.map((t) => {
+                    const left = t.credits - eliteNow.achieved;
+                    const n = clientsNeeded(left, totalElite);
+                    return (
+                      <li key={t.code} className="tnum flex items-baseline justify-between gap-3 py-1.5 text-[12px]">
+                        <span className="font-semibold text-body">{t.name}</span>
+                        <span className="text-right text-muted">
+                          {left <= 0 ? (
+                            <span className="font-semibold text-ok">Reached</span>
+                          ) : (
+                            <>
+                              {count(left)} to go · <span className="font-semibold text-accent">{n}</span> {n === 1 ? "client" : "clients"} like this
+                            </>
+                          )}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+          </Card>
+        )}
 
         <p className="tnum px-1 pt-0.5 text-center text-pretty text-[11px] leading-normal text-muted">
           {CATALOGUE_IS_PRIVATE

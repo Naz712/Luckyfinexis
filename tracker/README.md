@@ -34,8 +34,11 @@ npm run build      # typecheck + production build into dist/
 | `server/` | Node 22, no dependencies: the import store, per-FA links, `/me`, `/ask`. Holds the keys. |
 | `public/sample-import.csv` | The sample import as a file: exactly the columns the backend expects. |
 
-The "Manager view" pill switches between the sample FC and their manager so the
-manager-only Team tab can be reviewed. It disappears once an FA is signed in.
+A manager has two views, never mixed: the team (Team and the Calculator, with
+none of the manager's own figures) and their own numbers (Home, Goals,
+Calculator, as any FC). A signed-in manager opens on the team and switches
+with "My numbers" / "My team". In the stand-in, the "Manager view" pill opens
+the sample manager's team view and "FC view" returns to the sample FC.
 
 ## The data: a monthly production import
 
@@ -125,9 +128,11 @@ part of the deployment choice, written up separately.
   client and "How far this gets you" against whichever aim Goals has (MDRT
   credit leaves cash incentives out), with the clients like this that reach
   each Elite tier.
-- **Team** (managers) — team commission, on-track count, MDRT qualified, one row
-  per FC with commission, MDRT progress and Elite credits, tap for their Home
-  read-only, and a note on the latest import.
+- **Team** (a manager's team view) — the team's commission (the FCs', not the
+  manager's own), on-track count, MDRT qualified, one row per FC with
+  commission, MDRT progress and Elite credits, tap for their Home read-only,
+  and a note on the latest import. The Calculator beside it shows the
+  policies' figures without anyone's goal card.
 
 ## Finexis Elite
 
