@@ -19,6 +19,8 @@ export interface PolicyVariant {
   years: number[];
   /** The premium term in years this row applies from (for incentive rules that depend on the term). */
   term?: number;
+  /** The last premium term the row covers: absent for an exact term, null for "or more". */
+  term_to?: number | null;
   /** Single premium (or a top-up): APE counts 10% of it and MDRT premium credit 6%. */
   single?: boolean;
   /** % paid on premium above the target premium (single-pay universal life). */
@@ -44,8 +46,8 @@ export interface Policy {
   status?: string;
   /** Rates apply to premium up to a target premium (universal life); the Calculator asks for it. */
   target_premium?: boolean;
-  /** PLACEHOLDER — Elite credits per S$1,000 of premium; defaults apply until the scheme's rules arrive. */
-  elite_rate?: number;
+  /** Elite credits per S$1 of first-year GR; the scheme's default applies when absent. */
+  elite_multiplier?: number;
   source: string;
 }
 
@@ -96,10 +98,38 @@ export type Incentive =
   /** Shown for information only. */
   | (IncentiveBase & { kind: "info" });
 
+/** Finexis Elite: the in-house scheme (a trip), counted on first-year GR, tracked apart from MDRT. */
+export interface EliteRules {
+  name: string;
+  /** What the top performers win. */
+  prize: string;
+  /** Qualifying period, ISO dates inclusive. */
+  period: [string, string];
+  /** One sentence on what earns credits. */
+  basis: string;
+  /** Lowest first. New FCs need `new_fc_credits`. */
+  tiers: { code: string; name: string; credits: number; new_fc_credits?: number; perk?: string }[];
+  /** FCs whose RNF is this year or later count as new FCs. */
+  new_fc_from_rnf_year: number;
+  new_fc_label: string;
+  /** False while the tiers are stand-ins. */
+  tiers_confirmed: boolean;
+  /** False while every product counts at the default multiplier. */
+  multipliers_confirmed: boolean;
+  default_multiplier: number;
+  /** Per policy id. */
+  multipliers: Record<string, number>;
+  rules: string[];
+  source: string;
+}
+
 export interface Catalogue {
   version: string;
   confidential?: boolean;
   sources: string[];
+  /** Companies in the order the picker lists them, including any whose schedule has not come in yet. */
+  insurers?: string[];
+  elite: EliteRules;
   /** FC earnings = share × (banding rate − band_deduction) × GR. */
   fc_formula: { share: number; band_deduction: number };
   policies: Policy[];
@@ -146,6 +176,11 @@ export function incentivesFor(policy: Policy, variant: PolicyVariant, today: Dat
   );
 }
 
+/** Incentives running on `today` that name this policy in any of its rows. */
+export function incentivesOnPolicy(policy: Policy, today: Date): Incentive[] {
+  return CATALOGUE.incentives.filter((i) => inPeriod(i, today) && i.targets.some((t) => t.policy === policy.id));
+}
+
 /** APE: the annualised premium, or 10% of a single premium. */
 export function apeOf(variant: PolicyVariant, premium: number): number {
   return variant.single ? premium * 0.1 : premium;
@@ -186,6 +221,8 @@ export interface QuoteNote {
   label: string;
   detail: string;
   until?: string;
+  /** short: a tier or threshold not reached yet; toggle: a one-off the FC can tick; credits: trip credits; ineligible: this row doesn't qualify; info: for reading. */
+  kind: "short" | "toggle" | "credits" | "ineligible" | "info";
 }
 
 export interface QuoteInput {
@@ -222,7 +259,11 @@ export interface Quote {
   mdrtCommission: number;
   /** MDRT premium credit: 100% of a regular premium, 6% of a single premium. */
   mdrtPremium: number;
-  /** PLACEHOLDER Elite credits. */
+  /** First-year GR as Elite counts it: the schedule's rate and commission uplifts, cash incentives left out. */
+  fygr: number;
+  /** The Elite multiplier applied to it. */
+  eliteMultiplier: number;
+  /** Elite credits: FYGR × the multiplier. */
   elite: number;
   share: number;
 }
@@ -272,7 +313,7 @@ export function quote(input: QuoteInput): Quote {
       case "ape_cash": {
         const credits = apeCredits(i, policy, variant, premium);
         if (credits <= 0) {
-          notes.push({ id: i.id, label: i.name, detail: "This premium term earns no APE credits for it.", until });
+          notes.push({ id: i.id, label: i.name, detail: "This premium term earns no APE credits for it.", until, kind: "ineligible" });
           break;
         }
         const other = i.ape.basis === "cumulative" ? (input.quarterOther?.[i.id] ?? 0) : 0;
@@ -287,6 +328,7 @@ export function quote(input: QuoteInput): Quote {
             label: i.name,
             detail: `${creditText}${other > 0 ? ` plus ${money(other)} this quarter` : ""}: ${money(first.min - total)} short of the ${pctText(first.pct)} tier${i.ape.basis === "cumulative" ? " across your quarter" : ""}.`,
             until,
+            kind: "short",
           });
           break;
         }
@@ -305,12 +347,12 @@ export function quote(input: QuoteInput): Quote {
       case "sales_cash": {
         const pct = i.sales.pct[variant.id] ?? 0;
         if (pct <= 0) {
-          notes.push({ id: i.id, label: i.name, detail: "This option is not eligible.", until });
+          notes.push({ id: i.id, label: i.name, detail: "This option is not eligible.", until, kind: "ineligible" });
           break;
         }
         const quarter = ape + (input.quarterOther?.[i.id] ?? 0);
         if (quarter < i.sales.min_quarter_ape) {
-          notes.push({ id: i.id, label: i.name, detail: `Pays ${pctText(pct)} of the premium once your quarter's APE reaches ${money(i.sales.min_quarter_ape)}; ${money(i.sales.min_quarter_ape - quarter)} to go.`, until });
+          notes.push({ id: i.id, label: i.name, detail: `Pays ${pctText(pct)} of the premium once your quarter's APE reaches ${money(i.sales.min_quarter_ape)}; ${money(i.sales.min_quarter_ape - quarter)} to go.`, until, kind: "short" });
           break;
         }
         const amount = (premium * pct) / 100;
@@ -324,16 +366,16 @@ export function quote(input: QuoteInput): Quote {
         if (input.flatOn?.includes(i.id)) {
           cash += amount;
           lines.push({ id: i.id, label: i.name, detail: "one-off, once per adviser", amount, kind: "cash", until });
-        } else notes.push({ id: i.id, label: i.name, detail: `${money(amount)} once, if you tick “${i.flat.toggle}” below.`, until });
+        } else notes.push({ id: i.id, label: i.name, detail: `${money(amount)} once, if you tick “${i.flat.toggle}” below.`, until, kind: "toggle" });
         break;
       }
       case "convention": {
         const credits = apeCredits(i, policy, variant, premium);
-        if (credits > 0) notes.push({ id: i.id, label: i.name, detail: `Adds ${money(credits)} of APE credits. First ticket at ${money(i.ape.tickets[0] ?? 0)}.`, until });
+        if (credits > 0) notes.push({ id: i.id, label: i.name, detail: `Adds ${money(credits)} of APE credits. First ticket at ${money(i.ape.tickets[0] ?? 0)}.`, until, kind: "credits" });
         break;
       }
       case "info":
-        notes.push({ id: i.id, label: i.name, detail: i.detail, until });
+        notes.push({ id: i.id, label: i.name, detail: i.detail, until, kind: "info" });
         break;
     }
   }
@@ -346,7 +388,7 @@ export function quote(input: QuoteInput): Quote {
     const g = (premium * rate) / 100;
     return { year: n + 2, rate, gr: g, earnings: g * share };
   });
-  const eliteRate = policy.elite_rate ?? (variant.single ? 0.5 : 10);
+  const eliteMultiplier = eliteMultiplierOf(policy);
   return {
     ape,
     base,
@@ -358,19 +400,102 @@ export function quote(input: QuoteInput): Quote {
     later,
     mdrtCommission: commissionGr * share,
     mdrtPremium: premium * (variant.single ? 0.06 : 1),
-    elite: (premium / 1000) * eliteRate,
+    fygr: commissionGr,
+    eliteMultiplier,
+    elite: commissionGr * eliteMultiplier,
     share,
   };
 }
 
-/** Policies grouped for the dropdown: insurer, then category, in catalogue order. */
-export function policyGroups(): { label: string; policies: Policy[] }[] {
+/** Elite credits per S$1 of first-year GR on this policy. */
+export function eliteMultiplierOf(policy: Policy): number {
+  return policy.elite_multiplier ?? CATALOGUE.elite.multipliers[policy.id] ?? CATALOGUE.elite.default_multiplier;
+}
+
+/** The companies the picker offers, in order, with their policies (none yet for a schedule still to come). */
+export function insurerList(): { name: string; policies: Policy[] }[] {
+  const names = [...(CATALOGUE.insurers ?? []), ...CATALOGUE.policies.map((p) => p.insurer)].filter((n, i, all) => all.indexOf(n) === i);
+  return names.map((name) => ({ name, policies: CATALOGUE.policies.filter((p) => p.insurer === name) }));
+}
+
+/** One insurer's policies grouped by category, in catalogue order. */
+export function categoriesOf(policies: Policy[]): { label: string; policies: Policy[] }[] {
   const groups = new Map<string, Policy[]>();
-  for (const p of CATALOGUE.policies) {
-    const key = `${p.insurer} · ${p.category}`;
-    (groups.get(key) ?? groups.set(key, []).get(key)!).push(p);
+  for (const p of policies) (groups.get(p.category) ?? groups.set(p.category, []).get(p.category)!).push(p);
+  return [...groups.entries()].map(([label, ps]) => ({ label, policies: ps }));
+}
+
+/**
+ * One way to pay for a policy, as the Calculator offers it: either a group of
+ * schedule rows picked by a typed premium term ("Regular pay", 5 to 25+ years)
+ * or a single fixed row (single premium, a plan, a premium charge).
+ */
+export interface PayOption {
+  key: string;
+  label: string;
+  /** Rows the typed term picks from; empty for a fixed row. */
+  rows: PolicyVariant[];
+  /** The fixed row, when there is no term to type. */
+  variant?: PolicyVariant;
+}
+
+/** The part of a row label before " · ", which names its pay group ("Regular pay", "Multi pay"). */
+const groupOf = (v: PolicyVariant) => (v.label.includes(" · ") ? v.label.split(" · ")[0]! : "");
+
+/**
+ * The pay options for a policy. Term rows sharing a pay group become one
+ * option with a years box when they cover more than one term; everything
+ * else (single premium, plans, one-term rows) is a fixed option.
+ */
+export function payOptions(policy: Policy): PayOption[] {
+  const out: PayOption[] = [];
+  const seen = new Set<string>();
+  const hasFixed = policy.variants.some((v) => v.single || v.term === undefined);
+  for (const v of policy.variants) {
+    if (!v.single && v.term !== undefined) {
+      const g = groupOf(v);
+      if (seen.has(g)) continue;
+      const rows = policy.variants.filter((x) => !x.single && x.term !== undefined && groupOf(x) === g);
+      if (new Set(rows.map((x) => x.term)).size > 1) {
+        seen.add(g);
+        out.push({ key: `t:${g}`, label: g || (hasFixed ? "Regular premium" : policy.variant_label), rows });
+        continue;
+      }
+    }
+    out.push({ key: `v:${v.id}`, label: v.label, rows: [], variant: v });
   }
-  return [...groups.entries()].map(([label, policies]) => ({ label, policies }));
+  return out;
+}
+
+export function payOptionByKey(policy: Policy, key: string): PayOption {
+  const all = payOptions(policy);
+  return all.find((o) => o.key === key) ?? all[0]!;
+}
+
+/** The row of a term option that covers `years`, or null when the schedule has none. */
+export function rowForTerm(option: PayOption, years: number): PolicyVariant | null {
+  if (option.variant) return option.variant;
+  if (!Number.isFinite(years) || years <= 0) return null;
+  return option.rows.find((v) => v.term! <= years && (v.term_to === null || years <= (v.term_to ?? v.term!))) ?? null;
+}
+
+/** The terms a term option covers, in words: "5 to 25+ years", "15 or 20 years", "10, 15, 20, 25 or 30 years". */
+export function termsText(option: PayOption): string {
+  const rows = [...option.rows].sort((a, b) => a.term! - b.term!);
+  if (rows.length === 0) return "";
+  const contiguous = rows.every((v, i) => i === 0 || v.term === (rows[i - 1]!.term_to ?? rows[i - 1]!.term!) + 1);
+  const last = rows[rows.length - 1]!;
+  const top = last.term_to === null ? `${last.term}+` : String(last.term_to ?? last.term);
+  if (contiguous) return `${rows[0]!.term} to ${top} years`;
+  const each = rows.map((v) => (v.term_to === null ? `${v.term}+` : v.term_to !== undefined ? `${v.term}–${v.term_to}` : String(v.term)));
+  return `${each.slice(0, -1).join(", ")} or ${each[each.length - 1]} years`;
+}
+
+/** The option and term a policy opens with: the longest regular term, as in defaultVariant. */
+export function defaultPay(policy: Policy): { option: PayOption; years: number | null } {
+  const v = defaultVariant(policy);
+  const option = payOptions(policy).find((o) => o.variant === v || o.rows.includes(v))!;
+  return { option, years: option.variant ? null : (v.term ?? null) };
 }
 
 /** A policy by a loose name ("term", "wealth voyage", "future first"), for the assistant. */
@@ -393,9 +518,13 @@ export function findPolicy(hint: string): Policy | null {
   return null;
 }
 
-/** The row for a term in years: the longest row whose term is at or below it, else the default. */
+/** The row for a term in years: the row covering it, else the longest row whose term is at or below it, else the default. */
 export function variantForTerm(policy: Policy, years: number | null): PolicyVariant {
   if (!years) return defaultVariant(policy);
+  for (const o of payOptions(policy)) {
+    const row = o.variant ? null : rowForTerm(o, years);
+    if (row) return row;
+  }
   const fits = policy.variants.filter((v) => !v.single && v.term !== undefined && v.term <= years);
   return fits.length > 0 ? fits.reduce((a, b) => ((b.term ?? 0) > (a.term ?? 0) ? b : a)) : defaultVariant(policy);
 }

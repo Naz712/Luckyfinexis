@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { ELITE_RULES_CONFIRMED, TODAY, type Advisor, type Case } from "../mock/data";
+import { TODAY, type Advisor, type Case } from "../mock/data";
+import { ELITE, isNewFc } from "../lib/elite";
 import { mdrtSnapshot, metricSnapshot, parseISODate, type GoalSet, type MdrtSnapshot, type MetricSnapshot } from "../lib/calc";
 import { CADENCE_PER, count, periodLabel, pct, sgd, shortDate } from "../lib/format";
 import type { DataSource } from "../lib/api";
@@ -175,7 +176,8 @@ export default function Team({
                   {/* The in-house scheme, tracked apart from MDRT; its rules are placeholders until the business supplies them. */}
                   <div className="tnum mt-2 text-[11px] text-muted">
                     Elite credits · {count(elite.achieved)}
-                    {!ELITE_RULES_CONFIRMED && " (placeholder rules)"}
+                    {isNewFc(advisor) ? " · new FC" : ""}
+                    {!ELITE.tiers_confirmed && " (sample tiers)"}
                   </div>
                 </button>
               </li>

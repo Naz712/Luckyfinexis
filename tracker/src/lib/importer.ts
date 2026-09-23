@@ -21,6 +21,7 @@ export const IMPORT_COLUMNS = [
   "pending_commission",
   "pending_premium",
   "elite_credits_ytd",
+  "rnf_date",
 ] as const;
 
 const REQUIRED = ["fc_code", "name", "banding", "as_of", "commission_ytd", "premium_ytd", "elite_credits_ytd"] as const;
@@ -123,6 +124,7 @@ export function parseImportCsv(text: string): ParsedImport {
       pending_commission: opt("pending_commission", 0),
       pending_premium: opt("pending_premium", 0),
       elite_credits_ytd: elite,
+      rnf_date: cell(r, "rnf_date") ?? "",
     });
   });
   return { rows, errors };
@@ -134,7 +136,7 @@ export function toImportCsv(rows: ImportRow[]): string {
     const s = String(v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  return [IMPORT_COLUMNS.join(","), ...rows.map((r) => IMPORT_COLUMNS.map((c) => esc(r[c])).join(","))].join("\n") + "\n";
+  return [IMPORT_COLUMNS.join(","), ...rows.map((r) => IMPORT_COLUMNS.map((c) => esc(r[c] ?? "")).join(","))].join("\n") + "\n";
 }
 
 /** The latest row per FA, sorted by fc_code. */
@@ -147,6 +149,12 @@ export function latestRows(rows: ImportRow[]): ImportRow[] {
   return [...latest.values()].sort((a, b) => a.fc_code.localeCompare(b.fc_code));
 }
 
+/** The year in an RNF date ("2025-03-03", "03/03/2025" or "2025"), or null. */
+export function rnfYear(v: string | undefined): number | null {
+  const m = /(19|20)\d{2}/.exec(v ?? "");
+  return m ? Number(m[0]) : null;
+}
+
 /** The advisers the import describes: one per FA, from their latest row. The advisor id is the FC code. */
 export function advisorsFromRows(rows: ImportRow[]): Advisor[] {
   const codes = new Set(rows.map((r) => r.fc_code));
@@ -155,6 +163,7 @@ export function advisorsFromRows(rows: ImportRow[]): Advisor[] {
     name: r.name,
     fc_code: r.fc_code,
     banding_code: r.banding,
+    rnf_year: rnfYear(r.rnf_date),
     manager_id: r.manager_fc_code && codes.has(r.manager_fc_code) ? r.manager_fc_code : null,
   }));
 }

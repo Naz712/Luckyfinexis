@@ -25,7 +25,7 @@ phone, through the Render blueprint at the repo root or a tunnel, is in
 One CSV a month, with the columns `fc_code, name, banding, manager_fc_code,
 as_of, commission_ytd, premium_ytd, mdrt_commission_ytd,
 mdrt_commission_risk_ytd, mdrt_premium_ytd, mdrt_premium_risk_ytd,
-pending_commission, pending_premium, elite_credits_ytd` (one row per FA per
+pending_commission, pending_premium, elite_credits_ytd, rnf_date` (one row per FA per
 month end; `../public/sample-import.csv` is the shape). Set `ADMIN_CODE` in
 `.env`, then:
 

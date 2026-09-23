@@ -19,7 +19,7 @@ export async function ask({ messages }) {
   const premium = amount ? Number((amount[1] ?? amount[3] ?? amount[5] ?? "0").replace(/,/g, "")) * (amount[2] || amount[4] ? 1000 : 1) : 0;
   const call = (name, args) => ({ role: "assistant", content: null, tool_calls: [{ id: `call_mock_${Date.now()}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] });
   if (/what if|if i (sell|close|log)|one more/.test(q) && premium > 0) return call("what_if", { premium, product: /term|ci|critical|ilp|endowment|hospital|whole life/.exec(q)?.[0] ?? "", term_years: 0, when: "" });
-  if (/elite|credits|trip|rung/.test(q)) return call("elite_status", {});
+  if (/elite|credits|trip|rung|conference/.test(q)) return call("elite_status", {});
   if (/\bteam\b|my advisors/.test(q)) return call("team_status", {});
   if (/\bgoals\b|\btargets?\b|wape/.test(q)) return call("goals_status", {});
   if (/by month|monthly|month|january|february|march|april|\bmay\b|june|july|august|september|october|november|december|best month/.test(q)) return call("production_by_month", { months: 12 });

@@ -1,9 +1,13 @@
 // The Calculator: build a client's case from the insurers' schedules before
-// meeting them. Pick a policy and its option (premium term, plan, MIP) from
-// the dropdowns, enter the premium, and each row shows the gross revenue the
-// firm earns (the schedule's rate plus the insurer's running incentives) and
-// the FC's share of it at the band in the header. Nothing here is saved.
-import { useState } from "react";
+// meeting them, in the order the business asked for: company, product,
+// annual premium, premium term. Picking a product opens a full-screen list
+// (company first, then its products); the premium term is typed in years and
+// lands on the schedule row that covers it. Each policy then shows four
+// figures: ① the FC's commission at the schedule's rate, ② the insurer's
+// running incentives, ③ MDRT credit and ④ Finexis Elite credits. Tapping them
+// opens the full breakdown (later years, incentive conditions, the
+// schedule's fine print) as its own page. Nothing here is saved.
+import { useState, type ReactNode } from "react";
 import { MDRT_MEMBERSHIP_YEAR, TODAY, type Advisor, type BandingCode, type Case } from "../mock/data";
 import {
   aggregate,
@@ -25,24 +29,37 @@ import {
   apeOf,
   CATALOGUE,
   CATALOGUE_IS_PRIVATE,
-  defaultVariant,
+  categoriesOf,
+  defaultPay,
   incentivesFor,
+  incentivesOnPolicy,
+  insurerList,
+  isoShort,
+  payOptionByKey,
+  payOptions,
   policyById,
-  policyGroups,
   quote,
-  variantById,
+  rowForTerm,
+  termsText,
   type Incentive,
+  type PayOption,
   type Policy,
+  type PolicyVariant,
   type Quote,
 } from "../lib/policies";
+import { ELITE } from "../lib/elite";
 import { Card, Label } from "../components/ui";
+import Page from "../components/Page";
 
 const TIER_LABEL = { mdrt: "MDRT", cot: "COT", tot: "TOT" } as const;
 
 interface Row {
   key: number;
   policyId: string;
-  variantId: string;
+  /** Which pay option (a term group or a fixed row), by PayOption key. */
+  payKey: string;
+  /** Premium term as typed, in years; unused for a fixed row. */
+  years: string;
   /** Premium as typed; pre-filled with the policy's typical case until the FC types over it. */
   premium: string;
   premiumTouched: boolean;
@@ -70,8 +87,28 @@ function parseMoney(s: string): number {
 
 let nextKey = 1;
 
+/** The term an option opens with: the longest term it lists. */
+function defaultYears(option: PayOption): string {
+  if (option.variant) return "";
+  return String(Math.max(...option.rows.map((v) => v.term ?? 0)));
+}
+
 function rowFor(policy: Policy): Row {
-  return { key: nextKey++, policyId: policy.id, variantId: defaultVariant(policy).id, premium: String(policy.typical_premium), premiumTouched: false, target: "" };
+  const { option, years } = defaultPay(policy);
+  return { key: nextKey++, policyId: policy.id, payKey: option.key, years: years === null ? "" : String(years), premium: String(policy.typical_premium), premiumTouched: false, target: "" };
+}
+
+/** A row moved to another policy: the typed term and premium carry over when they still apply. */
+function switchPolicy(row: Row, policy: Policy): Partial<Row> {
+  const { option, years } = defaultPay(policy);
+  const keep = !option.variant && row.years !== "" && rowForTerm(option, Number(row.years)) !== null;
+  return {
+    policyId: policy.id,
+    payKey: option.key,
+    years: keep ? row.years : years === null ? "" : String(years),
+    premium: row.premiumTouched ? row.premium : String(policy.typical_premium),
+    target: "",
+  };
 }
 
 /** The first policy the screen opens with, so it is never empty: the first term plan in the catalogue. */
@@ -85,6 +122,13 @@ function formulaText(band: BandingCode, share: number): string {
   if (f.share === 1 && f.band_deduction === 0) return `${pct(share)} of gross revenue at ${band}`;
   const rate = share / f.share + f.band_deduction;
   return `${f.share} × (${Math.round(rate * 100)}% − ${Math.round(f.band_deduction * 100)}%) = ${(share * 100).toFixed(2)}% of gross revenue`;
+}
+
+const pctText = (n: number) => `${Number(n.toFixed(2))}%`;
+
+/** "5 to 25+ years" for a term option, else the fixed row's label. */
+function optionSummary(o: PayOption): string {
+  return o.variant ? o.variant.label : `${o.label === "Regular premium" || o.label === "Premium term" ? "" : `${o.label} `}${termsText(o)}`;
 }
 
 /**
@@ -155,6 +199,34 @@ function MoneyField({
   );
 }
 
+/** The premium term in years: a number field with − and + either side. */
+function YearsField({ id, value, onChange }: { id: string; value: string; onChange: (v: string) => void }) {
+  const n = Number(value);
+  const step = (d: number) => onChange(String(Math.min(Math.max((Number.isFinite(n) && n > 0 ? n : 0) + d, 1), 99)));
+  const btn = "flex w-9 shrink-0 items-center justify-center text-[18px] font-semibold text-accent hover:bg-accent-soft disabled:text-faint";
+  return (
+    <div className="flex items-stretch overflow-hidden rounded-xl border border-line bg-surface focus-within:border-accent focus-within:ring-[3px] focus-within:ring-accent/16">
+      <button type="button" aria-label="One year less" onClick={() => step(-1)} disabled={!(n > 1)} className={btn}>
+        −
+      </button>
+      <input
+        id={id}
+        type="number"
+        inputMode="numeric"
+        min={1}
+        max={99}
+        value={value}
+        placeholder="yrs"
+        onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 2))}
+        className="tnum w-full min-w-0 bg-transparent py-[11px] text-center text-[17px] font-semibold text-ink placeholder:font-normal placeholder:text-muted focus:outline-none"
+      />
+      <button type="button" aria-label="One year more" onClick={() => step(1)} className={btn}>
+        +
+      </button>
+    </div>
+  );
+}
+
 function ChevronIcon({ size = 11 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true" className="shrink-0">
@@ -163,128 +235,299 @@ function ChevronIcon({ size = 11 }: { size?: number }) {
   );
 }
 
-/** A native dropdown styled like the design's fields; `groups` renders optgroups. */
-function Dropdown({
-  id,
-  label,
-  value,
-  onChange,
-  groups,
-}: {
-  id: string;
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  groups: { label?: string; options: { value: string; label: string }[] }[];
-}) {
+/** A numbered output, ① to ④, as the business's whiteboard lists them. */
+function Step({ n }: { n: number }) {
   return (
-    <div>
-      <label htmlFor={id} className="text-[12px] text-muted">
-        {label}
-      </label>
-      <div className="relative mt-[5px]">
-        <select
-          id={id}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-full appearance-none rounded-xl border border-line bg-surface py-[11px] pl-3.5 pr-9 text-[15px] font-semibold text-ink focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16"
-        >
-          {groups.map((g, n) =>
-            g.label ? (
-              <optgroup key={g.label} label={g.label}>
-                {g.options.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </optgroup>
-            ) : (
-              g.options.map((o) => (
-                <option key={`${n}-${o.value}`} value={o.value}>
-                  {o.label}
-                </option>
-              ))
-            ),
-          )}
-        </select>
-        <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    <span aria-hidden="true" className="tnum flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-accent-soft text-[10px] font-bold text-accent">
+      {n}
+    </span>
+  );
+}
+
+function Badge({ tone, children }: { tone: "ok" | "warn" | "muted"; children: ReactNode }) {
+  const cls = tone === "ok" ? "bg-ok/12 text-ok" : tone === "warn" ? "bg-warn/14 text-gold-ink" : "bg-well text-muted";
+  return <span className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] ${cls}`}>{children}</span>;
+}
+
+/** Money incentives (not information-only ones) running on the policy today. */
+const hasMoneyIncentive = (p: Policy) => incentivesOnPolicy(p, TODAY).some((i) => i.kind !== "info");
+
+// ───────────────────────── The picker page ─────────────────────────
+
+/** Company first, then its products by category; a search box looks across every company. */
+function PolicyPicker({ current, onPick }: { current: Policy | null; onPick: (p: Policy) => void }) {
+  const companies = insurerList();
+  const [company, setCompany] = useState(current?.insurer ?? companies.find((c) => c.policies.length > 0)?.name ?? companies[0]!.name);
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const found = q ? CATALOGUE.policies.filter((p) => `${p.insurer} ${p.name} ${p.category}`.toLowerCase().includes(q)) : null;
+  const chosen = companies.find((c) => c.name === company) ?? companies[0]!;
+  const groups = found
+    ? insurerList().flatMap((c) => categoriesOf(found.filter((p) => p.insurer === c.name)).map((g) => ({ label: `${c.name} · ${g.label}`, policies: g.policies })))
+    : categoriesOf(chosen.policies);
+
+  return (
+    <div className="flex flex-col gap-4 px-4 pb-10 pt-3.5">
+      <div className="relative flex items-center">
+        <svg className="pointer-events-none absolute left-3 text-muted" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.8" />
+          <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
         </svg>
+        <input
+          id="policy-search"
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search every company's policies"
+          aria-label="Search policies"
+          className="w-full rounded-xl border border-line bg-surface py-[11px] pl-9 pr-3.5 text-[15px] text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16"
+        />
       </div>
+
+      {!found && (
+        <section>
+          <div className="flex items-center gap-2">
+            <Step n={1} />
+            <span className="text-[11px] font-bold uppercase tracking-[.08em] text-muted">Company</span>
+          </div>
+          <div role="radiogroup" aria-label="Company" className="mt-2 grid grid-cols-3 gap-2">
+            {companies.map((c) => {
+              const on = c.name === chosen.name;
+              return (
+                <button
+                  key={c.name}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => setCompany(c.name)}
+                  className={`btn-lift rounded-xl border px-2 py-2.5 text-center ${on ? "border-brand bg-brand text-white" : "border-line bg-surface text-ink"}`}
+                >
+                  <span className="block truncate text-[14px] font-bold">{c.name}</span>
+                  <span className={`tnum block text-[10.5px] ${on ? "text-white/75" : "text-muted"}`}>{c.policies.length > 0 ? `${c.policies.length} plans` : "schedule to come"}</span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      <section>
+        <div className="flex items-center gap-2">
+          {!found && <Step n={2} />}
+          <span className="text-[11px] font-bold uppercase tracking-[.08em] text-muted">
+            {found ? `${found.length} ${found.length === 1 ? "policy" : "policies"} found` : `${chosen.name} products`}
+          </span>
+        </div>
+        {groups.length === 0 && (
+          <p className="mt-2 rounded-2xl border border-dashed border-dash bg-surface px-4 py-5 text-center text-[13px] leading-normal text-muted">
+            {found ? "Nothing matches that. Try a shorter word, like “term” or “invest”." : `${chosen.name}'s commission schedule hasn't been loaded yet. Once it is, its products appear here.`}
+          </p>
+        )}
+        {groups.map((g) => (
+          <div key={g.label} className="mt-2.5">
+            <h3 className="sticky top-0 z-[1] bg-canvas py-1.5 text-[11px] font-semibold uppercase tracking-[.06em] text-muted">{g.label}</h3>
+            <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
+              {g.policies.map((p) => {
+                const on = p.id === current?.id;
+                return (
+                  <li key={p.id}>
+                    <button type="button" onClick={() => onPick(p)} aria-current={on ? "true" : undefined} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-canvas">
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-1.5">
+                          <span className={`text-[14px] font-semibold leading-snug ${on ? "text-accent" : "text-ink"}`}>{p.name}</span>
+                        </span>
+                        <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                          <span className="text-[11.5px] leading-snug text-muted">{payOptions(p).map(optionSummary).join(" · ")}</span>
+                          {hasMoneyIncentive(p) && <Badge tone="ok">Incentive</Badge>}
+                          {p.status && <Badge tone="warn">Closing</Badge>}
+                        </span>
+                      </span>
+                      {on ? (
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-label="Selected" className="shrink-0 text-accent">
+                          <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      ) : (
+                        <span className="text-faint">
+                          <ChevronIcon size={13} />
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </section>
     </div>
   );
 }
 
-const POLICY_GROUPS = policyGroups().map((g) => ({ label: g.label, options: g.policies.map((p) => ({ value: p.id, label: p.name })) }));
+// ───────────────────────── One policy on the main screen ─────────────────────────
 
-/** One policy row: the two dropdowns, the premium, and what it earns. */
+interface Resolved {
+  row: Row;
+  policy: Policy;
+  option: PayOption;
+  /** null when the typed term has no row in the schedule. */
+  variant: PolicyVariant | null;
+  premium: number;
+  incentives: Incentive[];
+}
+
+/** The four figures, the numbers the business asked for. */
+function outputsOf(q: Quote) {
+  const incentiveLines = q.lines.filter((l) => l.kind !== "base");
+  const incentiveGr = incentiveLines.reduce((t, l) => t + l.amount, 0);
+  return { incentiveLines, incentiveGr, commissionToYou: q.base * q.share, incentiveToYou: incentiveGr * q.share };
+}
+
 function PolicyCard({
-  row,
+  r,
   q,
   band,
   canRemove,
   onPatch,
   onRemove,
+  onChoose,
+  onDetail,
 }: {
-  row: Row;
-  q: Quote;
+  r: Resolved;
+  q: Quote | null;
   band: BandingCode;
   canRemove: boolean;
   onPatch: (p: Partial<Row>) => void;
   onRemove: () => void;
+  onChoose: () => void;
+  onDetail: () => void;
 }) {
-  const policy = policyById(row.policyId)!;
-  const variant = variantById(policy, row.variantId);
-  const [showLater, setShowLater] = useState(false);
-  const laterEarnings = q.later.reduce((t, l) => t + l.earnings, 0);
-  // One later rate that carries on ("Year 2 onwards") reads as a yearly figure; several read as a total over the listed years.
-  const perYear = q.later.length === 1 && !!policy.onwards;
-  const laterText =
-    q.later.length === 1 ? `${policy.onwards ?? "Year 2"} at the schedule's rate` : `Years 2–${q.later.length + 1} at the schedule's rates${policy.onwards ? ", the last rate continuing" : ""}`;
+  const { row, policy, option, variant } = r;
+  const options = payOptions(policy);
+  const years = Number(row.years);
+  const out = q ? outputsOf(q) : null;
+  const single = variant?.single ?? option.variant?.single ?? false;
+
   return (
     <div className="overflow-hidden rounded-2xl border border-line bg-surface">
-      <div className="flex flex-col gap-[11px] px-4 pb-3.5 pt-3.5">
+      <div className="flex flex-col gap-[11px] px-4 pb-3.5 pt-3">
         <div className="flex items-baseline justify-between gap-2">
-          <span className="text-[11px] font-bold uppercase tracking-[.08em] text-muted">{policy.insurer}</span>
+          <span className="text-[11px] font-bold uppercase tracking-[.08em] text-muted">Policy</span>
           {canRemove && (
             <button type="button" onClick={onRemove} aria-label={`Remove ${policy.name}`} className="shrink-0 text-[11px] font-semibold text-muted hover:text-flag">
               Remove
             </button>
           )}
         </div>
-        <Dropdown
+
+        {/* Company and product: one tap opens the picker page. */}
+        <button
+          type="button"
           id={`policy-${row.key}`}
-          label="Policy"
-          value={row.policyId}
-          groups={POLICY_GROUPS}
-          onChange={(id) => {
-            const p = policyById(id)!;
-            onPatch({ policyId: id, variantId: defaultVariant(p).id, premium: row.premiumTouched ? row.premium : String(p.typical_premium), target: "" });
-          }}
-        />
-        {policy.variants.length > 1 ? (
-          <Dropdown
-            id={`variant-${row.key}`}
-            label={policy.variant_label}
-            value={variant.id}
-            groups={[{ options: policy.variants.map((v) => ({ value: v.id, label: v.label })) }]}
-            onChange={(id) => onPatch({ variantId: id })}
-          />
-        ) : (
-          <div className="text-[12px] text-muted">
-            {policy.variant_label}: <span className="font-semibold text-body">{variant.label}</span>
-          </div>
-        )}
+          onClick={onChoose}
+          aria-label={`Company ${policy.insurer}, product ${policy.name}. Change`}
+          className="btn-lift -mt-1 flex w-full items-center gap-3 rounded-xl border border-line bg-canvas px-3.5 py-2.5 text-left hover:border-accent"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="flex items-baseline gap-2">
+              <span className="w-[58px] shrink-0 text-[11px] text-muted">Company</span>
+              <span className="truncate text-[13px] font-bold text-ink">{policy.insurer}</span>
+            </span>
+            <span className="mt-1 flex items-baseline gap-2">
+              <span className="w-[58px] shrink-0 text-[11px] text-muted">Product</span>
+              <span className="text-[14px] font-semibold leading-snug text-ink">{policy.name}</span>
+            </span>
+          </span>
+          <span className="flex shrink-0 items-center gap-0.5 text-[12px] font-semibold text-accent">
+            Change
+            <ChevronIcon />
+          </span>
+        </button>
+
         {policy.status && <p className="rounded-lg bg-warn/9 px-3 py-2 text-[11.5px] leading-[1.45] text-gold-ink">{policy.status}</p>}
-        <div>
-          <div className="flex items-baseline justify-between gap-2">
-            <label htmlFor={`premium-${row.key}`} className="text-[12px] text-muted">
-              {variant.single ? "Single premium" : "Annual premium"}
-            </label>
-            <span className="shrink-0 text-[11px] text-muted">{row.premiumTouched ? "your figure" : "typical case, adjust to yours"}</span>
+
+        {options.length > 1 ? (
+          <div>
+            <div className="text-[12px] text-muted">{policy.variant_label === "Premium term" ? "Premium type" : policy.variant_label}</div>
+            {options.length <= 4 ? (
+              <div role="radiogroup" aria-label={policy.variant_label} className="mt-[5px] flex flex-wrap gap-1.5">
+                {options.map((o) => {
+                  const on = o.key === option.key;
+                  return (
+                    <button
+                      key={o.key}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      onClick={() => onPatch({ payKey: o.key, years: o.variant ? "" : rowForTerm(o, years) ? row.years : defaultYears(o) })}
+                      className={`rounded-full border px-3 py-[6px] text-left text-[12px] font-semibold leading-snug ${on ? "border-brand bg-brand text-white" : "border-line bg-surface text-body"}`}
+                    >
+                      {o.label}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="relative mt-[5px]">
+                <select
+                  id={`pay-${row.key}`}
+                  aria-label={policy.variant_label}
+                  value={option.key}
+                  onChange={(e) => {
+                    const o = options.find((x) => x.key === e.target.value)!;
+                    onPatch({ payKey: o.key, years: o.variant ? "" : rowForTerm(o, years) ? row.years : defaultYears(o) });
+                  }}
+                  className="w-full appearance-none rounded-xl border border-line bg-surface py-[11px] pl-3.5 pr-9 text-[14px] font-semibold text-ink focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16"
+                >
+                  {options.map((o) => (
+                    <option key={o.key} value={o.key}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+                <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+            )}
           </div>
-          <MoneyField id={`premium-${row.key}`} value={row.premium} onChange={(v) => onPatch({ premium: v, premiumTouched: v !== "" })} className="mt-[5px]" />
+        ) : (
+          option.variant && (
+            <div className="text-[12px] text-muted">
+              {policy.variant_label}: <span className="font-semibold text-body">{option.variant.label}</span>
+            </div>
+          )
+        )}
+
+        <div className={`grid gap-2.5 ${option.variant ? "grid-cols-1" : "grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]"}`}>
+          <div className="min-w-0">
+            <label htmlFor={`premium-${row.key}`} className="block truncate text-[12px] text-muted">
+              {single ? "Single premium" : "Annual premium"}
+            </label>
+            <MoneyField id={`premium-${row.key}`} value={row.premium} onChange={(v) => onPatch({ premium: v, premiumTouched: v !== "" })} className="mt-[5px]" />
+          </div>
+          {!option.variant && (
+            <div className="min-w-0">
+              <label htmlFor={`years-${row.key}`} className="block truncate text-[12px] text-muted">
+                {/investment/i.test(policy.variant_label) ? "Investment period (yrs)" : "Premium term (years)"}
+              </label>
+              <div className="mt-[5px]">
+                <YearsField id={`years-${row.key}`} value={row.years} onChange={(v) => onPatch({ years: v })} />
+              </div>
+            </div>
+          )}
         </div>
+        {!option.variant &&
+          (variant ? (
+            <p className="-mt-1 text-[11.5px] leading-[1.45] text-muted">
+              Schedule row: <span className="font-semibold text-body">{variant.label}</span> · {pctText(variant.years[0] ?? 0)} in year 1
+            </p>
+          ) : (
+            <p role="alert" className="-mt-1 rounded-lg bg-flag/8 px-3 py-2 text-[11.5px] leading-[1.45] text-flag">
+              {row.years === "" ? "Type the premium term in years." : `The schedule has no rate for ${row.years} ${years === 1 ? "year" : "years"}.`}{" "}
+              {option.label === "Regular premium" || option.label === policy.variant_label ? "It" : option.label} lists {termsText(option)}.
+            </p>
+          ))}
+        {!row.premiumTouched && <p className="-mt-1.5 text-[11px] text-muted">Premium pre-filled with a typical case; type the client's.</p>}
         {policy.target_premium && (
           <div>
             <div className="flex items-baseline justify-between gap-2">
@@ -298,97 +541,271 @@ function PolicyCard({
         )}
       </div>
 
-      <div className="border-t border-line bg-canvas px-4 py-3">
-        <ul className="flex flex-col gap-2" aria-label="Gross revenue, year 1">
-          {q.lines.map((l) => (
-            <li key={l.id} className="flex items-start justify-between gap-3">
+      {/* ① to ④: tapping anywhere here opens the full breakdown as its own page. */}
+      <button type="button" onClick={onDetail} disabled={!q} aria-label={`Full breakdown for ${policy.name}`} className="block w-full border-t border-line bg-canvas px-4 py-3 text-left hover:bg-accent-soft/50 disabled:hover:bg-canvas">
+        <ul className="flex flex-col gap-2.5">
+          <li className="flex items-start justify-between gap-3">
+            <span className="flex min-w-0 items-start gap-2">
+              <Step n={1} />
               <span className="min-w-0">
-                <span className="flex items-center gap-1.5">
-                  <span className="text-[12.5px] font-semibold text-ink">{l.label}</span>
-                  {l.kind !== "base" && <span className="shrink-0 rounded bg-ok/12 px-1 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] text-ok">Incentive</span>}
-                </span>
+                <span className="block text-[12.5px] font-semibold text-ink">Commission</span>
                 <span className="tnum block text-[11.5px] leading-[1.4] text-muted">
-                  {l.detail}
-                  {l.until ? ` · ${l.until}` : ""}
+                  {q ? `${q.lines.filter((l) => l.kind === "base").map((l) => l.detail).join(" + ")} = ${sgd(q.base)} GR` : "no schedule row"}
                 </span>
               </span>
-              <span className="tnum shrink-0 text-[13px] font-semibold text-body">{sgd(l.amount)}</span>
-            </li>
-          ))}
+            </span>
+            <span className="tnum shrink-0 text-[14px] font-bold text-ink">{out ? sgd(out.commissionToYou) : "—"}</span>
+          </li>
+          <li className="flex items-start justify-between gap-3">
+            <span className="flex min-w-0 items-start gap-2">
+              <Step n={2} />
+              <span className="min-w-0">
+                <span className="block text-[12.5px] font-semibold text-ink">Insurer incentive</span>
+                {q && out && out.incentiveLines.length > 0 && (
+                  <span className="tnum block text-[11.5px] leading-[1.4] text-muted">{out.incentiveLines.map((l) => `${l.label} ${sgd(l.amount)} GR`).join(" · ")}</span>
+                )}
+                {q && q.notes.some((n) => n.kind === "short" || n.kind === "toggle") && (
+                  <span className="mt-0.5 flex flex-col gap-0.5">
+                    {q.notes
+                      .filter((n) => n.kind === "short" || n.kind === "toggle")
+                      .map((n) => (
+                        <span key={n.id} className="line-clamp-2 text-[11px] leading-[1.4] text-muted">
+                          <span className="font-semibold text-body">{n.label}:</span> {n.detail}
+                        </span>
+                      ))}
+                  </span>
+                )}
+                {q && q.notes.some((n) => n.kind !== "short" && n.kind !== "toggle") && (
+                  <span className="mt-0.5 block text-[11px] leading-[1.4] text-muted">
+                    Also running: {q.notes
+                      .filter((n) => n.kind !== "short" && n.kind !== "toggle")
+                      .map((n) => n.label)
+                      .join(" · ")}
+                  </span>
+                )}
+                {q && out && out.incentiveLines.length === 0 && q.notes.length === 0 && <span className="block text-[11.5px] text-muted">None running on this plan now</span>}
+              </span>
+            </span>
+            <span className={`tnum shrink-0 text-[14px] font-bold ${out && out.incentiveToYou > 0 ? "text-ok" : "text-muted"}`}>{out && out.incentiveToYou > 0 ? `+${sgd(out.incentiveToYou)}` : "—"}</span>
+          </li>
+          <li className="flex items-start justify-between gap-3">
+            <span className="flex min-w-0 items-start gap-2">
+              <Step n={3} />
+              <span className="min-w-0">
+                <span className="block text-[12.5px] font-semibold text-ink">MDRT</span>
+                <span className="tnum block text-[11.5px] leading-[1.4] text-muted">
+                  {q ? `commission credit · ${sgd(q.mdrtPremium)} premium credit · ${MDRT_CATEGORY_LABEL[policy.mdrt_category]}` : MDRT_CATEGORY_LABEL[policy.mdrt_category]}
+                </span>
+              </span>
+            </span>
+            <span className="tnum shrink-0 text-[14px] font-bold text-ink">{q ? sgd(q.mdrtCommission) : "—"}</span>
+          </li>
+          <li className="flex items-start justify-between gap-3">
+            <span className="flex min-w-0 items-start gap-2">
+              <Step n={4} />
+              <span className="min-w-0">
+                <span className="block text-[12.5px] font-semibold text-ink">Elite credits</span>
+                <span className="tnum block text-[11.5px] leading-[1.4] text-muted">
+                  {q ? `first-year GR ${sgd(q.fygr)} × ${q.eliteMultiplier}${ELITE.multipliers_confirmed ? "" : " (default for now)"}` : "first-year GR × multiplier"}
+                </span>
+              </span>
+            </span>
+            <span className="tnum shrink-0 text-[14px] font-bold text-ink">{q ? `+${count(q.elite)}` : "—"}</span>
+          </li>
         </ul>
-        <div className="mt-2.5 flex items-baseline justify-between gap-3 border-t border-line pt-2.5">
-          <span className="text-[12.5px] font-semibold text-ink">Gross revenue, year 1</span>
-          <span className="tnum text-[14px] font-bold text-ink">{sgd(q.gr)}</span>
-        </div>
-        {q.notes.length > 0 && (
-          <ul className="mt-2 flex flex-col gap-1">
-            {q.notes.map((n) => (
-              <li key={n.id} className="text-[11px] leading-[1.45] text-muted">
-                <span className="font-semibold text-body">{n.label}:</span> {n.detail}
-                {n.until ? ` (${n.until})` : ""}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
 
-      <div className="flex items-center justify-between gap-2.5 border-t border-line px-4 py-[11px]">
-        <span className="min-w-0">
-          <span className="block text-[12px] font-semibold text-body">Your earnings @ {band}</span>
-          <span className="tnum block text-[11px] leading-[1.4] text-muted">
-            {formulaText(band, q.share)} · {MDRT_CATEGORY_LABEL[policy.mdrt_category]}
-            {q.elite >= 0.5 ? ` · Elite +${count(q.elite)}` : ""}
+        <div className="mt-3 flex items-center justify-between gap-2.5 border-t border-line pt-2.5">
+          <span className="min-w-0">
+            <span className="block text-[12.5px] font-semibold text-body">To you, year 1 @ {band}</span>
+            <span className="tnum block text-[11px] leading-[1.4] text-muted">{q ? `① + ② · ${formulaText(band, q.share)}` : "—"}</span>
           </span>
-        </span>
-        <span className="tnum shrink-0 text-[20px] font-bold text-ink">{q.gr > 0 ? sgd(q.earnings) : "—"}</span>
+          <span className="tnum shrink-0 text-[20px] font-bold text-ink">{q && q.gr > 0 ? sgd(q.earnings) : "—"}</span>
+        </div>
+        {q && (
+          <span className="mt-1.5 flex items-center justify-end gap-0.5 text-[12px] font-semibold text-accent">
+            Full breakdown, later years and fine print
+            <ChevronIcon />
+          </span>
+        )}
+      </button>
+    </div>
+  );
+}
+
+// ───────────────────────── The breakdown page ─────────────────────────
+
+function Section({ n, title, children }: { n?: number; title: string; children: ReactNode }) {
+  return (
+    <Card>
+      <div className="flex items-center gap-2">
+        {n !== undefined && <Step n={n} />}
+        <Label>{title}</Label>
       </div>
+      <div className="mt-2.5">{children}</div>
+    </Card>
+  );
+}
+
+function Line({ label, detail, amount, strong = false }: { label: ReactNode; detail?: ReactNode; amount: ReactNode; strong?: boolean }) {
+  return (
+    <div className="flex items-start justify-between gap-3 py-1">
+      <span className="min-w-0">
+        <span className={`block text-[12.5px] ${strong ? "font-bold text-ink" : "font-semibold text-body"}`}>{label}</span>
+        {detail && <span className="tnum block text-[11.5px] leading-[1.45] text-muted">{detail}</span>}
+      </span>
+      <span className={`tnum shrink-0 ${strong ? "text-[15px] font-bold text-ink" : "text-[13px] font-semibold text-body"}`}>{amount}</span>
+    </div>
+  );
+}
+
+/** Everything behind one policy's figures, on its own page. */
+function Breakdown({ r, q, band }: { r: Resolved; q: Quote; band: BandingCode }) {
+  const { policy, variant, premium } = r;
+  const out = outputsOf(q);
+  const running = variant ? incentivesFor(policy, variant, TODAY) : [];
+  const lineFor = (id: string) => q.lines.find((l) => l.id === id);
+  const noteFor = (id: string) => q.notes.find((n) => n.id === id);
+  const laterEarnings = q.later.reduce((t, l) => t + l.earnings, 0);
+  return (
+    <div className="flex flex-col gap-2.5 px-4 pb-10 pt-3">
+      <Card>
+        <Label>The case</Label>
+        <dl className="tnum mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[12.5px]">
+          <dt className="text-muted">Company</dt>
+          <dd className="font-semibold text-ink">{policy.insurer}</dd>
+          <dt className="text-muted">Product</dt>
+          <dd className="font-semibold text-ink">{policy.name}</dd>
+          <dt className="text-muted">{variant?.single ? "Single premium" : "Annual premium"}</dt>
+          <dd className="font-semibold text-ink">{sgd(premium)}</dd>
+          <dt className="text-muted">Schedule row</dt>
+          <dd className="font-semibold text-ink">{variant?.label}</dd>
+          <dt className="text-muted">Band</dt>
+          <dd className="font-semibold text-ink">
+            {band} · {(q.share * 100).toFixed(2)}% of GR to you
+          </dd>
+        </dl>
+      </Card>
+
+      <Section n={1} title="Commission, year 1">
+        {q.lines
+          .filter((l) => l.kind === "base")
+          .map((l) => (
+            <Line key={l.id} label={l.label} detail={l.detail} amount={sgd(l.amount)} />
+          ))}
+        <div className="mt-1 border-t border-line pt-1.5">
+          <Line label="Gross revenue from the schedule" amount={sgd(q.base)} strong />
+          <Line label={`To you @ ${band}`} detail={formulaText(band, q.share)} amount={sgd(out.commissionToYou)} strong />
+        </div>
+      </Section>
+
+      <Section n={2} title="Insurer incentives">
+        {running.length === 0 ? (
+          <p className="text-[12px] leading-normal text-muted">None of the insurer's incentives this quarter covers this plan{variant ? ` on the ${variant.label.toLowerCase()} row` : ""}.</p>
+        ) : (
+          <div className="flex flex-col divide-y divide-line">
+            {running.map((i) => {
+              const l = lineFor(i.id);
+              const n = noteFor(i.id);
+              return (
+                <div key={i.id} className="py-2.5 first:pt-0 last:pb-0">
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="min-w-0">
+                      <span className="block text-[13px] font-semibold text-ink">{i.name}</span>
+                      <span className="block text-[11px] text-muted">
+                        {i.insurer} · {isoShort(i.period[0])} to {isoShort(i.period[1])}
+                      </span>
+                    </span>
+                    <span className={`tnum shrink-0 text-[13px] font-bold ${l ? "text-ok" : "text-muted"}`}>{l ? `+${sgd(l.amount)} GR` : "—"}</span>
+                  </div>
+                  <p className="mt-1.5 text-[12px] leading-[1.5] text-body">{i.detail}</p>
+                  {l && <p className="tnum mt-1 text-[11.5px] leading-[1.45] text-ok-ink">Here: {l.detail}.</p>}
+                  {n && <p className="tnum mt-1 text-[11.5px] leading-[1.45] text-muted">Here: {n.detail}</p>}
+                  {i.conditions && i.conditions.length > 0 && (
+                    <ul className="mt-1.5 flex list-disc flex-col gap-0.5 pl-4 text-[11px] leading-[1.45] text-muted">
+                      {i.conditions.map((c) => (
+                        <li key={c}>{c}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {out.incentiveGr > 0 && (
+          <div className="mt-2 border-t border-line pt-1.5">
+            <Line label="Incentives in gross revenue" amount={sgd(out.incentiveGr)} strong />
+            <Line label={`To you @ ${band}`} detail={`the same ${(q.share * 100).toFixed(2)}% as commission`} amount={sgd(out.incentiveToYou)} strong />
+          </div>
+        )}
+      </Section>
+
+      <Section n={3} title="MDRT credit">
+        <Line
+          label="Commission credit"
+          detail={`Your share of year-1 commission (the schedule's rate${out.incentiveLines.some((l) => l.kind === "uplift") ? " and commission uplifts" : ""}); cash incentives don't count.`}
+          amount={sgd(q.mdrtCommission)}
+        />
+        <Line label="Premium credit" detail={variant?.single ? "6% of a single premium." : "The annual premium in full."} amount={sgd(q.mdrtPremium)} />
+        <p className="mt-1 text-[11.5px] leading-[1.45] text-muted">
+          Counts as {MDRT_CATEGORY_LABEL[policy.mdrt_category]}. MDRT counts Other Products only once Risk-Protection commission reaches its floor.
+        </p>
+      </Section>
+
+      <Section n={4} title={`Finexis ${ELITE.name}`}>
+        <Line label="First-year gross revenue" detail="The schedule's year-1 commission and any commission uplift; cash incentives and later years don't count." amount={sgd(q.fygr)} />
+        <Line label="Elite multiplier" detail={ELITE.multipliers_confirmed ? "This product's multiplier." : "Every product at the default until Finexis confirms the multipliers."} amount={`× ${q.eliteMultiplier}`} />
+        <div className="mt-1 border-t border-line pt-1.5">
+          <Line label="Elite credits" amount={`+${count(q.elite)}`} strong />
+        </div>
+        <p className="mt-1 text-[11.5px] leading-[1.45] text-muted">{ELITE.basis} Credits count year by year, apart from MDRT.</p>
+      </Section>
 
       {q.later.length > 0 && q.later.some((l) => l.rate > 0) && (
-        <div className="border-t border-line px-4 py-2.5">
-          <button type="button" onClick={() => setShowLater((s) => !s)} aria-expanded={showLater} className="flex w-full items-center justify-between gap-2 text-left">
-            <span className="text-[12px] text-muted">{laterText}</span>
-            <span className="tnum shrink-0 text-[12.5px] font-semibold text-accent">
-              +{sgd(laterEarnings)}
-              {perYear ? " a year" : ""} to you {showLater ? "▴" : "▾"}
-            </span>
-          </button>
-          {showLater && (
-            <table className="tnum mt-2 w-full text-[11.5px] text-muted">
-              <thead>
-                <tr className="text-left">
-                  <th className="py-0.5 font-semibold">Year</th>
-                  <th className="py-0.5 text-right font-semibold">Rate</th>
-                  <th className="py-0.5 text-right font-semibold">Gross revenue</th>
-                  <th className="py-0.5 text-right font-semibold">To you</th>
+        <Section title="Later years">
+          <p className="text-[11.5px] leading-[1.45] text-muted">
+            {q.later.length === 1 ? `${policy.onwards ?? "Year 2"} at the schedule's rate: ${sgd(laterEarnings)} a year to you.` : `Years 2 to ${q.later.length + 1} at the schedule's rates${policy.onwards ? ", the last rate continuing" : ""}: ${sgd(laterEarnings)} to you in all.`}
+          </p>
+          <table className="tnum mt-2 w-full text-[12px] text-muted">
+            <thead>
+              <tr className="text-left">
+                <th className="py-1 font-semibold">Year</th>
+                <th className="py-1 text-right font-semibold">Rate</th>
+                <th className="py-1 text-right font-semibold">Gross revenue</th>
+                <th className="py-1 text-right font-semibold">To you</th>
+              </tr>
+            </thead>
+            <tbody>
+              {q.later.map((l) => (
+                <tr key={l.year} className="border-t border-well">
+                  <td className="py-1.5">{l.year === q.later.length + 1 && policy.onwards ? `${l.year}+` : l.year}</td>
+                  <td className="py-1.5 text-right">{Number(l.rate.toFixed(2))}%</td>
+                  <td className="py-1.5 text-right">{sgd(l.gr)}</td>
+                  <td className="py-1.5 text-right text-body">{sgd(l.earnings)}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {q.later.map((l) => (
-                  <tr key={l.year} className="border-t border-well">
-                    <td className="py-1">{l.year === q.later.length + 1 && policy.onwards ? `${l.year}+` : l.year}</td>
-                    <td className="py-1 text-right">{Number(l.rate.toFixed(2))}%</td>
-                    <td className="py-1 text-right">{sgd(l.gr)}</td>
-                    <td className="py-1 text-right text-body">{sgd(l.earnings)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+              ))}
+            </tbody>
+          </table>
+        </Section>
       )}
+
       {policy.notes && policy.notes.length > 0 && (
-        <details className="border-t border-line px-4 py-2.5 text-[11px] leading-[1.45] text-muted">
-          <summary className="cursor-pointer font-semibold text-body">Schedule notes</summary>
-          <ul className="mt-1.5 flex list-disc flex-col gap-1 pl-4">
+        <Section title="Fine print from the schedule">
+          <p className="text-[11.5px] leading-[1.45] text-muted">The insurer's own notes on this plan: top-ups, renewals, clawbacks and promotions that change the figures.</p>
+          <ul className="mt-1.5 flex list-disc flex-col gap-1 pl-4 text-[12px] leading-[1.5] text-body">
             {policy.notes.map((n) => (
               <li key={n}>{n}</li>
             ))}
           </ul>
-        </details>
+        </Section>
       )}
+
+      <p className="px-1 text-center text-[11px] leading-normal text-muted">Source: {policy.source}.</p>
     </div>
   );
 }
+
+// ───────────────────────── The screen ─────────────────────────
 
 export default function Calculator({
   advisor,
@@ -412,21 +829,26 @@ export default function Calculator({
   const [quarter, setQuarter] = useState<Record<string, string>>({});
   /** One-off rewards the FC says they qualify for. */
   const [flatOn, setFlatOn] = useState<Record<string, boolean>>({});
+  /** The picker page: for a row's key, or "new" to add a row. */
+  const [picking, setPicking] = useState<number | "new" | null>(null);
+  /** The breakdown page, by row key. */
+  const [detail, setDetail] = useState<number | null>(null);
 
   // ── Per-row maths. Tiered incentives look across the rows: each row's tier counts the others. ──
-  const resolved = rows.map((row) => {
+  const resolved: Resolved[] = rows.map((row) => {
     const policy = policyById(row.policyId)!;
-    const variant = variantById(policy, row.variantId);
+    const option = payOptionByKey(policy, row.payKey);
+    const variant = rowForTerm(option, Number(row.years));
     const premium = parseMoney(row.premium);
-    return { row, policy, variant, premium, incentives: incentivesFor(policy, variant, TODAY) };
+    return { row, policy, option, variant, premium, incentives: variant ? incentivesFor(policy, variant, TODAY) : [] };
   });
   const quarterIncentives = new Map<string, Incentive>();
   for (const r of resolved) for (const i of r.incentives) if (i.quarter_input) quarterIncentives.set(i.id, i);
   const flatIncentives = new Map<string, Incentive>();
   for (const r of resolved) for (const i of r.incentives) if (i.kind === "flat_cash") flatIncentives.set(i.id, i);
   /** What a row contributes toward an incentive's quarter figure: APE credits for tiers, APE for thresholds. */
-  const contribution = (r: (typeof resolved)[number], i: Incentive) =>
-    i.kind === "ape_cash" ? apeCredits(i, r.policy, r.variant, r.premium) : i.kind === "sales_cash" && r.policy.insurer === i.insurer ? apeOf(r.variant, r.premium) : 0;
+  const contribution = (r: Resolved, i: Incentive) =>
+    !r.variant ? 0 : i.kind === "ape_cash" ? apeCredits(i, r.policy, r.variant, r.premium) : i.kind === "sales_cash" && r.policy.insurer === i.insurer ? apeOf(r.variant, r.premium) : 0;
   // A one-off reward goes on the row where it is largest, once.
   const flatRow = new Map<string, number>();
   for (const [id, i] of flatIncentives) {
@@ -443,6 +865,7 @@ export default function Calculator({
     if (best >= 0) flatRow.set(id, best);
   }
   const computed = resolved.map((r, n) => {
+    if (!r.variant) return { r, q: null };
     const quarterOther: Record<string, number> = {};
     for (const [id, i] of quarterIncentives) {
       const others = resolved.reduce((t, o, m) => (m === n ? t : t + contribution(o, i)), 0);
@@ -450,16 +873,17 @@ export default function Calculator({
     }
     const flat = [...flatRow.entries()].filter(([, row]) => row === n).map(([id]) => id);
     const q = quote({ policy: r.policy, variant: r.variant, premium: r.premium, targetPremium: parseMoney(r.row.target) || null, band, today: TODAY, quarterOther, flatOn: flat });
-    return { ...r, q };
+    return { r, q };
   });
 
-  const totalGr = computed.reduce((t, c) => t + c.q.gr, 0);
-  const totalEarnings = computed.reduce((t, c) => t + c.q.earnings, 0);
-  const totalMdrtPremium = computed.reduce((t, c) => t + c.q.mdrtPremium, 0);
-  const totalElite = computed.reduce((t, c) => t + c.q.elite, 0);
-  const mdrtRisk = computed.filter((c) => c.policy.mdrt_category === "risk_protection").reduce((t, c) => t + c.q.mdrtCommission, 0);
-  const mdrtOther = computed.filter((c) => c.policy.mdrt_category === "other").reduce((t, c) => t + c.q.mdrtCommission, 0);
-  const filled = computed.filter((c) => c.q.gr > 0).length;
+  const quotes = computed.map((c) => c.q).filter((q): q is Quote => q !== null);
+  const totalGr = quotes.reduce((t, q) => t + q.gr, 0);
+  const totalEarnings = quotes.reduce((t, q) => t + q.earnings, 0);
+  const totalMdrtPremium = quotes.reduce((t, q) => t + q.mdrtPremium, 0);
+  const totalElite = quotes.reduce((t, q) => t + q.elite, 0);
+  const mdrtRisk = computed.filter((c) => c.r.policy.mdrt_category === "risk_protection").reduce((t, c) => t + (c.q?.mdrtCommission ?? 0), 0);
+  const mdrtOther = computed.filter((c) => c.r.policy.mdrt_category === "other").reduce((t, c) => t + (c.q?.mdrtCommission ?? 0), 0);
+  const filled = quotes.filter((q) => q.gr > 0).length;
 
   // ── The goal set in Goals, and the what-if figure laid over it ──
   const goal = activeGoalFor(advisor, cases, goalSet, primary);
@@ -502,17 +926,29 @@ export default function Calculator({
 
   const patch = (key: number, p: Partial<Row>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...p } : r)));
   const remove = (key: number) => setRows((rs) => rs.filter((r) => r.key !== key));
+  const pickingRow = typeof picking === "number" ? rows.find((r) => r.key === picking) : undefined;
+  const detailed = computed.find((c) => c.r.row.key === detail && c.q !== null);
 
   return (
     <>
       <div className="flex flex-col gap-2.5 px-4 pb-24 pt-3">
-        {computed.map((c) => (
-          <PolicyCard key={c.row.key} row={c.row} q={c.q} band={band} canRemove={rows.length > 1} onPatch={(p) => patch(c.row.key, p)} onRemove={() => remove(c.row.key)} />
+        {computed.map(({ r, q }) => (
+          <PolicyCard
+            key={r.row.key}
+            r={r}
+            q={q}
+            band={band}
+            canRemove={rows.length > 1}
+            onPatch={(p) => patch(r.row.key, p)}
+            onRemove={() => remove(r.row.key)}
+            onChoose={() => setPicking(r.row.key)}
+            onDetail={() => setDetail(r.row.key)}
+          />
         ))}
 
         <button
           type="button"
-          onClick={() => setRows((rs) => [...rs, rowFor(firstPolicy())])}
+          onClick={() => setPicking("new")}
           className="flex w-full items-center justify-center gap-[7px] rounded-2xl border border-dashed border-accent/45 bg-accent-soft/50 p-3.5 text-[14px] font-semibold text-accent hover:border-accent hover:bg-accent-soft"
         >
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -624,6 +1060,28 @@ export default function Calculator({
         </div>
         <div className="tnum shrink-0 text-[28px] font-bold leading-none tracking-[-.025em]">{sgd(totalEarnings)}</div>
       </section>
+
+      <Page open={picking !== null} onClose={() => setPicking(null)} title={picking === "new" ? "Add a policy" : "Choose a policy"} eyebrow="Company, then product">
+        {(close) => (
+          <PolicyPicker
+            current={pickingRow ? policyById(pickingRow.policyId)! : null}
+            onPick={(p) => {
+              if (picking === "new") setRows((rs) => [...rs, rowFor(p)]);
+              else if (pickingRow) patch(pickingRow.key, switchPolicy(pickingRow, p));
+              close();
+            }}
+          />
+        )}
+      </Page>
+
+      <Page
+        open={detailed !== undefined}
+        onClose={() => setDetail(null)}
+        title={detailed ? detailed.r.policy.name : ""}
+        eyebrow={detailed ? `${detailed.r.policy.insurer} · ${detailed.r.policy.category}` : undefined}
+      >
+        {detailed && detailed.q && <Breakdown r={detailed.r} q={detailed.q} band={band} />}
+      </Page>
     </>
   );
 }

@@ -26,7 +26,7 @@ import {
   type Tier,
 } from "../mock/data";
 
-import { fcShare } from "./policies";
+import { CATALOGUE, fcShare } from "./policies";
 
 export type { MdrtRouteMetric } from "../mock/data";
 
@@ -143,7 +143,8 @@ export function metricsForCase(c: Case): CaseMetrics {
     mdrt_premium: c.premium_amount * creditRate(c.product_id, "mdrt_premium"),
     mdrt_commission: commission * creditRate(c.product_id, "mdrt_commission"),
     wape: c.premium_amount * wapeTermFactor(product, c.premium_term_years) * creditRate(c.product_id, "wape"),
-    elite: (c.premium_amount / 1000) * product.elite_rate,
+    // Elite: first-year GR at the scheme's default multiplier (a hypothetical case has no product multiplier).
+    elite: c.gross_revenue * CATALOGUE.elite.default_multiplier,
   };
 }
 

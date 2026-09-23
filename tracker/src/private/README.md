@@ -7,13 +7,14 @@ this folder except this README and `rates.example.json` is gitignored.
 
 Two files can live here:
 
-- **`policies.local.json`**: the policy catalogue the Calculator's dropdowns
-  and the assistant's what-ifs read. Each policy lists its options (premium
-  term, plan, MIP, premium charge) with the commission rate by policy year,
-  and the incentives running on top of it (commission uplifts, APE-based cash
-  rewards, trip credits). It also carries the payout formula
+- **`policies.local.json`**: the policy catalogue the Calculator and the
+  assistant's what-ifs read. Each policy lists its schedule rows (premium
+  term ranges, plans, MIPs, premium charges) with the commission rate by
+  policy year, and the incentives running on top of it (commission uplifts,
+  APE-based cash rewards, trip credits). It also carries the payout formula
   (`fc_formula`: FC earnings = share × (banding rate − deduction) × gross
-  revenue). The shape is the `Catalogue` type in `src/lib/policies.ts`;
+  revenue), the companies the picker lists (`insurers`) and the Finexis Elite
+  scheme (`elite`: tiers, new-FC tiers, qualifying period, multipliers). The shape is the `Catalogue` type in `src/lib/policies.ts`;
   `src/mock/policies.sample.ts` is a made-up example of it. Without this
   file the app uses that sample.
 - **`rates.local.json`**: optional overrides for the banding table and the

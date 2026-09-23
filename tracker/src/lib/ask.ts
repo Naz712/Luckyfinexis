@@ -4,7 +4,8 @@
 // router at the bottom) only decides which tool to call and how to phrase
 // the result. The tools never see anything beyond this advisor's own
 // production and, for a manager, their team's.
-import { ELITE_RULES_CONFIRMED, elite_tiers, MDRT_MEMBERSHIP_YEAR, metric_definitions, TODAY, type Advisor, type Case, type Tier } from "../mock/data";
+import { MDRT_MEMBERSHIP_YEAR, metric_definitions, TODAY, type Advisor, type Case, type Tier } from "../mock/data";
+import { ELITE, elitePeriodText, eliteTiersFor, isNewFc } from "./elite";
 import {
   aggregate,
   casesForAdvisor,
@@ -97,7 +98,7 @@ export const TOOL_DEFS = [
     type: "function",
     function: {
       name: "elite_status",
-      description: "The in-house Elite scheme (the year-end trips): credits earned so far this year, the next rung with the credits to go and the pace needed, the advisor's own Elite goal if set, and every rung with reached or to go. Use for 'Elite', 'credits', 'trip', 'rung'.",
+      description: "Finexis Elite, the firm's own MDRT-style scheme with a trip as the prize: credits (first-year gross revenue times each product's Elite multiplier) earned so far in the qualifying year, the next tier with the credits to go and the pace needed, whether the advisor qualifies at the lower new-FC tiers, the advisor's own Elite goal if set, and every tier with reached or to go. Use for 'Elite', 'credits', 'trip', 'tier', 'conference'.",
       parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
     },
   },
@@ -227,34 +228,38 @@ function whatIf(ctx: AskContext, args: Record<string, unknown>): ToolResult {
 
 function eliteStatus(ctx: AskContext): ToolResult {
   const cs = mine(ctx);
-  // Credits over the scheme's own period (the calendar year until its rules arrive); the FC's goal keeps its own cadence window.
+  // Credits over the scheme's qualifying year; the FC's goal keeps its own cadence window. New FCs have lower tiers.
   const period = periodBounds(metricDefinition("elite").period_type, TODAY);
   const credits = aggregate(cs.filter((c) => c.status === "confirmed"), "elite", period.start, period.end);
   const goal = metricSnapshot(ctx.advisor.id, cs, "elite", TODAY, ctx.goalSet);
-  const rungs = elite_tiers.slice().sort((a, b) => a.credits - b.credits);
+  const rungs = eliteTiersFor(ctx.advisor).sort((a, b) => a.credits - b.credits);
+  const newFc = isNewFc(ctx.advisor);
   const reached = rungs.filter((r) => credits >= r.credits);
   const next = rungs.find((r) => credits < r.credits) ?? null;
   const nextPace = next ? pace(credits, next.credits, period.start, period.end, TODAY) : null;
-  const rows: AnswerRow[] = [{ label: "Credits this year", value: count(credits), sub: reached.length > 0 ? `${reached[reached.length - 1]!.name} reached` : "no rung reached yet" }];
-  if (next && nextPace) rows.push({ label: `Next rung: ${next.name}`, value: `${count(next.credits - credits)} to go`, sub: `${count(next.credits)} needed · ${paceText(nextPace, "count", false)}` });
+  const rows: AnswerRow[] = [{ label: "Credits this year", value: count(credits), sub: reached.length > 0 ? `${reached[reached.length - 1]!.name} reached` : "no tier reached yet" }];
+  if (next && nextPace) rows.push({ label: `Next tier: ${next.name}`, value: `${count(next.credits - credits)} to go`, sub: `${count(next.credits)} needed · ${paceText(nextPace, "count", false)}` });
   if (goal.target !== null) rows.push({ label: "Your Elite goal", value: `${count(goal.achieved)} of ${count(goal.target)}`, sub: `${goal.cadence ? CADENCE_PER[goal.cadence] : "per year"} · ${paceText(goal.pace, "count", goal.achieved >= goal.target)}` });
   for (const r of rungs) rows.push({ label: r.name, value: count(r.credits), sub: credits >= r.credits ? "reached" : `${count(r.credits - credits)} to go` });
-  // The FC's own goal gets a sentence only when it is not simply the next rung.
+  // The FC's own goal gets a sentence only when it is not simply the next tier.
   const goalWord = goal.target !== null && goal.target !== next?.credits ? ` Your own goal is ${count(goal.target)}: ${paceText(goal.pace, "count", goal.achieved >= goal.target).toLowerCase()}.` : "";
   return {
     label: "Your Elite credits",
     summary: next
       ? `${count(credits)} credits so far this year, ${count(next.credits - credits)} to go for ${next.name}${reached.length > 0 ? ` (${reached[reached.length - 1]!.name} already reached)` : ""}. ${paceText(nextPace, "count", false)}.${goalWord}`
-      : `${count(credits)} credits so far this year; every rung is reached, up to ${rungs[rungs.length - 1]?.name ?? "the top"}.${goalWord}`,
+      : `${count(credits)} credits so far this year; every tier is reached, up to ${rungs[rungs.length - 1]?.name ?? "the top"}.${goalWord}`,
     rows,
-    note: ELITE_RULES_CONFIRMED ? undefined : "The Elite rungs and the credit rule are placeholders until the business supplies the scheme; the credits are as the import counts them.",
+    note: `${ELITE.name}: first-year GR times each product's Elite multiplier, ${elitePeriodText()}.${newFc ? ` As a new FC you qualify at the lower ${ELITE.new_fc_label} tiers.` : ""}${ELITE.tiers_confirmed ? "" : " The tiers are samples."} Credits are as the import counts them.`,
     facts: {
       credits: Math.round(credits),
       reached: reached.map((r) => r.name),
       next: next && nextPace ? { name: next.name, credits: next.credits, to_go: Math.round(next.credits - credits), required_per_month: nextPace.requiredPerMonth === null ? null : Math.round(nextPace.requiredPerMonth), on_track: nextPace.onTrack } : null,
       goal: goal.target === null ? null : { target: goal.target, achieved: Math.round(goal.achieved), cadence: goal.cadence, on_track: goal.achieved >= goal.target || !!goal.pace?.onTrack },
-      rungs: rungs.map((r) => ({ name: r.name, credits: r.credits, reached: credits >= r.credits, to_go: Math.max(0, Math.round(r.credits - credits)) })),
-      rules_confirmed: ELITE_RULES_CONFIRMED,
+      tiers: rungs.map((r) => ({ name: r.name, credits: r.credits, perk: r.perk ?? null, reached: credits >= r.credits, to_go: Math.max(0, Math.round(r.credits - credits)) })),
+      new_fc: newFc,
+      qualifying_period: ELITE.period,
+      tiers_confirmed: ELITE.tiers_confirmed,
+      multipliers_confirmed: ELITE.multipliers_confirmed,
     },
   };
 }
@@ -402,7 +407,7 @@ export function localAnswer(question: string, ctx: AskContext): Answer {
     const term = q.match(/(\d+)\s*(?:years?|yrs?)/i);
     return toAnswer(runTool("what_if", { premium: amount, product: ql, term_years: term ? Number(term[1]) : 0, when: "" }, ctx));
   }
-  if (/elite|credits|trip|rung/.test(ql)) return toAnswer(runTool("elite_status", {}, ctx));
+  if (/elite|credits|trip|rung|conference/.test(ql)) return toAnswer(runTool("elite_status", {}, ctx));
   if (/\bteam\b|my advisors|my fcs/.test(ql)) return toAnswer(runTool("team_status", {}, ctx));
   if (/\bgoals\b|\btargets?\b|wape/.test(ql)) return toAnswer(runTool("goals_status", {}, ctx));
   if (/by month|monthly|month by month|last month|best month|this month|\d+\s*months?/.test(ql) || MONTH_NAMES.test(ql)) return toAnswer(runTool("production_by_month", { months: parseMonths(q) ?? 12 }, ctx));

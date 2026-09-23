@@ -19,16 +19,17 @@ npm run build      # typecheck + production build into dist/
 
 | Path | What |
 | --- | --- |
-| `src/mock/data.ts` | Reference data (the product panel for Singlife, HSBC Life and FWD, bandings, MDRT thresholds and floors, the Elite placeholders) and the sample import rows. `PLACEHOLDER` marks values the business must supply. |
+| `src/mock/data.ts` | Reference data (the broad product types, bandings, MDRT thresholds and floors) and the sample import rows. `PLACEHOLDER` marks values the business must supply. |
 | `src/lib/importer.ts` | The import: the CSV parser, rows → advisers, rows → monthly production entries, rows visible to one FA. |
 | `src/lib/calc.ts` | Pure calculations: entries → metrics, the two MDRT routes and the Risk-Protection floor, pace, series, goals. |
 | `src/lib/format.ts` | Display formatting only (`S$12,345`, no decimals). |
 | `src/lib/api.ts` | The server client: where it is, the signed-in FA, `/me` and `/ask`. |
-| `src/lib/policies.ts`, `src/mock/policies.sample.ts` | The policy catalogue: types, the quote (gross revenue, incentives, the FC's share, later years), and the public made-up sample. |
+| `src/lib/policies.ts`, `src/mock/policies.sample.ts` | The policy catalogue: types, pay options and term ranges, the quote (gross revenue, incentives, the FC's share, MDRT and Elite credit, later years), and the public made-up sample. |
+| `src/lib/elite.ts` | Finexis Elite: the scheme's tiers (new-FC tiers too) and qualifying period, read from the catalogue. |
 | `src/lib/privateRates.ts`, `src/private/` | Confidential schedules, incentives, payout formula and bandings, loaded from gitignored files when present. |
 | `src/lib/ask.ts`, `src/components/Ask.tsx` | The assistant: its tools over the FA's own production, the stand-in keyword router, and the sheet, which also holds Connect and sign-in. |
 | `src/screens/` | Home, Goals (+ editor), Calculator, Team. Screens read only through `calc.ts`. |
-| `src/components/` | Small shared pieces (card, select, money input, segmented control), the SVG column chart, the product picker, the bottom sheet. |
+| `src/components/` | Small shared pieces (card, select, money input, segmented control), the SVG column chart, the bottom sheet, the full-screen page. |
 | `server/` | Node 22, no dependencies: the import store, per-FA links, `/me`, `/ask`. Holds the keys. |
 | `public/sample-import.csv` | The sample import as a file: exactly the columns the backend expects. |
 
@@ -43,11 +44,12 @@ One CSV, one row per FA per month end, year-to-date figures:
 fc_code, name, banding, manager_fc_code, as_of,
 commission_ytd, premium_ytd,
 mdrt_commission_ytd, mdrt_commission_risk_ytd, mdrt_premium_ytd, mdrt_premium_risk_ytd,
-pending_commission, pending_premium, elite_credits_ytd
+pending_commission, pending_premium, elite_credits_ytd, rnf_date
 ```
 
 `fc_code`, `name`, `banding`, `as_of` and the three headline figures are
-required. When the MDRT columns are missing, MDRT credit is taken as the
+required. `rnf_date` (optional; a date or just the year) marks new FCs, who
+qualify for Elite at lower tiers. When the MDRT columns are missing, MDRT credit is taken as the
 headline figure, all of it from Risk-Protection products; pending defaults to
 0. Figures may carry `S$` and commas. Year-to-date resets each January.
 
@@ -99,28 +101,38 @@ part of the deployment choice, written up separately.
   both routes, a projection chart (confirmed line, run rate, the pace that
   reaches the goal), custom targets edited in place with a cadence, and every
   metric's goal. Elite credits can carry their own target.
-- **Calculator** — band strip in the header; one card per policy with two
-  dropdowns (the policy, grouped by insurer and category, then its option:
-  premium term, plan, MIP, premium charge) and the premium. Each card shows
-  gross revenue for year 1 (the schedule's rate, plus every insurer
-  incentive running that day: commission uplifts, APE-based cash rewards,
-  cash on sales), the FC's earnings by the firm's payout formula, the later
-  policy years, trip credits and conditions as notes, and the schedule's
-  small print. "Your quarter so far" takes the rest of the quarter where a
-  tier depends on it. A pinned total per client and "How far this gets you"
-  against the goal set in Goals (MDRT credit leaves cash incentives out).
+- **Calculator** — band strip in the header; one card per policy, filled in
+  the business's order: company, product (both from a full-screen picker:
+  company first, then its products by category, with a search across every
+  company), premium type where there is a choice (regular or limited pay,
+  single premium, a plan), the annual premium and the premium term typed in
+  years. The typed term lands on the schedule row that covers it ("20" →
+  "10 to 24 years"); a term the schedule doesn't list says so. Each card then
+  shows ① commission (the schedule's year-1 rate, to the FC by the firm's
+  payout formula), ② insurer incentives running that day (commission uplifts,
+  APE-based cash, cash on sales; tiers not reached yet and trip credits as
+  notes), ③ MDRT commission and premium credit and ④ Elite credits (first-year
+  GR × the product's multiplier). Tapping them opens the full breakdown as its
+  own page: each incentive's conditions, the later policy years and the
+  schedule's fine print. "Your quarter so far" takes the rest of the quarter
+  where a tier depends on it. A pinned total per client and "How far this
+  gets you" against the goal set in Goals (MDRT credit leaves cash incentives
+  out).
 - **Team** (managers) — team commission, on-track count, MDRT qualified, one row
   per FC with commission, MDRT progress and Elite credits, tap for their Home
   read-only, and a note on the latest import.
 
-## Finexis Elite (placeholder)
+## Finexis Elite
 
-Elite is the firm's own scheme: challenges with their own multipliers that earn
-trips at year end, tracked apart from MDRT. Until its rules arrive, the app
-carries the shape only: `elite_credits_ytd` from the import, `elite_tiers` as
-guessed rungs, and `elite_rate` per product for what-ifs (credits per S$1,000
-of premium). `ELITE_RULES_CONFIRMED` is false and the cards say "placeholder
-rules". Replace the rates and rungs when the business supplies them.
+Elite is the firm's own MDRT-style scheme, with a trip as the prize, tracked
+apart from MDRT. Credits are first-year gross revenue times each product's
+Elite multiplier, counted afresh each qualifying year; FCs whose RNF is recent
+qualify at lower tiers. The FA's credits come from the import
+(`elite_credits_ytd`); the Calculator estimates a case's credits the same way.
+The tiers, the new-FC tiers and the qualifying period are in the catalogue's
+`elite` block: the confidential file carries the real scheme, the public build
+made-up sample tiers. Every product counts at the default multiplier (1×) until
+the per-product multipliers are supplied (`multipliers_confirmed`).
 
 ## How MDRT is modelled
 

@@ -1,7 +1,5 @@
 import { useCallback, useState, type ReactNode } from "react";
 import {
-  ELITE_RULES_CONFIRMED,
-  elite_tiers,
   MDRT_MEMBERSHIP_YEAR,
   MDRT_THRESHOLDS_CONFIRMED,
   metric_definitions,
@@ -12,6 +10,7 @@ import {
   type MetricDefinition,
   type Tier,
 } from "../mock/data";
+import { ELITE, elitePeriodText, eliteTiersFor, isNewFc } from "../lib/elite";
 import {
   casesForAdvisor,
   goalFor,
@@ -377,11 +376,13 @@ export default function Home({
     ? `${sgd(pendingValue)} pending would take you to ${pct(view.projected / goal.target)} once the insurer confirms.`
     : `${sgd(pendingValue)} is waiting on the insurer.`;
 
-  // Finexis Elite: the in-house scheme, tracked apart from MDRT. The next rung is the first the credits have not reached.
+  // Finexis Elite: the in-house scheme, tracked apart from MDRT. The next tier is the first the credits have not reached.
   const elite = metricSnapshot(advisor.id, mine, "elite", TODAY, goalSet);
   const eliteGoal = goalFor(advisor.id, "elite", year, goalSet.targets);
-  const rung = elite_tiers.find((t) => t.credits > elite.achieved) ?? null;
-  const rungReached = [...elite_tiers].reverse().find((t) => elite.achieved >= t.credits) ?? null;
+  const eliteTiers = eliteTiersFor(advisor);
+  const newFc = isNewFc(advisor);
+  const rung = eliteTiers.find((t) => t.credits > elite.achieved) ?? null;
+  const rungReached = [...eliteTiers].reverse().find((t) => elite.achieved >= t.credits) ?? null;
   const rungPace = rung ? paceToward(elite.achieved, rung.credits, elite.period.start, elite.period.end, TODAY) : null;
   const rungFill = rung ? Math.min(elite.achieved / rung.credits, 1) : 1;
   const rungTone: Tone = !rung ? "ok" : rungPace && !rungPace.onTrack ? "warn" : "accent";
@@ -549,9 +550,11 @@ export default function Home({
 
         <Card>
           <div className="flex items-center justify-between gap-2">
-            <Label>Finexis Elite</Label>
-            {!ELITE_RULES_CONFIRMED && (
-              <span className="rounded bg-canvas px-1 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] text-muted">placeholder rules</span>
+            <Label>Finexis {ELITE.name}</Label>
+            {newFc ? (
+              <span className="rounded bg-accent-soft px-1 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] text-accent">new FC tiers</span>
+            ) : (
+              !ELITE.tiers_confirmed && <span className="rounded bg-canvas px-1 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] text-muted">sample tiers</span>
             )}
           </div>
           <div className="mt-2 flex items-baseline gap-1.5">
@@ -560,7 +563,7 @@ export default function Home({
           </div>
           <div className="mt-3 flex items-center justify-between gap-2.5">
             <span className="flex min-w-0 items-center gap-[7px]">
-              <span className="truncate text-[13px] font-semibold text-ink">{rung ? `Next rung · ${rung.name}` : "Every rung reached"}</span>
+              <span className="truncate text-[13px] font-semibold text-ink">{rung ? `Next · ${rung.name}` : "Every tier reached"}</span>
               {rungReached && <span className="shrink-0 rounded bg-brand px-1 py-px text-[9px] font-semibold text-white">{rungReached.name}</span>}
             </span>
             {rung && (
@@ -578,13 +581,20 @@ export default function Home({
               <span className="truncate">{paceText(rungPace, "count", false)}</span>
             </div>
           )}
+          {rung?.perk && (
+            <p className="mt-1.5 text-[12px] text-muted">
+              {rung.name}: {rung.perk}
+            </p>
+          )}
           {eliteGoal && eliteGoal.target_value > 0 && (
             <p className="tnum mt-2 text-[12px] text-muted">
               Your own target: {count(eliteGoal.target_value)} credits · {pct(elite.achieved / eliteGoal.target_value)} there
             </p>
           )}
           <p className="mt-2.5 text-pretty text-[11px] leading-[1.5] text-muted">
-            Tracked apart from MDRT. Credits come from the monthly import; the rungs are placeholders until the scheme's rules arrive.
+            First-year gross revenue times each product's Elite multiplier, {elitePeriodText()}; tracked apart from MDRT. Credits come from the monthly import.
+            {newFc ? ` You qualify at the ${ELITE.new_fc_label.replace(/^New FCs/, "new-FC")} tiers.` : ""}
+            {ELITE.tiers_confirmed ? "" : " The tiers shown are samples."}
           </p>
         </Card>
 

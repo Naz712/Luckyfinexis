@@ -31,6 +31,7 @@ export const IMPORT_COLUMNS = [
   "pending_commission",
   "pending_premium",
   "elite_credits_ytd",
+  "rnf_date",
 ];
 const REQUIRED = ["fc_code", "name", "banding", "as_of", "commission_ytd", "premium_ytd", "elite_credits_ytd"];
 const BANDS = ["B1", "B2", "B3", "B4", "B5"];
@@ -134,6 +135,7 @@ export function parseImportCsv(text) {
       pending_commission: opt("pending_commission", 0),
       pending_premium: opt("pending_premium", 0),
       elite_credits_ytd: elite,
+      rnf_date: cell(r, "rnf_date") ?? "",
     });
   });
   return { rows, errors };

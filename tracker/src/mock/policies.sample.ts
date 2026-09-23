@@ -12,6 +12,28 @@ export const SAMPLE_CATALOGUE: Catalogue = {
   sources: [SRC, SRC_Q],
   // A neutral stand-in for the firm's payout formula: the FC keeps the banding rate of GR.
   fc_formula: { share: 1, band_deduction: 0 },
+  // Insurer C shows how a company whose schedule has not come in yet looks in the picker.
+  insurers: ["Insurer A", "Insurer B", "Insurer C"],
+  // Made-up tiers in the right shape: the real scheme's figures stay out of the public site.
+  elite: {
+    name: "Sample Elite",
+    prize: "a sample trip",
+    period: ["2026-01-01", "2026-12-31"],
+    basis: "First-year gross revenue (FYGR) on cases in the year, times the product's Elite multiplier.",
+    tiers: [
+      { code: "elite_1", name: "Sample Elite I", credits: 100000, new_fc_credits: 80000, perk: "sample perk" },
+      { code: "elite_2", name: "Sample Elite II", credits: 200000, new_fc_credits: 160000 },
+      { code: "elite_3", name: "Sample Elite III", credits: 400000, new_fc_credits: 320000 },
+    ],
+    new_fc_from_rnf_year: 2025,
+    new_fc_label: "New FCs (sample rule: RNF from 2025)",
+    tiers_confirmed: false,
+    multipliers_confirmed: false,
+    default_multiplier: 1,
+    multipliers: {},
+    rules: ["Sample only: every plan counts its first-year GR once."],
+    source: "Sample Elite rules (made up)",
+  },
   policies: [
     {
       id: "sample_term",
@@ -22,9 +44,9 @@ export const SAMPLE_CATALOGUE: Catalogue = {
       variant_label: "Premium term",
       typical_premium: 2400,
       variants: [
-        { id: "5", label: "5 years", years: [40, 20, 10, 3, 3], term: 5 },
-        { id: "10", label: "10 to 19 years", years: [60, 30, 15, 3, 3, 3], term: 10 },
-        { id: "20", label: "20 years or more", years: [70, 40, 20, 3, 3, 3], term: 20 },
+        { id: "5", label: "5 to 9 years", years: [40, 20, 10, 3, 3], term: 5, term_to: 9 },
+        { id: "10", label: "10 to 19 years", years: [60, 30, 15, 3, 3, 3], term: 10, term_to: 19 },
+        { id: "20", label: "20 years or more", years: [70, 40, 20, 3, 3, 3], term: 20, term_to: null },
       ],
       source: SRC,
     },
@@ -37,8 +59,8 @@ export const SAMPLE_CATALOGUE: Catalogue = {
       variant_label: "Premium term",
       typical_premium: 1800,
       variants: [
-        { id: "10", label: "10 to 24 years", years: [65, 35, 15, 3, 3, 3], term: 10 },
-        { id: "25", label: "25 years or more", years: [75, 45, 15, 3, 3, 3], term: 25 },
+        { id: "10", label: "10 to 24 years", years: [65, 35, 15, 3, 3, 3], term: 10, term_to: 24 },
+        { id: "25", label: "25 years or more", years: [75, 45, 15, 3, 3, 3], term: 25, term_to: null },
       ],
       source: SRC,
     },
@@ -49,11 +71,11 @@ export const SAMPLE_CATALOGUE: Catalogue = {
       category: "Investment-linked",
       mdrt_category: "risk_protection",
       variant_label: "Premium term",
-      typical_premium: 6000,
+      typical_premium: 7200,
       variants: [
-        { id: "10", label: "10 years", years: [20, 2], term: 10 },
-        { id: "20", label: "20 years", years: [60, 2], term: 20 },
-        { id: "25", label: "25 years", years: [80, 2], term: 25 },
+        { id: "10", label: "10 to 19 years", years: [20, 2], term: 10, term_to: 19 },
+        { id: "20", label: "20 to 24 years", years: [60, 2], term: 20, term_to: 24 },
+        { id: "25", label: "25 years or more", years: [80, 2], term: 25, term_to: null },
       ],
       onwards: "Year 2 onwards",
       notes: ["Sample only: later years pay a small renewal on the premium."],
