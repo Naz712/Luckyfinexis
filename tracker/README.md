@@ -26,10 +26,11 @@ npm run build      # typecheck + production build into dist/
 | `src/lib/api.ts` | The server client: where it is, the signed-in FA, `/me` and `/ask`. |
 | `src/lib/policies.ts`, `src/mock/policies.sample.ts` | The policy catalogue: types, pay options and term ranges, the quote (gross revenue, incentives, the FC's share, MDRT and Elite credit, later years), and the public made-up sample. |
 | `src/lib/elite.ts` | Finexis Elite: the scheme's tiers (new-FC tiers too) and qualifying period, read from the catalogue. |
+| `src/lib/aims.ts` | The aims beyond MDRT (Final Sprint, an Elite tier, a custom goal) as figures, shared by Home, Goals and the Calculator. |
 | `src/lib/privateRates.ts`, `src/private/` | Confidential schedules, incentives, payout formula and bandings, loaded from gitignored files when present. |
 | `src/lib/ask.ts`, `src/components/Ask.tsx` | The assistant: its tools over the FA's own production, the stand-in keyword router, and the sheet, which also holds Connect and sign-in. |
 | `src/screens/` | Home, Goals (+ editor), Calculator, Team. Screens read only through `calc.ts`. |
-| `src/components/` | Small shared pieces (card, select, money input, segmented control), the SVG column chart, the bottom sheet, the full-screen page. |
+| `src/components/` | Small shared pieces (card, select, money input, segmented control), the SVG column chart, the bottom sheet, the slide-up page. |
 | `server/` | Node 22, no dependencies: the import store, per-FA links, `/me`, `/ask`. Holds the keys. |
 | `public/sample-import.csv` | The sample import as a file: exactly the columns the backend expects. |
 
@@ -42,14 +43,17 @@ One CSV, one row per FA per month end, year-to-date figures:
 
 ```
 fc_code, name, banding, manager_fc_code, as_of,
-commission_ytd, premium_ytd,
+commission_ytd, gr_ytd, premium_ytd, wape_ytd,
 mdrt_commission_ytd, mdrt_commission_risk_ytd, mdrt_premium_ytd, mdrt_premium_risk_ytd,
 pending_commission, pending_premium, elite_credits_ytd, rnf_date
 ```
 
 `fc_code`, `name`, `banding`, `as_of` and the three headline figures are
-required. `rnf_date` (optional; a date or just the year) marks new FCs, who
-qualify for Elite at lower tiers. When the MDRT columns are missing, MDRT credit is taken as the
+required. Optional: `gr_ytd` (first-year gross revenue; without it GR is
+worked out from commission at the FA's band, and Home says so), `wape_ytd`
+(WAPE as Finexis weights it; only a Custom goal reads it, and says when the
+import has none) and `rnf_date` (a date or just the year), which marks new
+FCs, who qualify for Elite at lower tiers. When the MDRT columns are missing, MDRT credit is taken as the
 headline figure, all of it from Risk-Protection products; pending defaults to
 0. Figures may carry `S$` and commas. Year-to-date resets each January.
 
@@ -90,34 +94,38 @@ part of the deployment choice, written up separately.
 
 ## Screens
 
-- **Home** — a blue hero that answers "am I on pace for the goal I set?": the
-  aim from Goals (MDRT/COT/TOT 2027 or your own commission goal), a Commission /
-  Premium route switch, a progress arc (confirmed, pending, target), a verdict
-  pill, "What it takes from here" (per month, per week, at your current rate),
-  a pending strip, the Finexis Elite card, the other route, and "This year"
-  rows (commission, premium, Elite credits) that expand month by month. Tapping
-  a month opens its figures.
-- **Goals** — one aim at a time (MDRT, COT, TOT or Custom), a distance card with
-  both routes, a projection chart (confirmed line, run rate, the pace that
-  reaches the goal), custom targets edited in place with a cadence, and every
-  metric's goal. Elite credits can carry their own target.
+- **Home** — a blue hero that answers "am I on pace for the goal I set?" for
+  whichever aim Goals has (with a Commission / Premium route switch for MDRT),
+  a progress arc (confirmed, pending, target), a verdict pill, "What it takes
+  from here" (per month, per week, at your current rate), a pending strip, the
+  other MDRT route as one card, the Finexis Elite card with the distance to
+  every tier, and "This year" rows (commission, gross revenue, premium, Elite
+  credits). Each row opens its own page, sliding up: where it stands against
+  any goal, a month-by-month chart, and every month's full figures.
+- **Goals** — the four aims, as the business's whiteboard numbers them: ①
+  Final Sprint (the last quarter's campaign: first-year GR from 1 Oct to 31
+  Dec against the FC's target, until the campaign's own rules are supplied),
+  ② MDRT / COT / TOT on commission or premium, ③ an Elite tier, ④ a custom
+  goal on commission, gross revenue or WAPE with a cadence. One at a time: a
+  distance card, a projection chart (confirmed line, run rate, the pace that
+  reaches the goal), and the chosen aim's settings.
 - **Calculator** — band strip in the header; one card per policy, filled in
-  the business's order: company, product (both from a full-screen picker:
-  company first, then its products by category, with a search across every
-  company), premium type where there is a choice (regular or limited pay,
-  single premium, a plan), the annual premium and the premium term typed in
-  years. The typed term lands on the schedule row that covers it ("20" →
+  the business's order: company and product dropdowns (Singlife greyed out
+  until its schedule comes), premium type where there is a choice (regular or
+  limited pay, single premium, a plan), the annual premium and the premium
+  term typed in years. The typed term lands on the schedule row that covers it ("20" →
   "10 to 24 years"); a term the schedule doesn't list says so. Each card then
   shows ① commission (the schedule's year-1 rate, to the FC by the firm's
   payout formula), ② insurer incentives running that day (commission uplifts,
   APE-based cash, cash on sales; tiers not reached yet and trip credits as
   notes), ③ MDRT commission and premium credit and ④ Elite credits (first-year
-  GR × the product's multiplier). Tapping them opens the full breakdown as its
-  own page: each incentive's conditions, the later policy years and the
-  schedule's fine print. "Your quarter so far" takes the rest of the quarter
-  where a tier depends on it. A pinned total per client and "How far this
-  gets you" against the goal set in Goals (MDRT credit leaves cash incentives
-  out).
+  GR × the product's multiplier, then the distance left to the next tier).
+  "Full breakdown" opens under the card: each incentive's conditions, the
+  later policy years and the schedule's fine print. "Your quarter so far"
+  takes the rest of the quarter where a tier depends on it. A pinned total per
+  client and "How far this gets you" against whichever aim Goals has (MDRT
+  credit leaves cash incentives out), with the clients like this that reach
+  each Elite tier.
 - **Team** (managers) — team commission, on-track count, MDRT qualified, one row
   per FC with commission, MDRT progress and Elite credits, tap for their Home
   read-only, and a note on the latest import.
@@ -129,6 +137,7 @@ apart from MDRT. Credits are first-year gross revenue times each product's
 Elite multiplier, counted afresh each qualifying year; FCs whose RNF is recent
 qualify at lower tiers. The FA's credits come from the import
 (`elite_credits_ytd`); the Calculator estimates a case's credits the same way.
+Insurer cash incentives don't count toward Elite.
 The tiers, the new-FC tiers and the qualifying period are in the catalogue's
 `elite` block: the confidential file carries the real scheme, the public build
 made-up sample tiers. Every product counts at the default multiplier (1×) until

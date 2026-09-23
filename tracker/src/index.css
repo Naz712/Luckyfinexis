@@ -210,14 +210,14 @@ button:not(:disabled):active {
 @keyframes scaleIn { from { transform: scale(.96); opacity: .6; } to { transform: scale(1); opacity: 1; } }
 .scale-in { animation: scaleIn 0.24s cubic-bezier(0.22, 1, 0.36, 1) both; }
 
-/* Full-screen pages (the policy picker, a policy's breakdown) push in from the right. */
-@keyframes pageIn {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
+/* Full-screen pages (a Home figure's detail) slide up from the bottom. */
+@keyframes pageUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
 }
-.page-in {
-  animation: pageIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+.page-up {
+  animation: pageUp 0.36s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 @media (prefers-reduced-motion: reduce) {
-  .page-in { animation: fadeIn 0.15s ease both; }
+  .page-up { animation: fadeIn 0.15s ease both; }
 }

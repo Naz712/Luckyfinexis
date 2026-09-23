@@ -21,7 +21,6 @@ import {
   periodBounds,
   ROUTE_LABEL,
   toISODate,
-  UNTRACKED_METRICS,
   weeksLeftInYear,
   type GoalSet,
   type MdrtRoute,
@@ -114,7 +113,7 @@ export const TOOL_DEFS = [
     type: "function",
     function: {
       name: "goals_status",
-      description: "Every goal the advisor has set this year (commission, premium, Elite credits, WAPE) with achieved, target and pace, plus the MDRT tier they aim for. Use for 'my goals', 'my targets', or any of those metrics by name.",
+      description: "Every goal the advisor has set this year (commission, gross revenue) with achieved, target and pace, plus the MDRT tier they aim for. Use for 'my goals', 'my targets', or any of those metrics by name.",
       parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
     },
   },
@@ -197,7 +196,7 @@ function whatIf(ctx: AskContext, args: Record<string, unknown>): ToolResult {
     source: "manual",
     submitted_on: when,
     confirmed_on: when,
-    metrics: { commission: q.earnings, gross_revenue: q.gr, premium, mdrt_commission: q.mdrtCommission, mdrt_premium: q.mdrtPremium, elite: q.elite, wape: 0 },
+    metrics: { commission: q.earnings, gross_revenue: q.gr, premium, mdrt_commission: q.mdrtCommission, mdrt_premium: q.mdrtPremium, elite: q.elite },
   };
   const before = mdrtSnapshot(ctx.advisor.id, cs, TODAY, ctx.goalSet);
   const after = mdrtSnapshot(ctx.advisor.id, [...cs, hypo], TODAY, ctx.goalSet);
@@ -316,21 +315,19 @@ function goalsStatus(ctx: AskContext): ToolResult {
     if (!goal) continue;
     set++;
     const snap = metricSnapshot(ctx.advisor.id, cs, def.code, TODAY, ctx.goalSet);
-    const tracked = !UNTRACKED_METRICS.has(def.code);
     const reached = snap.target !== null && snap.achieved >= snap.target;
-    if (tracked && (reached || snap.pace?.onTrack)) onTrack++;
+    if (reached || snap.pace?.onTrack) onTrack++;
     rows.push({
       label: def.label,
-      value: tracked ? `${fmtMetric(snap.achieved, def.unit)} of ${fmtMetric(snap.target ?? goal.target_value, def.unit)}` : `target ${fmtMetric(goal.target_value, def.unit)}`,
-      sub: tracked ? `${CADENCE_PER[goal.cadence]} · ${paceText(snap.pace, def.unit, reached)}` : `${CADENCE_PER[goal.cadence]} · not in the import yet`,
+      value: `${fmtMetric(snap.achieved, def.unit)} of ${fmtMetric(snap.target ?? goal.target_value, def.unit)}`,
+      sub: `${CADENCE_PER[goal.cadence]} · ${paceText(snap.pace, def.unit, reached)}`,
     });
-    facts.push({ metric: def.code, label: def.label, cadence: goal.cadence, target: snap.target ?? goal.target_value, achieved: tracked ? Math.round(snap.achieved) : null, projected: tracked ? Math.round(snap.projected) : null, on_track: tracked ? reached || !!snap.pace?.onTrack : null, tracked });
+    facts.push({ metric: def.code, label: def.label, cadence: goal.cadence, target: snap.target ?? goal.target_value, achieved: Math.round(snap.achieved), projected: Math.round(snap.projected), on_track: reached || !!snap.pace?.onTrack });
   }
   return {
     label: "Your goals",
     summary: set === 0 ? `Only the MDRT aim is set: ${TIER_LABEL[mdrt.goalTier]}, ${pctOf(route)} there on the ${ROUTE_LABEL[route.metric].toLowerCase()} route.` : `${plural(set, "goal")} set besides the MDRT aim; ${onTrack} on track or reached. MDRT: ${pctOf(route)} there on the ${ROUTE_LABEL[route.metric].toLowerCase()} route.`,
     rows,
-    note: rows.some((r) => r.sub?.includes("not in the import")) ? "WAPE has no column in the monthly import yet, so only its target shows." : undefined,
     facts: { mdrt_tier: mdrt.goalTier, mdrt_route: route.metric, mdrt_progress: route.projected / route.goalThreshold, goals: facts },
   };
 }
@@ -409,7 +406,7 @@ export function localAnswer(question: string, ctx: AskContext): Answer {
   }
   if (/elite|credits|trip|rung|conference/.test(ql)) return toAnswer(runTool("elite_status", {}, ctx));
   if (/\bteam\b|my advisors|my fcs/.test(ql)) return toAnswer(runTool("team_status", {}, ctx));
-  if (/\bgoals\b|\btargets?\b|wape/.test(ql)) return toAnswer(runTool("goals_status", {}, ctx));
+  if (/\bgoals\b|\btargets?\b/.test(ql)) return toAnswer(runTool("goals_status", {}, ctx));
   if (/by month|monthly|month by month|last month|best month|this month|\d+\s*months?/.test(ql) || MONTH_NAMES.test(ql)) return toAnswer(runTool("production_by_month", { months: parseMonths(q) ?? 12 }, ctx));
   if (/pace|on track|how am i|where am i|progress|mdrt|\bcot\b|\btot\b|how far|goal/.test(ql)) return toAnswer(runTool("pace_status", {}, ctx));
   return {

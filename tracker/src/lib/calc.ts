@@ -8,6 +8,7 @@ import {
   mdrt_floors,
   mdrt_tier_goals,
   metric_definitions,
+  sprint_goals,
   metric_thresholds,
   products,
   type BandingCode,
@@ -23,6 +24,7 @@ import {
   type MetricDefinition,
   type PeriodType,
   type Product,
+  type SprintGoal,
   type Tier,
 } from "../mock/data";
 
@@ -64,12 +66,18 @@ export function metricDefinition(code: MetricCode): MetricDefinition {
 export interface GoalSet {
   targets: Goal[];
   mdrtTiers: MdrtTierGoal[];
+  sprints: SprintGoal[];
 }
 
-export const defaultGoalSet: GoalSet = { targets: goals, mdrtTiers: mdrt_tier_goals };
+export const defaultGoalSet: GoalSet = { targets: goals, mdrtTiers: mdrt_tier_goals, sprints: sprint_goals };
 
-/** The one aim the FC is working toward: their MDRT tier (held in GoalSet.mdrtTiers) or one of their own metric targets. */
-export type PrimaryGoal = { kind: "tier" } | { kind: "custom"; metric: MetricCode };
+/**
+ * The one aim the FC is working toward, as the business's whiteboard lists
+ * them: Final Sprint (the last quarter's campaign), their MDRT tier (held in
+ * GoalSet.mdrtTiers), a Finexis Elite tier, or one of their own targets.
+ * src/lib/aims.ts turns the non-MDRT ones into figures.
+ */
+export type PrimaryGoal = { kind: "sprint" } | { kind: "tier" } | { kind: "elite"; tier: string } | { kind: "custom"; metric: MetricCode };
 
 export function goalFor(advisorId: string, metric: MetricCode, year: number, targets: Goal[] = goals): Goal | null {
   return targets.find((x) => x.advisor_id === advisorId && x.metric === metric && x.year === year) ?? null;
@@ -82,7 +90,7 @@ export function mdrtTierGoalFor(advisorId: string, year: number, tiers: MdrtTier
 /** Change only the MDRT tier an advisor is aiming for (pure; returns a new GoalSet). */
 export function withAdvisorTier(set: GoalSet, advisorId: string, year: number, tier: Tier): GoalSet {
   return {
-    targets: set.targets,
+    ...set,
     mdrtTiers: [...set.mdrtTiers.filter((t) => !(t.advisor_id === advisorId && t.year === year)), { advisor_id: advisorId, year, tier }],
   };
 }
@@ -90,6 +98,7 @@ export function withAdvisorTier(set: GoalSet, advisorId: string, year: number, t
 /** Replace one advisor's goals for a year with a new set (pure; returns a new GoalSet). */
 export function withAdvisorGoals(set: GoalSet, advisorId: string, year: number, targets: Goal[], tier: Tier): GoalSet {
   return {
+    ...set,
     targets: [...set.targets.filter((g) => !(g.advisor_id === advisorId && g.year === year)), ...targets],
     mdrtTiers: [...set.mdrtTiers.filter((t) => !(t.advisor_id === advisorId && t.year === year)), { advisor_id: advisorId, year, tier }],
   };
@@ -116,15 +125,9 @@ export function estimateGrossRevenue(premium: number, product: Product): number 
   return premium * product.comm_rate;
 }
 
-/** WAPE weighting: regular premium × min(term / 10, 1); single premium × 1 (the 0.10 comes from credit_rates). */
-export function wapeTermFactor(product: Product, termYears: number): number {
-  if (product.premium_type === "regular") return Math.min(termYears / 10, 1);
-  return 1;
-}
-
 export type CaseMetrics = CaseMetricValues;
 
-const ZERO: CaseMetrics = { commission: 0, gross_revenue: 0, premium: 0, mdrt_premium: 0, mdrt_commission: 0, wape: 0, elite: 0 };
+const ZERO: CaseMetrics = { commission: 0, gross_revenue: 0, premium: 0, mdrt_premium: 0, mdrt_commission: 0, elite: 0, wape: 0 };
 
 /**
  * Every figure one entry contributes. An imported month carries its figures
@@ -133,8 +136,7 @@ const ZERO: CaseMetrics = { commission: 0, gross_revenue: 0, premium: 0, mdrt_pr
  */
 export function metricsForCase(c: Case): CaseMetrics {
   if (c.metrics) return { ...ZERO, ...c.metrics };
-  const product = productById(c.product_id);
-  if (!product) throw new Error(`Case ${c.id} references unknown product ${c.product_id}`);
+  if (!productById(c.product_id)) throw new Error(`Case ${c.id} references unknown product ${c.product_id}`);
   const commission = commissionForCase(c.gross_revenue, c.banding_code_at_time);
   return {
     commission,
@@ -142,9 +144,9 @@ export function metricsForCase(c: Case): CaseMetrics {
     premium: c.premium_amount,
     mdrt_premium: c.premium_amount * creditRate(c.product_id, "mdrt_premium"),
     mdrt_commission: commission * creditRate(c.product_id, "mdrt_commission"),
-    wape: c.premium_amount * wapeTermFactor(product, c.premium_term_years) * creditRate(c.product_id, "wape"),
     // Elite: first-year GR at the scheme's default multiplier (a hypothetical case has no product multiplier).
     elite: c.gross_revenue * CATALOGUE.elite.default_multiplier,
+    wape: 0,
   };
 }
 
@@ -371,9 +373,6 @@ export function tierProgress(metric: MdrtRouteMetric, value: number): TierProgre
 // Everything a metric card needs, computed in one place so Home and Team
 // show identical numbers.
 
-/** Metrics the monthly import has no column for; they aggregate to 0 and cards say so. */
-export const UNTRACKED_METRICS: ReadonlySet<MetricCode> = new Set(["wape"]);
-
 /**
  * The same window last year, cut off at the same point in time as `today`
  * so "vs same period last year" compares like with like (e.g. 1 Jan–5 Sep
@@ -395,7 +394,6 @@ export interface MetricSnapshot {
   target: number | null;
   gap: number | null;
   pace: Pace | null;
-  tracked: boolean;
   lastYear: { period: Period; achieved: number; delta: number; deltaRatio: number | null };
   contributing: Case[];
 }
@@ -417,8 +415,7 @@ export function metricSnapshot(
   const projected = aggregate(mine, metric, period.start, period.end);
   const target = goal ? goal.target_value : null;
   const gap = target === null ? null : Math.max(target - achieved, 0);
-  const tracked = !UNTRACKED_METRICS.has(metric);
-  const paceResult = target === null || !tracked ? null : pace(achieved, target, period.start, period.end, today);
+  const paceResult = target === null ? null : pace(achieved, target, period.start, period.end, today);
 
   const lyPeriod = comparablePeriodLastYear(period, today);
   const lyAchieved = aggregate(confirmed, metric, lyPeriod.start, lyPeriod.end);
@@ -433,10 +430,14 @@ export function metricSnapshot(
     target,
     gap,
     pace: paceResult,
-    tracked,
     lastYear: { period: lyPeriod, achieved: lyAchieved, delta, deltaRatio: lyAchieved > 0 ? delta / lyAchieved : null },
-    contributing: tracked ? contributingCases(mine, period.start, period.end) : [],
+    contributing: contributingCases(mine, period.start, period.end),
   };
+}
+
+/** Whether the import carries WAPE at all; a WAPE goal says so when it doesn't. */
+export function importHasWape(cases: Case[]): boolean {
+  return cases.some((c) => c.metrics?.wape !== undefined);
 }
 
 export const MDRT_ROUTES: readonly MdrtRouteMetric[] = ["mdrt_commission", "mdrt_premium"];

@@ -3,7 +3,6 @@ import {
   MDRT_MEMBERSHIP_YEAR,
   MDRT_PRODUCTION_YEAR,
   MDRT_THRESHOLDS_CONFIRMED,
-  metric_definitions,
   TODAY,
   type Advisor,
   type Case,
@@ -15,8 +14,8 @@ import {
   type Tier,
 } from "../mock/data";
 import {
-  UNTRACKED_METRICS,
   aggregate,
+  importHasWape,
   cumulativeSeries,
   floorsFor,
   goalFor,
@@ -37,8 +36,10 @@ import {
   type PrimaryGoal,
   type SeriesPoint,
 } from "../lib/calc";
-import { CADENCE_LABEL, CADENCE_PER, dateRange, fmtMetric, paceText, pct, periodLabel, routeGateText, sgd, shortDate } from "../lib/format";
+import { CADENCE_LABEL, CADENCE_PER, count, dateRange, fmtMetric, paceText, pct, periodLabel, routeGateText, sgd, shortDate } from "../lib/format";
 import { Card, Label } from "../components/ui";
+import { CUSTOM_METRICS, eliteTierOf, FINAL_SPRINT, soloAim, sprintTargetFor, withSprintTarget, type SoloAim } from "../lib/aims";
+import { ELITE, elitePeriodText, eliteTiersFor, isNewFc } from "../lib/elite";
 
 export type { PrimaryGoal } from "../lib/calc";
 
@@ -46,11 +47,9 @@ const TIER_LABEL: Record<Tier, string> = { mdrt: "MDRT", cot: "COT", tot: "TOT" 
 const TIERS: Tier[] = ["mdrt", "cot", "tot"];
 const CADENCES: GoalCadence[] = ["year", "half", "quarter", "month"];
 const CADENCE_SHORT: Record<GoalCadence, string> = { year: "Year", half: "Half", quarter: "Quarter", month: "Month" };
-/** The metrics an FC sets their own targets on: everything except the two MDRT routes, which the tier aims cover. */
-const OWN_METRICS = metric_definitions.filter((m) => m.code !== "mdrt_commission" && m.code !== "mdrt_premium");
 const DAY = 86_400_000;
 
-/** "commission", "new clients" — but "WAPE" stays as it is. */
+/** "commission", "gross revenue" — but "WAPE" stays as it is. */
 const metricWord = (label: string) => (label === label.toUpperCase() ? label : label.toLowerCase());
 
 /** Share of the window that has elapsed, for the "today" tick. */
@@ -67,8 +66,9 @@ interface GoalView {
   achieved: number;
   projected: number;
   target: number | null;
-  tracked: boolean;
-  /** Pace toward the target whenever one is set — the design paces untracked metrics too, so nothing accrues but the maths still shows. */
+  /** False for WAPE while the import doesn't carry it. */
+  inImport: boolean;
+  /** Pace toward the target whenever one is set. */
   pace: Pace | null;
   reached: boolean;
 }
@@ -293,17 +293,20 @@ export default function Goals({
   const mdrt = mdrtSnapshot(advisor.id, cases, TODAY, goalSet);
   const mine = cases.filter((c) => c.advisor_id === advisor.id && c.status !== "superseded");
   const confirmed = mine.filter((c) => c.status === "confirmed");
-  const isCustom = primary.kind === "custom";
+  const eliteTiers = eliteTiersFor(advisor);
+  const hasWape = importHasWape(mine);
 
-  // The metric the Custom aim focuses; remembered so picking Custom again returns to the last one.
+  // The metric the Custom aim focuses and the Elite tier aimed for; remembered so picking the aim again returns to them.
   const [lastCustom, setLastCustom] = useState<MetricCode>(primary.kind === "custom" ? primary.metric : "commission");
   const customMetric: MetricCode = primary.kind === "custom" ? primary.metric : lastCustom;
+  const [lastElite, setLastElite] = useState<string>(primary.kind === "elite" ? primary.tier : eliteTiers[0]!.code);
+  const eliteCode = primary.kind === "elite" ? primary.tier : lastElite;
 
   // Editor state per metric: the text in the amount field, and the cadence chosen while no target exists yet.
   // The GoalSet itself is the source of truth for every figure; these only carry what it cannot.
   const [drafts, setDrafts] = useState<Partial<Record<MetricCode, string>>>(() => {
     const init: Partial<Record<MetricCode, string>> = {};
-    for (const m of OWN_METRICS) {
+    for (const m of CUSTOM_METRICS) {
       const g = goalFor(advisor.id, m.code, year, goalSet.targets);
       init[m.code] = g ? String(g.target_value) : "";
     }
@@ -311,14 +314,16 @@ export default function Goals({
   });
   const [cadences, setCadences] = useState<Partial<Record<MetricCode, GoalCadence>>>(() => {
     const init: Partial<Record<MetricCode, GoalCadence>> = {};
-    for (const m of OWN_METRICS) init[m.code] = goalFor(advisor.id, m.code, year, goalSet.targets)?.cadence ?? "year";
+    for (const m of CUSTOM_METRICS) init[m.code] = goalFor(advisor.id, m.code, year, goalSet.targets)?.cadence ?? "year";
     return init;
   });
+  const [sprintDraft, setSprintDraft] = useState(() => String(sprintTargetFor(advisor.id, year, goalSet) ?? ""));
 
   const cadenceOf = (metric: MetricCode): GoalCadence => goalFor(advisor.id, metric, year, goalSet.targets)?.cadence ?? cadences[metric] ?? "year";
 
   const view = (metric: MetricCode): GoalView => {
     const goal = goalFor(advisor.id, metric, year, goalSet.targets);
+    const inImport = metric !== "wape" || hasWape;
     if (goal) {
       const s = metricSnapshot(advisor.id, cases, metric, TODAY, goalSet);
       return {
@@ -328,7 +333,7 @@ export default function Goals({
         achieved: s.achieved,
         projected: s.projected,
         target: goal.target_value,
-        tracked: s.tracked,
+        inImport,
         pace: s.pace ?? paceFor(s.achieved, goal.target_value, s.period.start, s.period.end, TODAY),
         reached: s.achieved >= goal.target_value,
       };
@@ -344,7 +349,7 @@ export default function Goals({
       achieved: aggregate(confirmed, metric, period.start, period.end),
       projected: aggregate(mine, metric, period.start, period.end),
       target: null,
-      tracked: !UNTRACKED_METRICS.has(metric),
+      inImport,
       pace: null,
       reached: false,
     };
@@ -365,62 +370,69 @@ export default function Goals({
     setCadences((c) => ({ ...c, [metric]: cadence }));
     writeGoal(metric, drafts[metric] ?? "", cadence);
   };
+  const setSprint = (value: string) => {
+    setSprintDraft(value);
+    const n = Number(value);
+    onGoalSetChange(withSprintTarget(goalSet, advisor.id, year, Number.isFinite(n) && n > 0 ? n : null));
+  };
 
   const pickTier = (t: Tier) => {
     onTierChange(t);
     onPrimaryChange({ kind: "tier" });
+  };
+  const pickElite = (code: string) => {
+    setLastElite(code);
+    onPrimaryChange({ kind: "elite", tier: code });
   };
   const focusCustom = (metric: MetricCode) => {
     setLastCustom(metric);
     onPrimaryChange({ kind: "custom", metric });
   };
 
-  // ── Blue card + chart: the one aim in force ──
+  // ── The four aims' figures, for the chooser's progress lines ──
   const closest = mdrt.routes.find((r) => r.metric === mdrt.closer)!;
   const others = mdrt.routes.filter((r) => r.metric !== mdrt.closer);
   /** How far a route's counted credit is toward a tier. */
   const routeRatio = (r: MdrtRoute, t: Tier) => Math.min(r.achieved / thresholdFor(r.metric, t), 1);
+  const sprint = soloAim(advisor, cases, goalSet, { kind: "sprint" }, TODAY);
+  const elite = soloAim(advisor, cases, goalSet, { kind: "elite", tier: eliteCode }, TODAY);
+  const custom = soloAim(advisor, cases, goalSet, { kind: "custom", metric: customMetric }, TODAY);
+  const solo = primary.kind === "sprint" ? sprint : primary.kind === "elite" ? elite : primary.kind === "custom" ? custom : null;
   const cv = view(customMetric);
   const cvFmt = (v: number) => fmtMetric(v, cv.definition.unit);
-  const cvWord = metricWord(cv.definition.label);
-  const hasGoal = !isCustom || cv.target !== null;
+  const soloFmt = (v: number) => fmtMetric(v, solo?.unit ?? "sgd");
+  const progressOf = (a: SoloAim) => (a.notStarted ? `starts ${shortDate(a.period.start)}` : a.target ? `${pct(Math.min(a.achieved / a.target, 1))} there` : "no target set");
 
   let heroLabel: string;
   let heroPeriod: string;
   let heroBlurb: string;
-  if (!isCustom) {
+  if (!solo) {
     heroLabel = `Distance to ${TIER_LABEL[tier]} ${MDRT_MEMBERSHIP_YEAR}`;
     heroPeriod = `${periodLabel(mdrt.period)} · ${weeksLeftIn(mdrt.period, TODAY)} weeks left`;
     heroBlurb = `Either route qualifies. You are closest on the ${closest.label.toLowerCase()} route.`;
   } else {
-    heroPeriod = `${CADENCE_LABEL[cv.cadence]} · ${periodLabel(cv.period)}`;
-    if (cv.target === null) {
-      heroLabel = `Your own ${cvWord} goal`;
-      heroBlurb = cv.tracked ? `Nothing set yet for ${cvWord}.` : "This metric is not in the monthly import yet, so nothing accrues against it.";
-    } else {
-      heroLabel = `Distance to ${cvFmt(cv.target)} ${cvWord}`;
-      heroBlurb = cv.tracked
-        ? `Your own target. It resets at the end of each ${CADENCE_LABEL[cv.cadence].toLowerCase()} period.`
-        : "Your own target. This metric is not in the monthly import yet, so nothing accrues against it.";
-    }
+    heroLabel = solo.name;
+    heroPeriod = solo.notStarted ? `${periodLabel(solo.period)} · starts ${shortDate(solo.period.start)}` : `${periodLabel(solo.period)} · ${weeksLeftIn(solo.period, TODAY)} weeks left`;
+    heroBlurb = solo.kind === "custom" && solo.target === null ? `${solo.blurb} Nothing set yet.` : solo.blurb;
   }
 
-  const setCount = OWN_METRICS.filter((m) => goalFor(advisor.id, m.code, year, goalSet.targets)).length;
+  const setCount = CUSTOM_METRICS.filter((m) => goalFor(advisor.id, m.code, year, goalSet.targets)).length;
   const amountId = "custom-goal-amount";
   const cvEmpty = (drafts[customMetric] ?? "") === "";
   const cvMoney = cv.definition.unit === "sgd";
+  const aimNumber = { sprint: 1, tier: 2, elite: 3, custom: 4 } as const;
 
   return (
     <div className="flex flex-col gap-3 px-4 pb-[22px] pt-3.5">
       {/* 1 · Distance to the aim */}
       <Card tone="accent">
         <div className="flex items-baseline justify-between gap-2.5">
-          <span className="text-[11px] font-bold uppercase tracking-[.08em] text-white/72">{heroLabel}</span>
+          <span className="min-w-0 truncate text-[11px] font-bold uppercase tracking-[.08em] text-white/72">{heroLabel}</span>
           <span className="tnum shrink-0 text-[11px] text-white/72">{heroPeriod}</span>
         </div>
         <p className="mt-[7px] text-pretty text-[12px] leading-[1.5] text-white/82">{heroBlurb}</p>
 
-        {!isCustom ? (
+        {!solo ? (
           <div className="mt-3 flex flex-col gap-2">
             {[closest, ...others].map((r, i) => (
               <DistanceBlock
@@ -439,193 +451,272 @@ export default function Goals({
               />
             ))}
           </div>
-        ) : cv.target !== null && cv.pace ? (
+        ) : solo.target !== null && solo.pace ? (
           <div className="mt-3 flex flex-col gap-2">
             <DistanceBlock
-              key={customMetric}
-              title={`${cv.definition.label} so far`}
+              title={solo.kind === "elite" ? "Elite credits so far" : `${metricWord(metricDefinition(solo.metric).label)} so far`.replace(/^./, (c) => c.toUpperCase())}
               closest={false}
               highlight
-              achieved={cvFmt(cv.achieved)}
-              ofTarget={`of ${cvFmt(cv.target)}`}
-              fill={Math.min(cv.achieved / cv.target, 1)}
-              projFill={Math.min(cv.projected / cv.target, 1)}
-              elapsed={elapsedFraction(cv.pace)}
-              toGo={cv.reached ? "Goal reached" : `${cvFmt(cv.target - cv.achieved)} to go`}
-              pace={paceText(cv.pace, cv.definition.unit, cv.reached)}
+              achieved={soloFmt(solo.achieved)}
+              ofTarget={`of ${soloFmt(solo.target)}`}
+              fill={Math.min(solo.achieved / solo.target, 1)}
+              projFill={Math.min(solo.projected / solo.target, 1)}
+              elapsed={solo.notStarted ? 0 : elapsedFraction(solo.pace)}
+              toGo={solo.gap === 0 ? "Goal reached" : `${soloFmt(solo.gap)} to go`}
+              pace={solo.notStarted && solo.pace.requiredPerMonth !== null ? `${soloFmt(solo.pace.requiredPerMonth)}/month from ${shortDate(solo.period.start)}` : paceText(solo.pace, solo.unit, solo.gap === 0)}
             />
           </div>
         ) : (
           <div className="mt-3 rounded-xl border border-dashed border-white/36 p-4 text-center">
-            <div className="tnum text-[22px] font-bold tracking-[-.02em]">{cvFmt(cv.achieved)} so far</div>
+            <div className="tnum text-[22px] font-bold tracking-[-.02em]">{soloFmt(solo.achieved)} so far</div>
             <p className="mt-1.5 text-pretty text-[12px] leading-[1.5] text-white/80">Enter an amount below and this card shows your distance, pace and projection.</p>
           </div>
         )}
       </Card>
 
       {/* 2 · How you get there */}
-      {hasGoal &&
-        (!isCustom ? (
+      {!solo ? (
+        <ProjectionCard
+          series={routeSeries(advisor.id, cases, closest.metric, mdrt.period, TODAY)}
+          subject={`${closest.label.toLowerCase()} credit`}
+          unit="sgd"
+          period={mdrt.period}
+          target={closest.goalThreshold}
+          achieved={closest.achieved}
+          projected={closest.projected}
+          pace={closest.pace}
+          caption={`${closest.label} route`}
+        />
+      ) : (
+        solo.target !== null &&
+        solo.pace &&
+        !solo.notStarted &&
+        solo.inImport && (
           <ProjectionCard
-            series={routeSeries(advisor.id, cases, closest.metric, mdrt.period, TODAY)}
-            subject={`${closest.label.toLowerCase()} credit`}
-            unit="sgd"
-            period={mdrt.period}
-            target={closest.goalThreshold}
-            achieved={closest.achieved}
-            projected={closest.projected}
-            pace={closest.pace}
-            caption={`${closest.label} route`}
+            series={cumulativeSeries(advisor.id, cases, solo.metric, solo.period, TODAY)}
+            subject={solo.kind === "elite" ? "Elite credits" : metricWord(metricDefinition(solo.metric).label)}
+            unit={solo.unit}
+            period={solo.period}
+            target={solo.target}
+            achieved={solo.achieved}
+            projected={solo.projected}
+            pace={solo.pace}
+            caption={periodLabel(solo.period)}
           />
-        ) : (
-          cv.target !== null &&
-          cv.pace && (
-            <ProjectionCard
-              series={cumulativeSeries(advisor.id, cases, customMetric, cv.period, TODAY)}
-              subject={metricWord(cv.definition.label)}
-              unit={cv.definition.unit}
-              period={cv.period}
-              target={cv.target}
-              achieved={cv.achieved}
-              projected={cv.projected}
-              pace={cv.pace}
-              caption={periodLabel(cv.period)}
-            />
-          )
-        ))}
+        )
+      )}
 
-      {/* 3 · What you are aiming at (+ 4 · the custom editor) */}
+      {/* 3 · What you are aiming at, as the whiteboard numbers them, and the chosen aim's settings */}
       <Card>
         <div className="flex items-baseline justify-between gap-2.5">
           <Label>What you are aiming at</Label>
           <span className="shrink-0 text-[11px] text-muted">one at a time</span>
         </div>
         <div role="radiogroup" aria-label="What you are aiming at" className="mt-[11px] grid grid-cols-2 gap-2">
-          {TIERS.map((t) => {
-            const selected = !isCustom && tier === t;
-            const progress = Math.max(...mdrt.routes.map((r) => routeRatio(r, t)));
-            return (
-              <AimCard
-                key={t}
-                name={TIER_LABEL[t]}
-                hint={`${sgd(thresholdFor("mdrt_commission", t))} commission`}
-                progress={`${pct(progress)} there`}
-                selected={selected}
-                onPick={() => pickTier(t)}
-              />
-            );
-          })}
+          <AimCard n={1} name="Final Sprint" hint="Q4 campaign · first-year GR" progress={progressOf(sprint)} selected={primary.kind === "sprint"} onPick={() => onPrimaryChange({ kind: "sprint" })} />
           <AimCard
-            name="Custom"
-            hint="Your own targets"
-            progress={cv.target !== null ? `${pct(Math.min(cv.achieved / cv.target, 1))} there` : "none set"}
-            selected={isCustom}
-            onPick={() => focusCustom(customMetric)}
+            n={2}
+            name="MDRT / COT / TOT"
+            hint={`Aiming at ${TIER_LABEL[tier]} · commission or premium`}
+            progress={`${pct(Math.max(...mdrt.routes.map((r) => routeRatio(r, tier))))} there`}
+            selected={primary.kind === "tier"}
+            onPick={() => pickTier(tier)}
           />
+          <AimCard n={3} name="Elite" hint={`${eliteTierOf(advisor, eliteCode).name} · first-year GR`} progress={progressOf(elite)} selected={primary.kind === "elite"} onPick={() => pickElite(eliteCode)} />
+          <AimCard n={4} name="Custom" hint="Commission, GR or WAPE" progress={cv.target !== null ? `${pct(Math.min(cv.achieved / cv.target, 1))} there` : "none set"} selected={primary.kind === "custom"} onPick={() => focusCustom(customMetric)} />
         </div>
 
-        {isCustom && (
-          <div className="mt-3.5 border-t border-line pt-[13px]">
-            <div className="flex items-baseline justify-between gap-2.5">
-              <Label>Which metric, and how much</Label>
-              <span className="tnum shrink-0 text-[11px] text-muted">
-                {setCount} of {OWN_METRICS.length} set
-              </span>
-            </div>
-            <div role="radiogroup" aria-label="Metric" className="mt-[9px] flex flex-wrap gap-[7px]">
-              {OWN_METRICS.map((m) => {
-                const on = m.code === customMetric;
-                const tracked = !UNTRACKED_METRICS.has(m.code);
-                const isSet = goalFor(advisor.id, m.code, year, goalSet.targets) !== null;
-                return (
-                  <button
-                    key={m.code}
-                    type="button"
-                    role="radio"
-                    aria-checked={on}
-                    onClick={() => focusCustom(m.code)}
-                    className={`flex items-center gap-[5px] rounded-full border px-3 py-[7px] text-[12px] font-semibold transition-colors duration-200 ${
-                      on ? "border-brand bg-brand text-white" : `border-line bg-surface ${tracked ? "text-body" : "text-muted"}`
-                    }`}
-                  >
-                    {isSet && <span className={`h-[5px] w-[5px] rounded-full ${on ? "bg-white" : tracked ? "bg-accent" : "bg-faint"}`} aria-hidden="true" />}
-                    {m.label}
-                  </button>
-                );
-              })}
-            </div>
+        <div className="mt-3.5 border-t border-line pt-[13px]">
+          <div className="flex items-center gap-2">
+            <span className="tnum flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-accent-soft text-[10px] font-bold text-accent" aria-hidden="true">
+              {aimNumber[primary.kind]}
+            </span>
+            <Label>{primary.kind === "sprint" ? "Your Final Sprint target" : primary.kind === "tier" ? "Which tier" : primary.kind === "elite" ? "Which Elite tier" : "Which metric, and how much"}</Label>
+          </div>
 
-            <div className="mt-[11px] flex items-center gap-[9px]">
-              <div className="relative flex min-w-0 flex-1 items-center">
-                {cvMoney && (
-                  <span className={`tnum pointer-events-none absolute left-[13px] text-[16px] font-semibold ${cvEmpty ? "text-faint" : "text-ink"}`} aria-hidden="true">
-                    S$
-                  </span>
-                )}
+          {primary.kind === "sprint" && (
+            <>
+              <div className="relative mt-[11px] flex items-center">
+                <span className={`tnum pointer-events-none absolute left-[13px] text-[16px] font-semibold ${sprintDraft === "" ? "text-faint" : "text-ink"}`} aria-hidden="true">
+                  S$
+                </span>
                 <input
-                  id={amountId}
+                  id="sprint-target"
                   type="number"
                   inputMode="numeric"
                   min={0}
-                  step={cvMoney ? 100 : 1}
-                  value={drafts[customMetric] ?? ""}
-                  placeholder="No goal"
-                  aria-label={`${cv.definition.label} goal ${CADENCE_PER[cv.cadence]}`}
-                  onChange={(e) => setAmount(customMetric, e.target.value)}
-                  className={`tnum w-full rounded-xl border border-line bg-surface py-3 pr-3.5 text-[17px] font-semibold text-ink transition-[border-color,box-shadow] duration-150 placeholder:font-normal placeholder:text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16 ${
-                    cvMoney ? "pl-11" : "pl-3.5"
-                  }`}
+                  step={1000}
+                  value={sprintDraft}
+                  placeholder="No target"
+                  aria-label="Final Sprint target, first-year gross revenue"
+                  onChange={(e) => setSprint(e.target.value)}
+                  className="tnum w-full rounded-xl border border-line bg-surface py-3 pl-11 pr-3.5 text-[17px] font-semibold text-ink placeholder:font-normal placeholder:text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16"
                 />
               </div>
-              <label htmlFor={amountId} className="w-[76px] shrink-0 text-[12px] text-muted">
-                {CADENCE_PER[cv.cadence]}
-              </label>
-            </div>
+              <p className="tnum mt-[9px] text-pretty text-[11px] leading-[1.5] text-muted">
+                First-year gross revenue from {shortDate(sprint.period.start)} to {shortDate(sprint.period.end)} {year}.
+                {FINAL_SPRINT.rulesConfirmed ? "" : " The campaign's own rules and prizes go in once Finexis shares them."}
+              </p>
+            </>
+          )}
 
-            <div role="radiogroup" aria-label="How often the goal resets" className="mt-[9px] flex gap-[3px] rounded-[10px] bg-canvas p-[3px]">
-              {CADENCES.map((c) => {
-                const on = cv.cadence === c;
+          {primary.kind === "tier" && (
+            <div role="radiogroup" aria-label="MDRT tier" className="mt-[11px] grid grid-cols-3 gap-2">
+              {TIERS.map((t) => {
+                const on = tier === t;
                 return (
                   <button
-                    key={c}
+                    key={t}
                     type="button"
                     role="radio"
                     aria-checked={on}
-                    onClick={() => setCadence(customMetric, c)}
-                    className={`flex-1 rounded-lg py-[7px] text-center text-[12px] ${on ? "bg-surface font-bold text-accent shadow-[0_1px_2px_rgba(20,35,94,.14)]" : "font-medium text-muted"}`}
+                    onClick={() => pickTier(t)}
+                    className={`btn-lift rounded-xl border-[1.5px] px-2 py-2.5 text-center ${on ? "border-accent bg-accent-soft" : "border-line bg-surface"}`}
                   >
-                    {CADENCE_SHORT[c]}
+                    <span className={`block text-[14px] font-bold ${on ? "text-accent" : "text-ink"}`}>{TIER_LABEL[t]}</span>
+                    <span className="tnum block text-[10.5px] text-muted">{sgd(thresholdFor("mdrt_commission", t))}</span>
+                    <span className={`tnum block text-[10.5px] font-semibold ${on ? "text-accent" : "text-muted"}`}>{pct(Math.max(...mdrt.routes.map((r) => routeRatio(r, t))))}</span>
                   </button>
                 );
               })}
             </div>
+          )}
 
-            <p className="tnum mt-[9px] text-pretty text-[11px] leading-[1.5] text-muted">
-              {cv.tracked
-                ? `${cv.definition.label} counts over ${periodLabel(cv.period)} (${dateRange(cv.period)}). Achieved so far ${cvFmt(cv.achieved)}.`
-                : `${cv.definition.label} counts over ${periodLabel(cv.period)}, but is not in the monthly import yet.`}
-            </p>
-          </div>
-        )}
+          {primary.kind === "elite" && (
+            <div role="radiogroup" aria-label="Elite tier" className="mt-[11px] flex flex-col gap-2">
+              {eliteTiers.map((t) => {
+                const on = eliteCode === t.code;
+                // Every tier counts the same credits over the same period; only the bar differs.
+                const reached = elite.achieved >= t.credits;
+                const toGo = t.credits - elite.achieved;
+                return (
+                  <button
+                    key={t.code}
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    onClick={() => pickElite(t.code)}
+                    className={`btn-lift flex items-center justify-between gap-3 rounded-xl border-[1.5px] px-3 py-2.5 text-left ${on ? "border-accent bg-accent-soft" : "border-line bg-surface"}`}
+                  >
+                    <span className="min-w-0">
+                      <span className={`block text-[14px] font-bold ${on ? "text-accent" : "text-ink"}`}>{t.name}</span>
+                      <span className="tnum block truncate text-[11px] text-muted">
+                        {count(t.credits)} credits{t.perk ? ` · ${t.perk}` : ""}
+                      </span>
+                    </span>
+                    <span className={`tnum shrink-0 text-[12px] font-semibold ${reached ? "text-ok" : on ? "text-accent" : "text-muted"}`}>{reached ? "Reached" : `${count(toGo)} to go`}</span>
+                  </button>
+                );
+              })}
+              <p className="tnum text-pretty text-[11px] leading-[1.5] text-muted">
+                {ELITE.name}, {elitePeriodText()}. {isNewFc(advisor) ? `You qualify at the ${ELITE.new_fc_label.replace(/^New FCs/, "new-FC")} tiers. ` : ""}
+                {ELITE.tiers_confirmed ? "" : "Sample tiers."}
+              </p>
+            </div>
+          )}
+
+          {primary.kind === "custom" && (
+            <>
+              <div className="mt-[9px] flex items-baseline justify-end">
+                <span className="tnum shrink-0 text-[11px] text-muted">
+                  {setCount} of {CUSTOM_METRICS.length} set
+                </span>
+              </div>
+              <div role="radiogroup" aria-label="Metric" className="mt-1 flex flex-wrap gap-[7px]">
+                {CUSTOM_METRICS.map((m) => {
+                  const on = m.code === customMetric;
+                  const isSet = goalFor(advisor.id, m.code, year, goalSet.targets) !== null;
+                  return (
+                    <button
+                      key={m.code}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      onClick={() => focusCustom(m.code)}
+                      className={`flex items-center gap-[5px] rounded-full border px-3 py-[7px] text-[12px] font-semibold transition-colors duration-200 ${
+                        on ? "border-brand bg-brand text-white" : "border-line bg-surface text-body"
+                      }`}
+                    >
+                      {isSet && <span className={`h-[5px] w-[5px] rounded-full ${on ? "bg-white" : "bg-accent"}`} aria-hidden="true" />}
+                      {m.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-[11px] flex items-center gap-[9px]">
+                <div className="relative flex min-w-0 flex-1 items-center">
+                  {cvMoney && (
+                    <span className={`tnum pointer-events-none absolute left-[13px] text-[16px] font-semibold ${cvEmpty ? "text-faint" : "text-ink"}`} aria-hidden="true">
+                      S$
+                    </span>
+                  )}
+                  <input
+                    id={amountId}
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    step={cvMoney ? 100 : 1}
+                    value={drafts[customMetric] ?? ""}
+                    placeholder="No goal"
+                    aria-label={`${cv.definition.label} goal ${CADENCE_PER[cv.cadence]}`}
+                    onChange={(e) => setAmount(customMetric, e.target.value)}
+                    className={`tnum w-full rounded-xl border border-line bg-surface py-3 pr-3.5 text-[17px] font-semibold text-ink transition-[border-color,box-shadow] duration-150 placeholder:font-normal placeholder:text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16 ${
+                      cvMoney ? "pl-11" : "pl-3.5"
+                    }`}
+                  />
+                </div>
+                <label htmlFor={amountId} className="w-[76px] shrink-0 text-[12px] text-muted">
+                  {CADENCE_PER[cv.cadence]}
+                </label>
+              </div>
+
+              <div role="radiogroup" aria-label="How often the goal resets" className="mt-[9px] flex gap-[3px] rounded-[10px] bg-canvas p-[3px]">
+                {CADENCES.map((c) => {
+                  const on = cv.cadence === c;
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      onClick={() => setCadence(customMetric, c)}
+                      className={`flex-1 rounded-lg py-[7px] text-center text-[12px] ${on ? "bg-surface font-bold text-accent shadow-[0_1px_2px_rgba(20,35,94,.14)]" : "font-medium text-muted"}`}
+                    >
+                      {CADENCE_SHORT[c]}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <p className="tnum mt-[9px] text-pretty text-[11px] leading-[1.5] text-muted">
+                {cv.inImport
+                  ? `${cv.definition.label} counts over ${periodLabel(cv.period)} (${dateRange(cv.period)}). Achieved so far ${cvFmt(cv.achieved)}.`
+                  : `${cv.definition.label} counts over ${periodLabel(cv.period)}, but the monthly import doesn't carry it yet.`}
+                {customMetric === "wape" ? " WAPE is Finexis's weighted premium figure, taken from the import as it comes." : ""}
+              </p>
+            </>
+          )}
+        </div>
       </Card>
 
-      {/* 5 · All your goals */}
+      {/* 4 · Your own goals */}
       <Card className="overflow-hidden">
         <div className="flex items-baseline justify-between gap-2.5">
-          <Label>All your goals</Label>
+          <Label>Your custom goals</Label>
           <span className="shrink-0 text-[11px] text-muted">tap to focus above</span>
         </div>
         <div className="-mx-4 -mb-4 mt-[11px]">
-          {OWN_METRICS.map((m) => {
+          {CUSTOM_METRICS.map((m) => {
             const v = view(m.code);
             const fmt = (n: number) => fmtMetric(n, v.definition.unit);
             const target = v.target;
             const set = target !== null;
-            const focused = isCustom && customMetric === m.code;
-            const tone: Tone = !set || !v.tracked ? "none" : v.reached ? "ok" : v.pace?.onTrack ? "accent" : "warn";
+            const focused = primary.kind === "custom" && customMetric === m.code;
+            const tone: Tone = !set || !v.inImport ? "none" : v.reached ? "ok" : v.pace?.onTrack ? "accent" : "warn";
             const fill = target !== null ? Math.min(v.achieved / target, 1) : 0;
             const pendingFill = target !== null ? Math.min((v.projected - v.achieved) / target, Math.max(1 - v.achieved / target, 0)) : 0;
-            const paceLine = !set ? "No target set" : !v.tracked ? "Not in the monthly import yet" : paceText(v.pace, v.definition.unit, v.reached);
+            const paceLine = !set ? "No target set" : !v.inImport ? "Not in the monthly import yet" : paceText(v.pace, v.definition.unit, v.reached);
             return (
               <button
                 key={m.code}
@@ -659,7 +750,7 @@ export default function Goals({
         </div>
       </Card>
 
-      {/* 6 · Footnote */}
+      {/* 5 · Footnote */}
       <p className="tnum px-1 text-pretty text-center text-[11px] leading-[1.55] text-muted">
         {`MDRT, COT and TOT use the ${MDRT_MEMBERSHIP_YEAR} thresholds: your ${MDRT_PRODUCTION_YEAR} production counts toward ${MDRT_MEMBERSHIP_YEAR} membership.${
           MDRT_THRESHOLDS_CONFIRMED ? "" : ` Singapore figures still to be confirmed against the ${MDRT_MEMBERSHIP_YEAR} chart.`
@@ -671,8 +762,8 @@ export default function Goals({
   );
 }
 
-/** One of the four selectable aims: MDRT, COT, TOT or Custom. */
-function AimCard({ name, hint, progress, selected, onPick }: { name: string; hint: string; progress: string; selected: boolean; onPick: () => void }) {
+/** One of the four aims, numbered as the business's whiteboard lists them. */
+function AimCard({ n, name, hint, progress, selected, onPick }: { n: number; name: string; hint: string; progress: string; selected: boolean; onPick: () => void }) {
   return (
     <button
       type="button"
@@ -682,7 +773,10 @@ function AimCard({ name, hint, progress, selected, onPick }: { name: string; hin
       className={`btn-lift block rounded-xl border-[1.5px] px-3 py-[11px] text-left ${selected ? "border-accent bg-accent-soft" : "border-line bg-surface hover:border-accent/50"}`}
     >
       <div className="flex items-center justify-between gap-1.5">
-        <span className={`text-[14px] font-bold ${selected ? "text-accent" : "text-ink"}`}>{name}</span>
+        <span className={`flex min-w-0 items-baseline gap-1.5 text-[14px] font-bold leading-snug ${selected ? "text-accent" : "text-ink"}`}>
+          <span className="tnum text-[11px] font-bold text-muted">{n}</span>
+          <span>{name}</span>
+        </span>
         {selected && (
           <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand text-white" aria-hidden="true">
             <svg width="10" height="10" viewBox="0 0 12 12" fill="none">

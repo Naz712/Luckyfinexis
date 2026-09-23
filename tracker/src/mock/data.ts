@@ -17,10 +17,10 @@ export type ProductCategory = "life" | "ilp" | "health" | "endowment";
 export type PremiumType = "regular" | "single";
 export type MdrtCategory = "risk_protection" | "other";
 export type BandingCode = "B1" | "B2" | "B3" | "B4" | "B5";
-export type CreditMetric = "mdrt_premium" | "mdrt_commission" | "wape";
+export type CreditMetric = "mdrt_premium" | "mdrt_commission";
 export type Tier = "mdrt" | "cot" | "tot";
 export type PeriodType = "jan_dec" | "jan_jun" | "feb_jan" | "apr_mar";
-export type MetricCode = "commission" | "premium" | "mdrt_premium" | "mdrt_commission" | "elite" | "wape";
+export type MetricCode = "commission" | "gross_revenue" | "premium" | "mdrt_premium" | "mdrt_commission" | "elite" | "wape";
 export type MetricUnit = "sgd" | "count";
 
 export interface Insurer {
@@ -116,19 +116,16 @@ export const bandings: Banding[] = [
 // PLACEHOLDER — the MDRT rates follow MDRT's "Eligible Products and Credit"
 // table (2027 Membership Information, page 4): 100% of first-year commission
 // for every product; premium credit 100% of first-year premium for regular
-// life / CI / health / endowment, 6% for single premium. WAPE rates are
-// Finexis's own and still to be supplied. Not modelled yet: MDRT gives a
+// life / CI / health / endowment, 6% for single premium. Not modelled yet: MDRT gives a
 // regular endowment of 15 years or less only 6% premium credit (100% from
 // 16 years), which depends on the term, not the product.
 const REGULAR: [CreditMetric, number][] = [
   ["mdrt_premium", 1.0],
   ["mdrt_commission", 1.0],
-  ["wape", 1.0],
 ];
 const SINGLE: [CreditMetric, number][] = [
   ["mdrt_premium", 0.06],
   ["mdrt_commission", 1.0],
-  ["wape", 0.1],
 ];
 export const credit_rates: CreditRate[] = products.flatMap((p) => (p.premium_type === "single" ? SINGLE : REGULAR).map(([metric, rate]) => ({ product_id: p.id, metric, rate })));
 
@@ -170,15 +167,19 @@ export const mdrt_floors: MdrtFloor[] = [
 // The metrics the app tracks. commission and premium are the import's
 // headline figures; the two MDRT credits are the import's MDRT columns;
 // Elite credits come straight from the import (the scheme's tiers and rules
-// are in src/lib/elite.ts). WAPE is defined but has no column in the import
-// yet.
+// are in src/lib/elite.ts). Gross revenue is first-year GR: the import's
+// gr_ytd column, or worked out from commission at the FA's band when the
+// file has no such column. WAPE is Finexis's own weighted premium figure and
+// only counts when the import carries it (wape_ytd); it is a Custom goal, not
+// a Home row.
 export const metric_definitions: MetricDefinition[] = [
   { code: "commission", label: "Commission", unit: "sgd", period_type: "jan_dec" },
+  { code: "gross_revenue", label: "Gross revenue", unit: "sgd", period_type: "jan_dec" },
   { code: "premium", label: "Premium", unit: "sgd", period_type: "jan_dec" },
   { code: "elite", label: "Elite credits", unit: "count", period_type: "jan_dec" },
   { code: "mdrt_commission", label: "MDRT commission", unit: "sgd", period_type: "jan_dec" },
   { code: "mdrt_premium", label: "MDRT premium", unit: "sgd", period_type: "jan_dec" },
-  { code: "wape", label: "WAPE", unit: "sgd", period_type: "apr_mar" },
+  { code: "wape", label: "WAPE", unit: "sgd", period_type: "jan_dec" },
 ];
 
 // ─────────────────────────────────────────────────────────────────
@@ -208,9 +209,10 @@ export interface CaseMetricValues {
   premium: number;
   mdrt_premium: number;
   mdrt_commission: number;
-  wape: number;
   /** Elite credits. */
   elite: number;
+  /** WAPE, as the import gives it (0 when it doesn't). */
+  wape: number;
 }
 
 /**
@@ -241,6 +243,8 @@ export interface Case {
   metrics?: Partial<CaseMetricValues>;
   /** Import entries: "August 2026". */
   label?: string;
+  /** Import entries: gross revenue was worked out from commission because the file had no gr_ytd. */
+  gr_estimated?: boolean;
 }
 
 /**
@@ -259,8 +263,12 @@ export interface ImportRow {
   as_of: string;
   /** First-year commission, year to date. */
   commission_ytd: number;
+  /** Optional: first-year gross revenue, year to date. Without it GR is worked out from commission at the band. */
+  gr_ytd?: number;
   /** First-year premium, year to date. */
   premium_ytd: number;
+  /** Optional: WAPE, year to date, as Finexis weights it. */
+  wape_ytd?: number;
   /** MDRT commission credit, year to date, and the part from Risk-Protection products. */
   mdrt_commission_ytd: number;
   mdrt_commission_risk_ytd: number;
@@ -276,7 +284,7 @@ export interface ImportRow {
   rnf_date?: string;
 }
 
-/** How often a self-set goal resets. "year" follows the metric's own period_type (e.g. Apr–Mar for WAPE). */
+/** How often a self-set goal resets. "year" follows the metric's own period_type. */
 export type GoalCadence = "year" | "half" | "quarter" | "month";
 
 export interface Goal {
@@ -290,6 +298,13 @@ export interface Goal {
 }
 
 /** Which MDRT tier the FC is aiming for this year. Both routes pace toward this tier. */
+/** The FC's own target for Final Sprint, the last quarter's campaign. */
+export interface SprintGoal {
+  advisor_id: string;
+  year: number;
+  target_value: number;
+}
+
 export interface MdrtTierGoal {
   advisor_id: string;
   year: number;
@@ -308,73 +323,76 @@ export const TODAY = new Date("2026-09-06T00:00:00");
  * generated from the mockup's earlier case list so the figures stay familiar
  * (FC001's S$25,062 of commission, S$23,804 of it from Risk-Protection
  * products, and so on). public/sample-import.csv is the same rows as a file.
- * Elite credits here are commission ÷ the banding rate (roughly first-year
- * GR at a multiplier of 1). FC004 is a new FC (RNF in 2025).
+ * WAPE counts regular premium in full and single premium at 10%.
+ * First-year GR here is commission ÷ the placeholder banding rate, and Elite
+ * credits equal it (every product at a multiplier of 1). FC004 is a new FC
+ * (RNF in 2025).
  */
 export const import_rows: ImportRow[] = [
-  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-01-31", commission_ytd: 10369, premium_ytd: 16700, mdrt_commission_ytd: 10369, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14813 },
-  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-02-28", commission_ytd: 10369, premium_ytd: 16700, mdrt_commission_ytd: 10369, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14813 },
-  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-03-31", commission_ytd: 10369, premium_ytd: 16700, mdrt_commission_ytd: 10369, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14813 },
-  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-04-30", commission_ytd: 10369, premium_ytd: 16700, mdrt_commission_ytd: 10369, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14813 },
-  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-05-31", commission_ytd: 10369, premium_ytd: 16700, mdrt_commission_ytd: 10369, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14813 },
-  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-06-30", commission_ytd: 11172, premium_ytd: 111700, mdrt_commission_ytd: 11172, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 22400, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 15960 },
-  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-07-31", commission_ytd: 11172, premium_ytd: 111700, mdrt_commission_ytd: 11172, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 22400, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 15960 },
-  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-08-31", commission_ytd: 11172, premium_ytd: 111700, mdrt_commission_ytd: 11172, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 22400, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 15960 },
-  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-01-31", commission_ytd: 4836, premium_ytd: 10400, mdrt_commission_ytd: 4836, mdrt_commission_risk_ytd: 4836, mdrt_premium_ytd: 10400, mdrt_premium_risk_ytd: 10400, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 9672 },
-  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-02-28", commission_ytd: 7400, premium_ytd: 15600, mdrt_commission_ytd: 7400, mdrt_commission_risk_ytd: 7400, mdrt_premium_ytd: 15600, mdrt_premium_risk_ytd: 15600, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14800 },
-  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-03-31", commission_ytd: 7400, premium_ytd: 15600, mdrt_commission_ytd: 7400, mdrt_commission_risk_ytd: 7400, mdrt_premium_ytd: 15600, mdrt_premium_risk_ytd: 15600, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14800 },
-  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-04-30", commission_ytd: 9428, premium_ytd: 21000, mdrt_commission_ytd: 9428, mdrt_commission_risk_ytd: 9428, mdrt_premium_ytd: 21000, mdrt_premium_risk_ytd: 21000, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 18856 },
-  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-05-31", commission_ytd: 17692, premium_ytd: 186000, mdrt_commission_ytd: 17692, mdrt_commission_risk_ytd: 16435, mdrt_premium_ytd: 45000, mdrt_premium_risk_ytd: 36000, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 35384 },
-  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-06-30", commission_ytd: 21573, premium_ytd: 290700, mdrt_commission_ytd: 21573, mdrt_commission_risk_ytd: 20316, mdrt_premium_ytd: 55700, mdrt_premium_risk_ytd: 46700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 43146 },
-  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-07-31", commission_ytd: 22878, premium_ytd: 297200, mdrt_commission_ytd: 22878, mdrt_commission_risk_ytd: 21621, mdrt_premium_ytd: 62200, mdrt_premium_risk_ytd: 53200, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 45756 },
-  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-08-31", commission_ytd: 25062, premium_ytd: 301900, mdrt_commission_ytd: 25062, mdrt_commission_risk_ytd: 23804, mdrt_premium_ytd: 66900, mdrt_premium_risk_ytd: 57900, pending_commission: 9174, pending_premium: 19200, elite_credits_ytd: 50124 },
-  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-01-31", commission_ytd: 0, premium_ytd: 0, mdrt_commission_ytd: 0, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 0, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 0 },
-  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-02-28", commission_ytd: 2529, premium_ytd: 9100, mdrt_commission_ytd: 2529, mdrt_commission_risk_ytd: 2529, mdrt_premium_ytd: 9100, mdrt_premium_risk_ytd: 9100, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 6322 },
-  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-03-31", commission_ytd: 2529, premium_ytd: 9100, mdrt_commission_ytd: 2529, mdrt_commission_risk_ytd: 2529, mdrt_premium_ytd: 9100, mdrt_premium_risk_ytd: 9100, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 6322 },
-  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-04-30", commission_ytd: 2529, premium_ytd: 9100, mdrt_commission_ytd: 2529, mdrt_commission_risk_ytd: 2529, mdrt_premium_ytd: 9100, mdrt_premium_risk_ytd: 9100, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 6322 },
-  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-05-31", commission_ytd: 4814, premium_ytd: 15300, mdrt_commission_ytd: 4814, mdrt_commission_risk_ytd: 4814, mdrt_premium_ytd: 15300, mdrt_premium_risk_ytd: 15300, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 12035 },
-  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-06-30", commission_ytd: 4814, premium_ytd: 15300, mdrt_commission_ytd: 4814, mdrt_commission_risk_ytd: 4814, mdrt_premium_ytd: 15300, mdrt_premium_risk_ytd: 15300, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 12035 },
-  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-07-31", commission_ytd: 4814, premium_ytd: 15300, mdrt_commission_ytd: 4814, mdrt_commission_risk_ytd: 4814, mdrt_premium_ytd: 15300, mdrt_premium_risk_ytd: 15300, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 12035 },
-  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-08-31", commission_ytd: 6235, premium_ytd: 18700, mdrt_commission_ytd: 6235, mdrt_commission_risk_ytd: 6235, mdrt_premium_ytd: 18700, mdrt_premium_risk_ytd: 18700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 15588 },
-  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-01-31", commission_ytd: 0, premium_ytd: 0, mdrt_commission_ytd: 0, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 0, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 0 },
-  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-02-28", commission_ytd: 1885, premium_ytd: 75000, mdrt_commission_ytd: 1885, mdrt_commission_risk_ytd: 1885, mdrt_premium_ytd: 4500, mdrt_premium_risk_ytd: 4500, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 3142 },
-  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-03-31", commission_ytd: 1885, premium_ytd: 75000, mdrt_commission_ytd: 1885, mdrt_commission_risk_ytd: 1885, mdrt_premium_ytd: 4500, mdrt_premium_risk_ytd: 4500, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 3142 },
-  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-04-30", commission_ytd: 8818, premium_ytd: 87200, mdrt_commission_ytd: 8818, mdrt_commission_risk_ytd: 8818, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14697 },
-  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-05-31", commission_ytd: 8818, premium_ytd: 87200, mdrt_commission_ytd: 8818, mdrt_commission_risk_ytd: 8818, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14697 },
-  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-06-30", commission_ytd: 8818, premium_ytd: 87200, mdrt_commission_ytd: 8818, mdrt_commission_risk_ytd: 8818, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14697 },
-  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-07-31", commission_ytd: 15432, premium_ytd: 110700, mdrt_commission_ytd: 15432, mdrt_commission_risk_ytd: 15432, mdrt_premium_ytd: 40200, mdrt_premium_risk_ytd: 40200, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 25720 },
-  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-08-31", commission_ytd: 25126, premium_ytd: 127700, mdrt_commission_ytd: 25126, mdrt_commission_risk_ytd: 25126, mdrt_premium_ytd: 57200, mdrt_premium_risk_ytd: 57200, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 41877 },
-  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-01-31", commission_ytd: 0, premium_ytd: 0, mdrt_commission_ytd: 0, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 0, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 0, rnf_date: "2025-03-03" },
-  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-02-28", commission_ytd: 0, premium_ytd: 0, mdrt_commission_ytd: 0, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 0, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 0, rnf_date: "2025-03-03" },
-  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-03-31", commission_ytd: 921, premium_ytd: 3600, mdrt_commission_ytd: 921, mdrt_commission_risk_ytd: 921, mdrt_premium_ytd: 3600, mdrt_premium_risk_ytd: 3600, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 3070, rnf_date: "2025-03-03" },
-  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-04-30", commission_ytd: 921, premium_ytd: 3600, mdrt_commission_ytd: 921, mdrt_commission_risk_ytd: 921, mdrt_premium_ytd: 3600, mdrt_premium_risk_ytd: 3600, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 3070, rnf_date: "2025-03-03" },
-  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-05-31", commission_ytd: 921, premium_ytd: 3600, mdrt_commission_ytd: 921, mdrt_commission_risk_ytd: 921, mdrt_premium_ytd: 3600, mdrt_premium_risk_ytd: 3600, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 3070, rnf_date: "2025-03-03" },
-  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-06-30", commission_ytd: 921, premium_ytd: 3600, mdrt_commission_ytd: 921, mdrt_commission_risk_ytd: 921, mdrt_premium_ytd: 3600, mdrt_premium_risk_ytd: 3600, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 3070, rnf_date: "2025-03-03" },
-  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-07-31", commission_ytd: 1943, premium_ytd: 7000, mdrt_commission_ytd: 1943, mdrt_commission_risk_ytd: 1943, mdrt_premium_ytd: 7000, mdrt_premium_risk_ytd: 7000, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 6477, rnf_date: "2025-03-03" },
-  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-08-31", commission_ytd: 1943, premium_ytd: 7000, mdrt_commission_ytd: 1943, mdrt_commission_risk_ytd: 1943, mdrt_premium_ytd: 7000, mdrt_premium_risk_ytd: 7000, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 6477, rnf_date: "2025-03-03" },
-  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-01-31", commission_ytd: 0, premium_ytd: 0, mdrt_commission_ytd: 0, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 0, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 0 },
-  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-02-28", commission_ytd: 0, premium_ytd: 0, mdrt_commission_ytd: 0, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 0, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 0 },
-  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-03-31", commission_ytd: 728, premium_ytd: 95000, mdrt_commission_ytd: 728, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 5700, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 1456 },
-  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-04-30", commission_ytd: 728, premium_ytd: 95000, mdrt_commission_ytd: 728, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 5700, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 1456 },
-  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-05-31", commission_ytd: 7474, premium_ytd: 108900, mdrt_commission_ytd: 7474, mdrt_commission_risk_ytd: 6746, mdrt_premium_ytd: 19600, mdrt_premium_risk_ytd: 13900, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14948 },
-  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-06-30", commission_ytd: 7474, premium_ytd: 108900, mdrt_commission_ytd: 7474, mdrt_commission_risk_ytd: 6746, mdrt_premium_ytd: 19600, mdrt_premium_risk_ytd: 13900, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14948 },
-  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-07-31", commission_ytd: 7474, premium_ytd: 108900, mdrt_commission_ytd: 7474, mdrt_commission_risk_ytd: 6746, mdrt_premium_ytd: 19600, mdrt_premium_risk_ytd: 13900, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14948 },
-  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-08-31", commission_ytd: 7474, premium_ytd: 108900, mdrt_commission_ytd: 7474, mdrt_commission_risk_ytd: 6746, mdrt_premium_ytd: 19600, mdrt_premium_risk_ytd: 13900, pending_commission: 1982, pending_premium: 4400, elite_credits_ytd: 14948 },
+  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-01-31", commission_ytd: 10369, gr_ytd: 14813, premium_ytd: 16700, wape_ytd: 16700, mdrt_commission_ytd: 10369, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14813 },
+  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-02-28", commission_ytd: 10369, gr_ytd: 14813, premium_ytd: 16700, wape_ytd: 16700, mdrt_commission_ytd: 10369, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14813 },
+  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-03-31", commission_ytd: 10369, gr_ytd: 14813, premium_ytd: 16700, wape_ytd: 16700, mdrt_commission_ytd: 10369, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14813 },
+  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-04-30", commission_ytd: 10369, gr_ytd: 14813, premium_ytd: 16700, wape_ytd: 16700, mdrt_commission_ytd: 10369, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14813 },
+  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-05-31", commission_ytd: 10369, gr_ytd: 14813, premium_ytd: 16700, wape_ytd: 16700, mdrt_commission_ytd: 10369, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14813 },
+  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-06-30", commission_ytd: 11172, gr_ytd: 15960, premium_ytd: 111700, wape_ytd: 26200, mdrt_commission_ytd: 11172, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 22400, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 15960 },
+  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-07-31", commission_ytd: 11172, gr_ytd: 15960, premium_ytd: 111700, wape_ytd: 26200, mdrt_commission_ytd: 11172, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 22400, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 15960 },
+  { fc_code: "FC000", name: "Jonathan Koh", banding: "B5", manager_fc_code: "", as_of: "2026-08-31", commission_ytd: 11172, gr_ytd: 15960, premium_ytd: 111700, wape_ytd: 26200, mdrt_commission_ytd: 11172, mdrt_commission_risk_ytd: 10369, mdrt_premium_ytd: 22400, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 15960 },
+  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-01-31", commission_ytd: 4836, gr_ytd: 9672, premium_ytd: 10400, wape_ytd: 10400, mdrt_commission_ytd: 4836, mdrt_commission_risk_ytd: 4836, mdrt_premium_ytd: 10400, mdrt_premium_risk_ytd: 10400, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 9672 },
+  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-02-28", commission_ytd: 7400, gr_ytd: 14800, premium_ytd: 15600, wape_ytd: 15600, mdrt_commission_ytd: 7400, mdrt_commission_risk_ytd: 7400, mdrt_premium_ytd: 15600, mdrt_premium_risk_ytd: 15600, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14800 },
+  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-03-31", commission_ytd: 7400, gr_ytd: 14800, premium_ytd: 15600, wape_ytd: 15600, mdrt_commission_ytd: 7400, mdrt_commission_risk_ytd: 7400, mdrt_premium_ytd: 15600, mdrt_premium_risk_ytd: 15600, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14800 },
+  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-04-30", commission_ytd: 9428, gr_ytd: 18856, premium_ytd: 21000, wape_ytd: 21000, mdrt_commission_ytd: 9428, mdrt_commission_risk_ytd: 9428, mdrt_premium_ytd: 21000, mdrt_premium_risk_ytd: 21000, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 18856 },
+  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-05-31", commission_ytd: 17692, gr_ytd: 35384, premium_ytd: 186000, wape_ytd: 51000, mdrt_commission_ytd: 17692, mdrt_commission_risk_ytd: 16435, mdrt_premium_ytd: 45000, mdrt_premium_risk_ytd: 36000, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 35384 },
+  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-06-30", commission_ytd: 21573, gr_ytd: 43146, premium_ytd: 290700, wape_ytd: 65700, mdrt_commission_ytd: 21573, mdrt_commission_risk_ytd: 20316, mdrt_premium_ytd: 55700, mdrt_premium_risk_ytd: 46700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 43146 },
+  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-07-31", commission_ytd: 22878, gr_ytd: 45756, premium_ytd: 297200, wape_ytd: 72200, mdrt_commission_ytd: 22878, mdrt_commission_risk_ytd: 21621, mdrt_premium_ytd: 62200, mdrt_premium_risk_ytd: 53200, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 45756 },
+  { fc_code: "FC001", name: "Tan Wei Lun", banding: "B3", manager_fc_code: "FC000", as_of: "2026-08-31", commission_ytd: 25062, gr_ytd: 50124, premium_ytd: 301900, wape_ytd: 76900, mdrt_commission_ytd: 25062, mdrt_commission_risk_ytd: 23804, mdrt_premium_ytd: 66900, mdrt_premium_risk_ytd: 57900, pending_commission: 9174, pending_premium: 19200, elite_credits_ytd: 50124 },
+  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-01-31", commission_ytd: 0, gr_ytd: 0, premium_ytd: 0, wape_ytd: 0, mdrt_commission_ytd: 0, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 0, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 0 },
+  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-02-28", commission_ytd: 2529, gr_ytd: 6322, premium_ytd: 9100, wape_ytd: 9100, mdrt_commission_ytd: 2529, mdrt_commission_risk_ytd: 2529, mdrt_premium_ytd: 9100, mdrt_premium_risk_ytd: 9100, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 6322 },
+  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-03-31", commission_ytd: 2529, gr_ytd: 6322, premium_ytd: 9100, wape_ytd: 9100, mdrt_commission_ytd: 2529, mdrt_commission_risk_ytd: 2529, mdrt_premium_ytd: 9100, mdrt_premium_risk_ytd: 9100, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 6322 },
+  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-04-30", commission_ytd: 2529, gr_ytd: 6322, premium_ytd: 9100, wape_ytd: 9100, mdrt_commission_ytd: 2529, mdrt_commission_risk_ytd: 2529, mdrt_premium_ytd: 9100, mdrt_premium_risk_ytd: 9100, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 6322 },
+  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-05-31", commission_ytd: 4814, gr_ytd: 12035, premium_ytd: 15300, wape_ytd: 15300, mdrt_commission_ytd: 4814, mdrt_commission_risk_ytd: 4814, mdrt_premium_ytd: 15300, mdrt_premium_risk_ytd: 15300, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 12035 },
+  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-06-30", commission_ytd: 4814, gr_ytd: 12035, premium_ytd: 15300, wape_ytd: 15300, mdrt_commission_ytd: 4814, mdrt_commission_risk_ytd: 4814, mdrt_premium_ytd: 15300, mdrt_premium_risk_ytd: 15300, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 12035 },
+  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-07-31", commission_ytd: 4814, gr_ytd: 12035, premium_ytd: 15300, wape_ytd: 15300, mdrt_commission_ytd: 4814, mdrt_commission_risk_ytd: 4814, mdrt_premium_ytd: 15300, mdrt_premium_risk_ytd: 15300, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 12035 },
+  { fc_code: "FC002", name: "Nur Aisyah Rahim", banding: "B2", manager_fc_code: "FC000", as_of: "2026-08-31", commission_ytd: 6235, gr_ytd: 15588, premium_ytd: 18700, wape_ytd: 18700, mdrt_commission_ytd: 6235, mdrt_commission_risk_ytd: 6235, mdrt_premium_ytd: 18700, mdrt_premium_risk_ytd: 18700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 15588 },
+  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-01-31", commission_ytd: 0, gr_ytd: 0, premium_ytd: 0, wape_ytd: 0, mdrt_commission_ytd: 0, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 0, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 0 },
+  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-02-28", commission_ytd: 1885, gr_ytd: 3142, premium_ytd: 75000, wape_ytd: 7500, mdrt_commission_ytd: 1885, mdrt_commission_risk_ytd: 1885, mdrt_premium_ytd: 4500, mdrt_premium_risk_ytd: 4500, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 3142 },
+  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-03-31", commission_ytd: 1885, gr_ytd: 3142, premium_ytd: 75000, wape_ytd: 7500, mdrt_commission_ytd: 1885, mdrt_commission_risk_ytd: 1885, mdrt_premium_ytd: 4500, mdrt_premium_risk_ytd: 4500, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 3142 },
+  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-04-30", commission_ytd: 8818, gr_ytd: 14697, premium_ytd: 87200, wape_ytd: 19700, mdrt_commission_ytd: 8818, mdrt_commission_risk_ytd: 8818, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14697 },
+  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-05-31", commission_ytd: 8818, gr_ytd: 14697, premium_ytd: 87200, wape_ytd: 19700, mdrt_commission_ytd: 8818, mdrt_commission_risk_ytd: 8818, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14697 },
+  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-06-30", commission_ytd: 8818, gr_ytd: 14697, premium_ytd: 87200, wape_ytd: 19700, mdrt_commission_ytd: 8818, mdrt_commission_risk_ytd: 8818, mdrt_premium_ytd: 16700, mdrt_premium_risk_ytd: 16700, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14697 },
+  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-07-31", commission_ytd: 15432, gr_ytd: 25720, premium_ytd: 110700, wape_ytd: 43200, mdrt_commission_ytd: 15432, mdrt_commission_risk_ytd: 15432, mdrt_premium_ytd: 40200, mdrt_premium_risk_ytd: 40200, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 25720 },
+  { fc_code: "FC003", name: "Rachel Lim", banding: "B4", manager_fc_code: "FC000", as_of: "2026-08-31", commission_ytd: 25126, gr_ytd: 41877, premium_ytd: 127700, wape_ytd: 60200, mdrt_commission_ytd: 25126, mdrt_commission_risk_ytd: 25126, mdrt_premium_ytd: 57200, mdrt_premium_risk_ytd: 57200, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 41877 },
+  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-01-31", commission_ytd: 0, gr_ytd: 0, premium_ytd: 0, wape_ytd: 0, mdrt_commission_ytd: 0, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 0, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 0, rnf_date: "2025-03-03" },
+  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-02-28", commission_ytd: 0, gr_ytd: 0, premium_ytd: 0, wape_ytd: 0, mdrt_commission_ytd: 0, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 0, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 0, rnf_date: "2025-03-03" },
+  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-03-31", commission_ytd: 921, gr_ytd: 3070, premium_ytd: 3600, wape_ytd: 3600, mdrt_commission_ytd: 921, mdrt_commission_risk_ytd: 921, mdrt_premium_ytd: 3600, mdrt_premium_risk_ytd: 3600, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 3070, rnf_date: "2025-03-03" },
+  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-04-30", commission_ytd: 921, gr_ytd: 3070, premium_ytd: 3600, wape_ytd: 3600, mdrt_commission_ytd: 921, mdrt_commission_risk_ytd: 921, mdrt_premium_ytd: 3600, mdrt_premium_risk_ytd: 3600, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 3070, rnf_date: "2025-03-03" },
+  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-05-31", commission_ytd: 921, gr_ytd: 3070, premium_ytd: 3600, wape_ytd: 3600, mdrt_commission_ytd: 921, mdrt_commission_risk_ytd: 921, mdrt_premium_ytd: 3600, mdrt_premium_risk_ytd: 3600, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 3070, rnf_date: "2025-03-03" },
+  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-06-30", commission_ytd: 921, gr_ytd: 3070, premium_ytd: 3600, wape_ytd: 3600, mdrt_commission_ytd: 921, mdrt_commission_risk_ytd: 921, mdrt_premium_ytd: 3600, mdrt_premium_risk_ytd: 3600, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 3070, rnf_date: "2025-03-03" },
+  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-07-31", commission_ytd: 1943, gr_ytd: 6477, premium_ytd: 7000, wape_ytd: 7000, mdrt_commission_ytd: 1943, mdrt_commission_risk_ytd: 1943, mdrt_premium_ytd: 7000, mdrt_premium_risk_ytd: 7000, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 6477, rnf_date: "2025-03-03" },
+  { fc_code: "FC004", name: "Marcus Ong", banding: "B1", manager_fc_code: "FC000", as_of: "2026-08-31", commission_ytd: 1943, gr_ytd: 6477, premium_ytd: 7000, wape_ytd: 7000, mdrt_commission_ytd: 1943, mdrt_commission_risk_ytd: 1943, mdrt_premium_ytd: 7000, mdrt_premium_risk_ytd: 7000, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 6477, rnf_date: "2025-03-03" },
+  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-01-31", commission_ytd: 0, gr_ytd: 0, premium_ytd: 0, wape_ytd: 0, mdrt_commission_ytd: 0, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 0, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 0 },
+  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-02-28", commission_ytd: 0, gr_ytd: 0, premium_ytd: 0, wape_ytd: 0, mdrt_commission_ytd: 0, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 0, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 0 },
+  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-03-31", commission_ytd: 728, gr_ytd: 1456, premium_ytd: 95000, wape_ytd: 9500, mdrt_commission_ytd: 728, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 5700, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 1456 },
+  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-04-30", commission_ytd: 728, gr_ytd: 1456, premium_ytd: 95000, wape_ytd: 9500, mdrt_commission_ytd: 728, mdrt_commission_risk_ytd: 0, mdrt_premium_ytd: 5700, mdrt_premium_risk_ytd: 0, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 1456 },
+  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-05-31", commission_ytd: 7474, gr_ytd: 14948, premium_ytd: 108900, wape_ytd: 23400, mdrt_commission_ytd: 7474, mdrt_commission_risk_ytd: 6746, mdrt_premium_ytd: 19600, mdrt_premium_risk_ytd: 13900, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14948 },
+  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-06-30", commission_ytd: 7474, gr_ytd: 14948, premium_ytd: 108900, wape_ytd: 23400, mdrt_commission_ytd: 7474, mdrt_commission_risk_ytd: 6746, mdrt_premium_ytd: 19600, mdrt_premium_risk_ytd: 13900, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14948 },
+  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-07-31", commission_ytd: 7474, gr_ytd: 14948, premium_ytd: 108900, wape_ytd: 23400, mdrt_commission_ytd: 7474, mdrt_commission_risk_ytd: 6746, mdrt_premium_ytd: 19600, mdrt_premium_risk_ytd: 13900, pending_commission: 0, pending_premium: 0, elite_credits_ytd: 14948 },
+  { fc_code: "FC005", name: "Devi Rajan", banding: "B3", manager_fc_code: "FC000", as_of: "2026-08-31", commission_ytd: 7474, gr_ytd: 14948, premium_ytd: 108900, wape_ytd: 23400, mdrt_commission_ytd: 7474, mdrt_commission_risk_ytd: 6746, mdrt_premium_ytd: 19600, mdrt_premium_risk_ytd: 13900, pending_commission: 1982, pending_premium: 4400, elite_credits_ytd: 14948 },
 ];
 
 export const goals: Goal[] = [
   { advisor_id: "FC001", metric: "commission", year: 2026, cadence: "year", target_value: 45000 },
-  { advisor_id: "FC001", metric: "premium", year: 2026, cadence: "year", target_value: 400000 },
-  { advisor_id: "FC001", metric: "elite", year: 2026, cadence: "year", target_value: 100000 },
+  { advisor_id: "FC001", metric: "gross_revenue", year: 2026, cadence: "year", target_value: 90000 },
   { advisor_id: "FC002", metric: "commission", year: 2026, cadence: "year", target_value: 15000 },
   { advisor_id: "FC003", metric: "commission", year: 2026, cadence: "year", target_value: 35000 },
-  { advisor_id: "FC003", metric: "elite", year: 2026, cadence: "year", target_value: 200000 },
   { advisor_id: "FC004", metric: "commission", year: 2026, cadence: "year", target_value: 5000 },
   { advisor_id: "FC005", metric: "commission", year: 2026, cadence: "year", target_value: 12000 },
   { advisor_id: "FC000", metric: "commission", year: 2026, cadence: "year", target_value: 15000 },
 ];
 
 /** Self-set MDRT aspiration for 2026. Defaults to MDRT; an FC can raise it to COT or TOT. */
+/** Sample Final Sprint targets (first-year GR over the last quarter). */
+export const sprint_goals: SprintGoal[] = [{ advisor_id: "FC001", year: 2026, target_value: 30000 }];
+
 export const mdrt_tier_goals: MdrtTierGoal[] = [
   { advisor_id: "FC001", year: 2026, tier: "mdrt" },
   { advisor_id: "FC002", year: 2026, tier: "mdrt" },

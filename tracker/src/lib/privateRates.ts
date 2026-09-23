@@ -7,7 +7,7 @@ import { bandings, credit_rates, products, type BandingCode, type CreditMetric }
 
 interface RatesFile {
   bandings?: Partial<Record<BandingCode, number>>;
-  products?: Record<string, Partial<{ name: string; comm_rate: number; typical_premium: number; mdrt_premium: number; mdrt_commission: number; wape: number }>>;
+  products?: Record<string, Partial<{ name: string; comm_rate: number; typical_premium: number; mdrt_premium: number; mdrt_commission: number }>>;
 }
 
 const files = import.meta.glob("../private/rates.local.json", { eager: true, import: "default" }) as Record<string, RatesFile>;
@@ -27,7 +27,7 @@ if (file) {
     if (typeof p.name === "string") product.name = p.name;
     if (typeof p.comm_rate === "number") product.comm_rate = p.comm_rate;
     if (typeof p.typical_premium === "number") product.typical_premium = p.typical_premium;
-    for (const metric of ["mdrt_premium", "mdrt_commission", "wape"] as CreditMetric[]) {
+    for (const metric of ["mdrt_premium", "mdrt_commission"] as CreditMetric[]) {
       const rate = p[metric];
       if (typeof rate !== "number") continue;
       const row = credit_rates.find((r) => r.product_id === id && r.metric === metric);

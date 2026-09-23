@@ -4,6 +4,7 @@
 // receives rows as JSON); the same parser runs here for the sample file and
 // for tests, so both sides agree on the columns.
 import { bandings, type Advisor, type BandingCode, type Case, type ImportRow } from "../mock/data";
+import { fcShare } from "./policies";
 
 /** The columns, in the order the sample file has them. Only the first five and the three headline figures are required. */
 export const IMPORT_COLUMNS = [
@@ -13,7 +14,9 @@ export const IMPORT_COLUMNS = [
   "manager_fc_code",
   "as_of",
   "commission_ytd",
+  "gr_ytd",
   "premium_ytd",
+  "wape_ytd",
   "mdrt_commission_ytd",
   "mdrt_commission_risk_ytd",
   "mdrt_premium_ytd",
@@ -107,6 +110,12 @@ export function parseImportCsv(text: string): ParsedImport {
       const x = num(v);
       return x === null ? dflt : x;
     };
+    const optional = (name: string) => {
+      const v = cell(r, name);
+      return v === undefined || v === "" ? null : num(v);
+    };
+    const gr = optional("gr_ytd");
+    const wape = optional("wape_ytd");
     const mc = opt("mdrt_commission_ytd", commission);
     const mp = opt("mdrt_premium_ytd", premium);
     rows.push({
@@ -116,7 +125,9 @@ export function parseImportCsv(text: string): ParsedImport {
       manager_fc_code: (cell(r, "manager_fc_code") ?? "").toUpperCase(),
       as_of,
       commission_ytd: commission,
+      ...(gr === null ? {} : { gr_ytd: gr }),
       premium_ytd: premium,
+      ...(wape === null ? {} : { wape_ytd: wape }),
       mdrt_commission_ytd: mc,
       mdrt_commission_risk_ytd: Math.min(opt("mdrt_commission_risk_ytd", mc), mc),
       mdrt_premium_ytd: mp,
@@ -174,6 +185,15 @@ export function monthLabel(iso: string): string {
   return `${MONTH_LONG[(m ?? 1) - 1]} ${y}`;
 }
 
+/** GR behind an amount of commission at a band, by the payout formula run backwards. */
+function grFromCommission(commission: number, band: BandingCode): number {
+  const share = fcShare(band);
+  return share > 0 ? commission / share : 0;
+}
+
+/** First-year GR, year to date: the import's figure, else worked out from commission at the row's band. */
+const grOf = (r: ImportRow) => r.gr_ytd ?? grFromCommission(r.commission_ytd, r.banding);
+
 /**
  * Monthly production entries from year-to-date rows: each month is the
  * difference from the month before, split into a Risk-Protection entry
@@ -193,8 +213,19 @@ export function entriesFromRows(rows: ImportRow[]): Case[] {
       // A new year starts the year-to-date figures again.
       const base = prev && prev.as_of.slice(0, 4) === r.as_of.slice(0, 4) ? prev : null;
       const d = (k: keyof ImportRow) => (r[k] as number) - (base ? (base[k] as number) : 0);
+      const dGr = grOf(r) - (base ? grOf(base) : 0);
       const label = monthLabel(r.as_of);
-      const common = { advisor_id: fc, client_name: "Imported production", premium_term_years: 1, banding_code_at_time: r.banding, source: "import" as const, submitted_on: r.as_of, confirmed_on: r.as_of, label };
+      const common = {
+        advisor_id: fc,
+        client_name: "Imported production",
+        premium_term_years: 1,
+        banding_code_at_time: r.banding,
+        source: "import" as const,
+        submitted_on: r.as_of,
+        confirmed_on: r.as_of,
+        label,
+        ...(r.gr_ytd === undefined ? { gr_estimated: true } : {}),
+      };
       const riskC = d("mdrt_commission_risk_ytd");
       const riskP = d("mdrt_premium_risk_ytd");
       const otherC = d("mdrt_commission_ytd") - riskC;
@@ -206,7 +237,16 @@ export function entriesFromRows(rows: ImportRow[]): Case[] {
         premium_amount: d("premium_ytd"),
         gross_revenue: 0,
         status: "confirmed",
-        metrics: { commission: d("commission_ytd"), premium: d("premium_ytd"), mdrt_commission: riskC, mdrt_premium: riskP, elite: d("elite_credits_ytd"), gross_revenue: 0, wape: 0 },
+        metrics: {
+          commission: d("commission_ytd"),
+          premium: d("premium_ytd"),
+          mdrt_commission: riskC,
+          mdrt_premium: riskP,
+          elite: d("elite_credits_ytd"),
+          gross_revenue: dGr,
+          // WAPE only when the import carries it, so a Custom WAPE goal can say it isn't there yet.
+          ...(r.wape_ytd === undefined ? {} : { wape: r.wape_ytd - (base?.wape_ytd ?? 0) }),
+        },
       });
       if (otherC !== 0 || otherP !== 0) {
         out.push({
@@ -216,7 +256,7 @@ export function entriesFromRows(rows: ImportRow[]): Case[] {
           premium_amount: 0,
           gross_revenue: 0,
           status: "confirmed",
-          metrics: { commission: 0, premium: 0, mdrt_commission: otherC, mdrt_premium: otherP, elite: 0, gross_revenue: 0, wape: 0 },
+          metrics: { commission: 0, premium: 0, mdrt_commission: otherC, mdrt_premium: otherP, elite: 0, gross_revenue: 0 },
         });
       }
       prev = r;
@@ -237,7 +277,14 @@ export function entriesFromRows(rows: ImportRow[]): Case[] {
         premium_amount: last.pending_premium,
         gross_revenue: 0,
         status: "pending",
-        metrics: { commission: last.pending_commission, premium: last.pending_premium, mdrt_commission: last.pending_commission, mdrt_premium: last.pending_premium, elite: 0, gross_revenue: 0, wape: 0 },
+        metrics: {
+          commission: last.pending_commission,
+          premium: last.pending_premium,
+          mdrt_commission: last.pending_commission,
+          mdrt_premium: last.pending_premium,
+          elite: 0,
+          gross_revenue: grFromCommission(last.pending_commission, last.banding),
+        },
       });
     }
   }

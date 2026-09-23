@@ -23,7 +23,9 @@ export const IMPORT_COLUMNS = [
   "manager_fc_code",
   "as_of",
   "commission_ytd",
+  "gr_ytd",
   "premium_ytd",
+  "wape_ytd",
   "mdrt_commission_ytd",
   "mdrt_commission_risk_ytd",
   "mdrt_premium_ytd",
@@ -118,6 +120,12 @@ export function parseImportCsv(text) {
       const x = num(v);
       return x === null ? dflt : x;
     };
+    const optional = (name) => {
+      const v = cell(r, name);
+      return v === undefined || v === "" ? null : num(v);
+    };
+    const gr = optional("gr_ytd");
+    const wape = optional("wape_ytd");
     const mc = opt("mdrt_commission_ytd", commission);
     const mp = opt("mdrt_premium_ytd", premium);
     rows.push({
@@ -127,7 +135,9 @@ export function parseImportCsv(text) {
       manager_fc_code: (cell(r, "manager_fc_code") ?? "").toUpperCase(),
       as_of,
       commission_ytd: commission,
+      ...(gr === null ? {} : { gr_ytd: gr }),
       premium_ytd: premium,
+      ...(wape === null ? {} : { wape_ytd: wape }),
       mdrt_commission_ytd: mc,
       mdrt_commission_risk_ytd: Math.min(opt("mdrt_commission_risk_ytd", mc), mc),
       mdrt_premium_ytd: mp,

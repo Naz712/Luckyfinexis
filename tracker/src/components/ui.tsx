@@ -11,7 +11,9 @@ export function Card({
   tone?: "default" | "accent";
 }) {
   const surface = tone === "accent" ? "bg-brand border-brand text-white" : "bg-surface border-line";
-  return <section className={`rounded-2xl border p-4 ${surface} ${className}`}>{children}</section>;
+  // A padding class passed in replaces the default p-4 rather than competing with it (which one wins would depend on CSS order).
+  const padding = /(^|\s)p[xy]?-/.test(className) ? "" : "p-4";
+  return <section className={`rounded-2xl border ${padding} ${surface} ${className}`}>{children}</section>;
 }
 
 export function Label({ children }: { children: ReactNode }) {

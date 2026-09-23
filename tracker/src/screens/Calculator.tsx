@@ -1,29 +1,26 @@
 // The Calculator: build a client's case from the insurers' schedules before
-// meeting them, in the order the business asked for: company, product,
-// annual premium, premium term. Picking a product opens a full-screen list
-// (company first, then its products); the premium term is typed in years and
+// meeting them, in the order the business asked for: company and product
+// (dropdowns), annual premium, premium term. The term is typed in years and
 // lands on the schedule row that covers it. Each policy then shows four
 // figures: ① the FC's commission at the schedule's rate, ② the insurer's
-// running incentives, ③ MDRT credit and ④ Finexis Elite credits. Tapping them
-// opens the full breakdown (later years, incentive conditions, the
-// schedule's fine print) as its own page. Nothing here is saved.
+// running incentives, ③ MDRT credit and ④ Finexis Elite credits, with the
+// distance left to the next tier. The full breakdown (later years, incentive
+// conditions, the schedule's fine print) opens under the card. Nothing here
+// is saved.
 import { useState, type ReactNode } from "react";
-import { MDRT_MEMBERSHIP_YEAR, TODAY, type Advisor, type BandingCode, type Case } from "../mock/data";
+import { MDRT_MEMBERSHIP_YEAR, TODAY, type Advisor, type BandingCode, type Case, type MetricUnit } from "../mock/data";
+import { soloAim } from "../lib/aims";
 import {
-  aggregate,
   clientsNeeded,
+  metricSnapshot,
   clientsNeededOnRoute,
-  goalFor,
-  goalPeriod,
   MDRT_CATEGORY_LABEL,
   mdrtSnapshot,
-  metricDefinition,
-  periodBounds,
   type GoalSet,
   type PrimaryGoal,
   type RouteCredit,
 } from "../lib/calc";
-import { count, pct, periodLabel, sgd } from "../lib/format";
+import { count, fmtMetric, pct, periodLabel, sgd, shortDate } from "../lib/format";
 import {
   apeCredits,
   apeOf,
@@ -32,7 +29,6 @@ import {
   categoriesOf,
   defaultPay,
   incentivesFor,
-  incentivesOnPolicy,
   insurerList,
   isoShort,
   payOptionByKey,
@@ -47,9 +43,8 @@ import {
   type PolicyVariant,
   type Quote,
 } from "../lib/policies";
-import { ELITE } from "../lib/elite";
+import { ELITE, eliteTiersFor, type EliteTier } from "../lib/elite";
 import { Card, Label } from "../components/ui";
-import Page from "../components/Page";
 
 const TIER_LABEL = { mdrt: "MDRT", cot: "COT", tot: "TOT" } as const;
 
@@ -67,17 +62,20 @@ interface Row {
   target: string;
 }
 
-/** The one goal set in Goals, as the calculator reads it. */
+/** The aim chosen in Goals, as the calculator reads it. */
 interface ActiveGoal {
   label: string;
-  /** null when a custom aim has no commission target yet. */
+  /** null when the aim has no target yet. */
   target: number | null;
-  /** Confirmed commission inside the goal's window. */
+  /** Confirmed so far inside the aim's window. */
   achieved: number;
-  /** "commission route, Jan–Dec 2026" / "Q3 2026". */
+  /** "commission route, Jan–Dec 2026" / "Q4 2026, starts 1 Oct". */
   window: string;
-  /** The commission route's credit as MDRT splits it when the aim is a tier (the Risk-Protection floor applies); null for the FC's own goal. */
+  /** The commission route's credit as MDRT splits it when the aim is a tier (the Risk-Protection floor applies); null otherwise. */
   credit: RouteCredit | null;
+  /** What one client like this adds toward it: MDRT commission credit, earnings, gross revenue or Elite credits; null for WAPE, which the Calculator doesn't estimate. */
+  per: "mdrt" | "earnings" | "gr" | "elite" | null;
+  unit: MetricUnit;
 }
 
 function parseMoney(s: string): number {
@@ -126,20 +124,13 @@ function formulaText(band: BandingCode, share: number): string {
 
 const pctText = (n: number) => `${Number(n.toFixed(2))}%`;
 
-/** "5 to 25+ years" for a term option, else the fixed row's label. */
-function optionSummary(o: PayOption): string {
-  return o.variant ? o.variant.label : `${o.label === "Regular premium" || o.label === "Premium term" ? "" : `${o.label} `}${termsText(o)}`;
-}
-
 /**
- * The goal chosen in Goals. A tier aim reads the MDRT commission route
+ * The aim chosen in Goals. A tier aim reads the MDRT commission route
  * (threshold of the aimed-for tier over the MDRT production year, credit as
- * MDRT counts it); a custom aim reads the FC's own commission goal over that
- * goal's cadence window.
+ * MDRT counts it); Final Sprint, Elite and a custom goal read their own
+ * figure over their own window, through soloAim.
  */
 function activeGoalFor(advisor: Advisor, cases: Case[], goalSet: GoalSet, primary: PrimaryGoal): ActiveGoal {
-  const year = TODAY.getFullYear();
-  const confirmed = cases.filter((c) => c.status === "confirmed");
   if (primary.kind === "tier") {
     const mdrt = mdrtSnapshot(advisor.id, cases, TODAY, goalSet);
     const route = mdrt.routes.find((r) => r.metric === "mdrt_commission")!;
@@ -149,17 +140,20 @@ function activeGoalFor(advisor: Advisor, cases: Case[], goalSet: GoalSet, primar
       achieved: route.achieved,
       window: `commission route, ${periodLabel(mdrt.period)}`,
       credit: route.credit,
+      per: "mdrt",
+      unit: "sgd",
     };
   }
-  const goal = goalFor(advisor.id, "commission", year, goalSet.targets);
-  const def = metricDefinition("commission");
-  const period = goal ? goalPeriod(goal.cadence, def.period_type, TODAY) : periodBounds(def.period_type, TODAY);
+  const aim = soloAim(advisor, cases, goalSet, primary, TODAY);
+  const per = aim.metric === "commission" ? "earnings" : aim.metric === "gross_revenue" ? "gr" : aim.metric === "elite" ? "elite" : null;
   return {
-    label: "Your commission goal",
-    target: goal ? goal.target_value : null,
-    achieved: aggregate(confirmed, "commission", period.start, period.end),
-    window: periodLabel(period),
+    label: aim.name,
+    target: aim.target,
+    achieved: aim.achieved,
+    window: `${periodLabel(aim.period)}${aim.notStarted ? `, starts ${shortDate(aim.period.start)}` : ""}`,
     credit: null,
+    per,
+    unit: aim.unit,
   };
 }
 
@@ -235,131 +229,72 @@ function ChevronIcon({ size = 11 }: { size?: number }) {
   );
 }
 
+function CaretIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** A native dropdown styled like the design's fields; `groups` with a label render as optgroups. */
+function Dropdown({
+  id,
+  label,
+  value,
+  onChange,
+  groups,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  groups: { label?: string; options: { value: string; label: string; disabled?: boolean }[] }[];
+}) {
+  const option = (o: { value: string; label: string; disabled?: boolean }) => (
+    <option key={o.value} value={o.value} disabled={o.disabled}>
+      {o.label}
+    </option>
+  );
+  return (
+    <div className="min-w-0">
+      <label htmlFor={id} className="block truncate text-[12px] text-muted">
+        {label}
+      </label>
+      <div className="relative mt-[5px]">
+        <select
+          id={id}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full appearance-none truncate rounded-xl border border-line bg-surface py-[11px] pl-3 pr-8 text-[14px] font-semibold text-ink focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16"
+        >
+          {groups.map((g) =>
+            g.label ? (
+              <optgroup key={g.label} label={g.label}>
+                {g.options.map(option)}
+              </optgroup>
+            ) : (
+              g.options.map(option)
+            ),
+          )}
+        </select>
+        <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-muted">
+          <CaretIcon />
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** Every company the catalogue lists, with its products (none yet for a schedule still to come). */
+const COMPANIES = insurerList();
+
 /** A numbered output, ① to ④, as the business's whiteboard lists them. */
 function Step({ n }: { n: number }) {
   return (
     <span aria-hidden="true" className="tnum flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-accent-soft text-[10px] font-bold text-accent">
       {n}
     </span>
-  );
-}
-
-function Badge({ tone, children }: { tone: "ok" | "warn" | "muted"; children: ReactNode }) {
-  const cls = tone === "ok" ? "bg-ok/12 text-ok" : tone === "warn" ? "bg-warn/14 text-gold-ink" : "bg-well text-muted";
-  return <span className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] ${cls}`}>{children}</span>;
-}
-
-/** Money incentives (not information-only ones) running on the policy today. */
-const hasMoneyIncentive = (p: Policy) => incentivesOnPolicy(p, TODAY).some((i) => i.kind !== "info");
-
-// ───────────────────────── The picker page ─────────────────────────
-
-/** Company first, then its products by category; a search box looks across every company. */
-function PolicyPicker({ current, onPick }: { current: Policy | null; onPick: (p: Policy) => void }) {
-  const companies = insurerList();
-  const [company, setCompany] = useState(current?.insurer ?? companies.find((c) => c.policies.length > 0)?.name ?? companies[0]!.name);
-  const [query, setQuery] = useState("");
-  const q = query.trim().toLowerCase();
-  const found = q ? CATALOGUE.policies.filter((p) => `${p.insurer} ${p.name} ${p.category}`.toLowerCase().includes(q)) : null;
-  const chosen = companies.find((c) => c.name === company) ?? companies[0]!;
-  const groups = found
-    ? insurerList().flatMap((c) => categoriesOf(found.filter((p) => p.insurer === c.name)).map((g) => ({ label: `${c.name} · ${g.label}`, policies: g.policies })))
-    : categoriesOf(chosen.policies);
-
-  return (
-    <div className="flex flex-col gap-4 px-4 pb-10 pt-3.5">
-      <div className="relative flex items-center">
-        <svg className="pointer-events-none absolute left-3 text-muted" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.8" />
-          <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-        </svg>
-        <input
-          id="policy-search"
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search every company's policies"
-          aria-label="Search policies"
-          className="w-full rounded-xl border border-line bg-surface py-[11px] pl-9 pr-3.5 text-[15px] text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16"
-        />
-      </div>
-
-      {!found && (
-        <section>
-          <div className="flex items-center gap-2">
-            <Step n={1} />
-            <span className="text-[11px] font-bold uppercase tracking-[.08em] text-muted">Company</span>
-          </div>
-          <div role="radiogroup" aria-label="Company" className="mt-2 grid grid-cols-3 gap-2">
-            {companies.map((c) => {
-              const on = c.name === chosen.name;
-              return (
-                <button
-                  key={c.name}
-                  type="button"
-                  role="radio"
-                  aria-checked={on}
-                  onClick={() => setCompany(c.name)}
-                  className={`btn-lift rounded-xl border px-2 py-2.5 text-center ${on ? "border-brand bg-brand text-white" : "border-line bg-surface text-ink"}`}
-                >
-                  <span className="block truncate text-[14px] font-bold">{c.name}</span>
-                  <span className={`tnum block text-[10.5px] ${on ? "text-white/75" : "text-muted"}`}>{c.policies.length > 0 ? `${c.policies.length} plans` : "schedule to come"}</span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      <section>
-        <div className="flex items-center gap-2">
-          {!found && <Step n={2} />}
-          <span className="text-[11px] font-bold uppercase tracking-[.08em] text-muted">
-            {found ? `${found.length} ${found.length === 1 ? "policy" : "policies"} found` : `${chosen.name} products`}
-          </span>
-        </div>
-        {groups.length === 0 && (
-          <p className="mt-2 rounded-2xl border border-dashed border-dash bg-surface px-4 py-5 text-center text-[13px] leading-normal text-muted">
-            {found ? "Nothing matches that. Try a shorter word, like “term” or “invest”." : `${chosen.name}'s commission schedule hasn't been loaded yet. Once it is, its products appear here.`}
-          </p>
-        )}
-        {groups.map((g) => (
-          <div key={g.label} className="mt-2.5">
-            <h3 className="sticky top-0 z-[1] bg-canvas py-1.5 text-[11px] font-semibold uppercase tracking-[.06em] text-muted">{g.label}</h3>
-            <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
-              {g.policies.map((p) => {
-                const on = p.id === current?.id;
-                return (
-                  <li key={p.id}>
-                    <button type="button" onClick={() => onPick(p)} aria-current={on ? "true" : undefined} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-canvas">
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-center gap-1.5">
-                          <span className={`text-[14px] font-semibold leading-snug ${on ? "text-accent" : "text-ink"}`}>{p.name}</span>
-                        </span>
-                        <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
-                          <span className="text-[11.5px] leading-snug text-muted">{payOptions(p).map(optionSummary).join(" · ")}</span>
-                          {hasMoneyIncentive(p) && <Badge tone="ok">Incentive</Badge>}
-                          {p.status && <Badge tone="warn">Closing</Badge>}
-                        </span>
-                      </span>
-                      {on ? (
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-label="Selected" className="shrink-0 text-accent">
-                          <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      ) : (
-                        <span className="text-faint">
-                          <ChevronIcon size={13} />
-                        </span>
-                      )}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
-      </section>
-    </div>
   );
 }
 
@@ -389,8 +324,7 @@ function PolicyCard({
   canRemove,
   onPatch,
   onRemove,
-  onChoose,
-  onDetail,
+  elite,
 }: {
   r: Resolved;
   q: Quote | null;
@@ -398,10 +332,12 @@ function PolicyCard({
   canRemove: boolean;
   onPatch: (p: Partial<Row>) => void;
   onRemove: () => void;
-  onChoose: () => void;
-  onDetail: () => void;
+  /** The FC's Elite credits so far and the tiers that apply to them, for the distance after this case. */
+  elite: { achieved: number; tiers: EliteTier[] };
 }) {
   const { row, policy, option, variant } = r;
+  const [open, setOpen] = useState(false);
+  const nextTier = q ? (elite.tiers.find((t) => t.credits > elite.achieved + q.elite) ?? null) : null;
   const options = payOptions(policy);
   const years = Number(row.years);
   const out = q ? outputsOf(q) : null;
@@ -419,29 +355,26 @@ function PolicyCard({
           )}
         </div>
 
-        {/* Company and product: one tap opens the picker page. */}
-        <button
-          type="button"
-          id={`policy-${row.key}`}
-          onClick={onChoose}
-          aria-label={`Company ${policy.insurer}, product ${policy.name}. Change`}
-          className="btn-lift -mt-1 flex w-full items-center gap-3 rounded-xl border border-line bg-canvas px-3.5 py-2.5 text-left hover:border-accent"
-        >
-          <span className="min-w-0 flex-1">
-            <span className="flex items-baseline gap-2">
-              <span className="w-[58px] shrink-0 text-[11px] text-muted">Company</span>
-              <span className="truncate text-[13px] font-bold text-ink">{policy.insurer}</span>
-            </span>
-            <span className="mt-1 flex items-baseline gap-2">
-              <span className="w-[58px] shrink-0 text-[11px] text-muted">Product</span>
-              <span className="text-[14px] font-semibold leading-snug text-ink">{policy.name}</span>
-            </span>
-          </span>
-          <span className="flex shrink-0 items-center gap-0.5 text-[12px] font-semibold text-accent">
-            Change
-            <ChevronIcon />
-          </span>
-        </button>
+        {/* Company, then its products by category: the business's order. */}
+        <div className="grid grid-cols-[minmax(0,.8fr)_minmax(0,1.6fr)] gap-2.5">
+          <Dropdown
+            id={`company-${row.key}`}
+            label="Company"
+            value={policy.insurer}
+            groups={[{ options: COMPANIES.map((c) => ({ value: c.name, label: c.policies.length > 0 ? c.name : `${c.name} (schedule to come)`, disabled: c.policies.length === 0 })) }]}
+            onChange={(name) => {
+              const first = COMPANIES.find((c) => c.name === name)?.policies[0];
+              if (first) onPatch(switchPolicy(row, first));
+            }}
+          />
+          <Dropdown
+            id={`policy-${row.key}`}
+            label="Product"
+            value={policy.id}
+            groups={categoriesOf(COMPANIES.find((c) => c.name === policy.insurer)?.policies ?? [policy]).map((g) => ({ label: g.label, options: g.policies.map((p) => ({ value: p.id, label: p.name })) }))}
+            onChange={(id) => onPatch(switchPolicy(row, policyById(id)!))}
+          />
+        </div>
 
         {policy.status && <p className="rounded-lg bg-warn/9 px-3 py-2 text-[11.5px] leading-[1.45] text-gold-ink">{policy.status}</p>}
 
@@ -541,8 +474,8 @@ function PolicyCard({
         )}
       </div>
 
-      {/* ① to ④: tapping anywhere here opens the full breakdown as its own page. */}
-      <button type="button" onClick={onDetail} disabled={!q} aria-label={`Full breakdown for ${policy.name}`} className="block w-full border-t border-line bg-canvas px-4 py-3 text-left hover:bg-accent-soft/50 disabled:hover:bg-canvas">
+      {/* ① to ④, the four figures the business asked for. */}
+      <div className="border-t border-line bg-canvas px-4 py-3">
         <ul className="flex flex-col gap-2.5">
           <li className="flex items-start justify-between gap-3">
             <span className="flex min-w-0 items-start gap-2">
@@ -608,6 +541,11 @@ function PolicyCard({
                 <span className="tnum block text-[11.5px] leading-[1.4] text-muted">
                   {q ? `first-year GR ${sgd(q.fygr)} × ${q.eliteMultiplier}${ELITE.multipliers_confirmed ? "" : " (default for now)"}` : "first-year GR × multiplier"}
                 </span>
+                {q && (
+                  <span className="tnum block text-[11.5px] leading-[1.4] text-accent">
+                    {nextTier ? `Then ${count(nextTier.credits - elite.achieved - q.elite)} to ${nextTier.name}` : `Every ${ELITE.name} tier reached with this`}
+                  </span>
+                )}
               </span>
             </span>
             <span className="tnum shrink-0 text-[14px] font-bold text-ink">{q ? `+${count(q.elite)}` : "—"}</span>
@@ -621,28 +559,44 @@ function PolicyCard({
           </span>
           <span className="tnum shrink-0 text-[20px] font-bold text-ink">{q && q.gr > 0 ? sgd(q.earnings) : "—"}</span>
         </div>
-        {q && (
-          <span className="mt-1.5 flex items-center justify-end gap-0.5 text-[12px] font-semibold text-accent">
+      </div>
+
+      {q && (
+        <>
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            aria-expanded={open}
+            aria-controls={`breakdown-${row.key}`}
+            className="flex w-full items-center justify-between gap-2 border-t border-line px-4 py-2.5 text-left text-[12.5px] font-semibold text-accent"
+          >
             Full breakdown, later years and fine print
-            <ChevronIcon />
-          </span>
-        )}
-      </button>
+            <span className={`transition-transform duration-200 ${open ? "rotate-180" : ""}`}>
+              <CaretIcon />
+            </span>
+          </button>
+          {open && (
+            <div id={`breakdown-${row.key}`} className="drop-in border-t border-line">
+              <Breakdown r={r} q={q} band={band} />
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
 
-// ───────────────────────── The breakdown page ─────────────────────────
+// ───────────────────────── The breakdown, opened under a policy ─────────────────────────
 
 function Section({ n, title, children }: { n?: number; title: string; children: ReactNode }) {
   return (
-    <Card>
+    <section className="border-t border-line px-4 py-3 first:border-t-0">
       <div className="flex items-center gap-2">
         {n !== undefined && <Step n={n} />}
         <Label>{title}</Label>
       </div>
-      <div className="mt-2.5">{children}</div>
-    </Card>
+      <div className="mt-2">{children}</div>
+    </section>
   );
 }
 
@@ -658,34 +612,16 @@ function Line({ label, detail, amount, strong = false }: { label: ReactNode; det
   );
 }
 
-/** Everything behind one policy's figures, on its own page. */
+/** Everything behind one policy's figures. */
 function Breakdown({ r, q, band }: { r: Resolved; q: Quote; band: BandingCode }) {
-  const { policy, variant, premium } = r;
+  const { policy, variant } = r;
   const out = outputsOf(q);
   const running = variant ? incentivesFor(policy, variant, TODAY) : [];
   const lineFor = (id: string) => q.lines.find((l) => l.id === id);
   const noteFor = (id: string) => q.notes.find((n) => n.id === id);
   const laterEarnings = q.later.reduce((t, l) => t + l.earnings, 0);
   return (
-    <div className="flex flex-col gap-2.5 px-4 pb-10 pt-3">
-      <Card>
-        <Label>The case</Label>
-        <dl className="tnum mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[12.5px]">
-          <dt className="text-muted">Company</dt>
-          <dd className="font-semibold text-ink">{policy.insurer}</dd>
-          <dt className="text-muted">Product</dt>
-          <dd className="font-semibold text-ink">{policy.name}</dd>
-          <dt className="text-muted">{variant?.single ? "Single premium" : "Annual premium"}</dt>
-          <dd className="font-semibold text-ink">{sgd(premium)}</dd>
-          <dt className="text-muted">Schedule row</dt>
-          <dd className="font-semibold text-ink">{variant?.label}</dd>
-          <dt className="text-muted">Band</dt>
-          <dd className="font-semibold text-ink">
-            {band} · {(q.share * 100).toFixed(2)}% of GR to you
-          </dd>
-        </dl>
-      </Card>
-
+    <div>
       <Section n={1} title="Commission, year 1">
         {q.lines
           .filter((l) => l.kind === "base")
@@ -753,7 +689,7 @@ function Breakdown({ r, q, band }: { r: Resolved; q: Quote; band: BandingCode })
       </Section>
 
       <Section n={4} title={`Finexis ${ELITE.name}`}>
-        <Line label="First-year gross revenue" detail="The schedule's year-1 commission and any commission uplift; cash incentives and later years don't count." amount={sgd(q.fygr)} />
+        <Line label="First-year gross revenue" detail="The schedule's year-1 commission and any commission uplift. Insurer cash incentives and later years don't count toward Elite." amount={sgd(q.fygr)} />
         <Line label="Elite multiplier" detail={ELITE.multipliers_confirmed ? "This product's multiplier." : "Every product at the default until Finexis confirms the multipliers."} amount={`× ${q.eliteMultiplier}`} />
         <div className="mt-1 border-t border-line pt-1.5">
           <Line label="Elite credits" amount={`+${count(q.elite)}`} strong />
@@ -800,7 +736,7 @@ function Breakdown({ r, q, band }: { r: Resolved; q: Quote; band: BandingCode })
         </Section>
       )}
 
-      <p className="px-1 text-center text-[11px] leading-normal text-muted">Source: {policy.source}.</p>
+      <p className="border-t border-line px-4 py-2.5 text-[11px] leading-normal text-muted">Source: {policy.source}.</p>
     </div>
   );
 }
@@ -829,10 +765,6 @@ export default function Calculator({
   const [quarter, setQuarter] = useState<Record<string, string>>({});
   /** One-off rewards the FC says they qualify for. */
   const [flatOn, setFlatOn] = useState<Record<string, boolean>>({});
-  /** The picker page: for a row's key, or "new" to add a row. */
-  const [picking, setPicking] = useState<number | "new" | null>(null);
-  /** The breakdown page, by row key. */
-  const [detail, setDetail] = useState<number | null>(null);
 
   // ── Per-row maths. Tiered incentives look across the rows: each row's tier counts the others. ──
   const resolved: Resolved[] = rows.map((row) => {
@@ -887,14 +819,18 @@ export default function Calculator({
 
   // ── The goal set in Goals, and the what-if figure laid over it ──
   const goal = activeGoalFor(advisor, cases, goalSet, primary);
+  /** Elite so far and the FC's tiers: each card says how far from the next tier its case leaves them. */
+  const eliteNow = { achieved: metricSnapshot(advisor.id, cases, "elite", TODAY, goalSet).achieved, tiers: eliteTiersFor(advisor) };
   const savedTarget = goal.target ?? 0;
   const ratio = goal.target ? Math.min(goal.achieved / goal.target, 1) : 0;
   const toGo = Math.max(savedTarget - goal.achieved, 0);
   const goalNum = whatIf === null ? savedTarget : parseMoney(whatIf);
   const gap = Math.max(goalNum - goal.achieved, 0);
-  // A tier aim counts MDRT commission credit (the schedule's commission, not cash incentives); the FC's own goal counts all earnings.
-  const perClient = goal.credit ? mdrtRisk + mdrtOther : totalEarnings;
-  const needed = goal.credit ? clientsNeededOnRoute(goal.credit, goalNum, mdrtRisk, mdrtOther) : clientsNeeded(gap, totalEarnings);
+  // A tier aim counts MDRT commission credit (the schedule's commission, not cash incentives); the others count their own figure.
+  const perClient = goal.per === "mdrt" ? mdrtRisk + mdrtOther : goal.per === "earnings" ? totalEarnings : goal.per === "gr" ? totalGr : goal.per === "elite" ? totalElite : 0;
+  const needed = goal.credit ? clientsNeededOnRoute(goal.credit, goalNum, mdrtRisk, mdrtOther) : clientsNeeded(gap, perClient);
+  const gfmt = (v: number) => fmtMetric(v, goal.unit);
+  const perWord = { mdrt: " of MDRT commission credit", earnings: " to you", gr: " of gross revenue", elite: " Elite credits" } as const;
   const goalName = whatIf === null ? goal.label : "that figure";
   const floorHolds = goal.credit !== null && goal.credit.riskShortfall > 0 && mdrtOther > 0;
 
@@ -910,14 +846,16 @@ export default function Calculator({
       note: `Everything here is Other Products credit. MDRT only counts it once ${sgd(goal.credit!.riskShortfall)} more of your commission comes from Risk-Protection products (life, ILPs, CI). Add one above to see the count.`,
       ink: "text-ink",
     };
+  } else if (goal.per === null) {
+    verdict = { figure: "—", unit: "Not estimated here", note: "WAPE is Finexis's own weighting of premium and comes in the monthly import; the Calculator doesn't estimate it.", ink: "text-ink" };
   } else if (needed === null) {
     verdict = { figure: "—", unit: "Add a policy above", note: "Once a policy has a premium, this shows the number of clients you need.", ink: "text-ink" };
   } else {
-    const eliteText = totalElite >= 0.5 ? ` and ${count(totalElite)} Elite ${Math.round(totalElite) === 1 ? "credit" : "credits"}` : "";
+    const eliteText = totalElite >= 0.5 && goal.per !== "elite" ? ` and ${count(totalElite)} Elite ${Math.round(totalElite) === 1 ? "credit" : "credits"}` : "";
     verdict = {
       figure: String(needed),
       unit: needed === 1 ? "more client like this" : "more clients like this",
-      note: `At ${sgd(perClient)}${goal.credit ? " of MDRT commission credit" : ""} a client, that closes the ${sgd(gap)} gap to ${goalName}. Each one also adds ${sgd(totalMdrtPremium)} of MDRT premium credit${eliteText}.${
+      note: `At ${gfmt(perClient)}${perWord[goal.per]} a client, that closes the ${gfmt(gap)} gap to ${goalName}. Each one also adds ${sgd(totalMdrtPremium)} of MDRT premium credit${eliteText}.${
         floorHolds ? ` ${sgd(mdrtOther)} of each is Other Products credit, which MDRT counts only once Risk-Protection commission reaches ${sgd(goal.credit!.riskFloor)}; the count allows for that.` : ""
       }${goal.credit && totalEarnings > perClient + 0.5 ? ` Cash incentives (${sgd(totalEarnings - perClient)} a client to you) are left out of MDRT credit.` : ""}`,
       ink: "text-accent",
@@ -926,8 +864,6 @@ export default function Calculator({
 
   const patch = (key: number, p: Partial<Row>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...p } : r)));
   const remove = (key: number) => setRows((rs) => rs.filter((r) => r.key !== key));
-  const pickingRow = typeof picking === "number" ? rows.find((r) => r.key === picking) : undefined;
-  const detailed = computed.find((c) => c.r.row.key === detail && c.q !== null);
 
   return (
     <>
@@ -941,14 +877,13 @@ export default function Calculator({
             canRemove={rows.length > 1}
             onPatch={(p) => patch(r.row.key, p)}
             onRemove={() => remove(r.row.key)}
-            onChoose={() => setPicking(r.row.key)}
-            onDetail={() => setDetail(r.row.key)}
+            elite={eliteNow}
           />
         ))}
 
         <button
           type="button"
-          onClick={() => setPicking("new")}
+          onClick={() => setRows((rs) => [...rs, rowFor(firstPolicy())])}
           className="flex w-full items-center justify-center gap-[7px] rounded-2xl border border-dashed border-accent/45 bg-accent-soft/50 p-3.5 text-[14px] font-semibold text-accent hover:border-accent hover:bg-accent-soft"
         >
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -999,20 +934,20 @@ export default function Calculator({
           <div className="mt-2.5 rounded-xl bg-accent-soft px-[13px] py-3">
             <div className="flex items-baseline justify-between gap-[9px]">
               <span className="min-w-0 truncate text-[13px] font-semibold text-ink">{goal.label}</span>
-              <span className="tnum shrink-0 text-[15px] font-bold text-accent">{goal.target === null ? "Not set" : sgd(goal.target)}</span>
+              <span className="tnum shrink-0 text-[15px] font-bold text-accent">{goal.target === null ? "Not set" : gfmt(goal.target)}</span>
             </div>
             <div className="mt-[9px] flex h-1.5 overflow-hidden rounded-full bg-accent/18" role="progressbar" aria-label={goal.label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(ratio * 100)}>
               <span className="bg-accent" style={{ width: pct(ratio) }} />
             </div>
             <div className="tnum mt-2 flex items-baseline justify-between gap-[9px] text-[11px] text-muted">
               <span>
-                {sgd(goal.achieved)} so far · {goal.target === null ? goal.window : `${pct(ratio)} · ${goal.window}`}
+                {gfmt(goal.achieved)} so far · {goal.target === null ? goal.window : `${pct(ratio)} · ${goal.window}`}
               </span>
-              <span className="shrink-0">{goal.target === null ? "no target" : toGo === 0 ? "reached" : `${sgd(toGo)} to go`}</span>
+              <span className="shrink-0">{goal.target === null ? "no target" : toGo === 0 ? "reached" : `${gfmt(toGo)} to go`}</span>
             </div>
           </div>
 
-          {whatIf === null ? (
+          {goal.unit !== "sgd" ? null : whatIf === null ? (
             <button type="button" onClick={() => setWhatIf(goal.target === null ? "" : String(goal.target))} className="mt-[9px] text-[11px] font-semibold text-accent">
               Try a different figure
             </button>
@@ -1038,6 +973,35 @@ export default function Calculator({
             </div>
             <div className="tnum mt-2 text-pretty text-[12px] leading-normal text-muted">{verdict.note}</div>
           </div>
+
+          {totalElite >= 0.5 && (
+            <div className="mt-[13px] border-t border-line pt-[11px]">
+              <div className="flex items-baseline justify-between gap-2">
+                <Label>Finexis {ELITE.name}</Label>
+                <span className="tnum shrink-0 text-[11px] text-muted">{count(eliteNow.achieved)} credits now</span>
+              </div>
+              <ul className="mt-1.5 divide-y divide-line">
+                {eliteNow.tiers.map((t) => {
+                  const left = t.credits - eliteNow.achieved;
+                  const n = clientsNeeded(left, totalElite);
+                  return (
+                    <li key={t.code} className="tnum flex items-baseline justify-between gap-3 py-1.5 text-[12px]">
+                      <span className="font-semibold text-body">{t.name}</span>
+                      <span className="text-right text-muted">
+                        {left <= 0 ? (
+                          <span className="font-semibold text-ok">Reached</span>
+                        ) : (
+                          <>
+                            {count(left)} to go · <span className="font-semibold text-accent">{n}</span> {n === 1 ? "client" : "clients"} like this
+                          </>
+                        )}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
         </Card>
 
         <p className="tnum px-1 pt-0.5 text-center text-pretty text-[11px] leading-normal text-muted">
@@ -1061,27 +1025,6 @@ export default function Calculator({
         <div className="tnum shrink-0 text-[28px] font-bold leading-none tracking-[-.025em]">{sgd(totalEarnings)}</div>
       </section>
 
-      <Page open={picking !== null} onClose={() => setPicking(null)} title={picking === "new" ? "Add a policy" : "Choose a policy"} eyebrow="Company, then product">
-        {(close) => (
-          <PolicyPicker
-            current={pickingRow ? policyById(pickingRow.policyId)! : null}
-            onPick={(p) => {
-              if (picking === "new") setRows((rs) => [...rs, rowFor(p)]);
-              else if (pickingRow) patch(pickingRow.key, switchPolicy(pickingRow, p));
-              close();
-            }}
-          />
-        )}
-      </Page>
-
-      <Page
-        open={detailed !== undefined}
-        onClose={() => setDetail(null)}
-        title={detailed ? detailed.r.policy.name : ""}
-        eyebrow={detailed ? `${detailed.r.policy.insurer} · ${detailed.r.policy.category}` : undefined}
-      >
-        {detailed && detailed.q && <Breakdown r={detailed.r} q={detailed.q} band={band} />}
-      </Page>
     </>
   );
 }

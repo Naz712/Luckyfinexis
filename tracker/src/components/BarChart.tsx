@@ -77,7 +77,7 @@ export default function BarChart({
               {/* hit target wider than the mark */}
               <rect x={left + slot * i} y={top} width={slot} height={plotH + bottom} fill="transparent" />
               {h > 0 ? (
-                <path d={path} fill={fill} stroke="var(--color-white)" strokeWidth={2} paintOrder="stroke" />
+                <path d={path} fill={fill} stroke="var(--color-surface)" strokeWidth={2} paintOrder="stroke" />
               ) : (
                 <rect x={x} y={baseline - 2} width={barW} height={2} fill="var(--color-line)" />
               )}
