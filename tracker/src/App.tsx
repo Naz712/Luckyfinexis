@@ -4,7 +4,7 @@
 // both on one screen. Data is the monthly production import: the bundled sample
 // (the stand-in) or, with a server connected and an individual link opened,
 // the signed-in FA's own rows from the server. Everything else is derived.
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import "./lib/privateRates";
 import { bandings, case_records, DEFAULT_USER_ID, import_rows, MANAGER_USER_ID, TODAY, type BandingCode, type ImportRow, type Tier } from "./mock/data";
 import { casesForAdvisor, defaultGoalSet, periodBounds, weeksLeftIn, withAdvisorTier, type GoalSet, type PrimaryGoal } from "./lib/calc";
@@ -191,28 +191,32 @@ export default function App() {
   const headerNote: Record<Exclude<Tab, "home">, ReactNode> = {
     goals: `${weeksLeft} weeks left in ${TODAY.getFullYear()}`,
     calculator: null,
-    team: (
-      <>
-        {advisors.filter((a) => a.manager_id === me.id).length} FCs
-        <br />
-        {source.kind === "server" && source.as_of ? `as of ${isoDay(source.as_of)}` : "sample import"}
-      </>
-    ),
+    team: `${advisors.filter((a) => a.manager_id === me.id).length} FCs · ${source.kind === "server" && source.as_of ? `as of ${isoDay(source.as_of)}` : "sample import"}`,
   };
+
+  // The header's height, for anything that sticks just under it (the team drill-down's banner).
+  const headerRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const set = () => document.documentElement.style.setProperty("--header-h", `${el.offsetHeight}px`);
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [activeTab]);
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-canvas sm:border-x sm:border-line">
       {activeTab !== "home" && (
-        <header className="sticky top-0 z-10 border-b border-line bg-surface px-5 pb-3 pt-[max(6px,env(safe-area-inset-top))]">
-          <div className="flex items-end justify-between gap-2.5">
+        <header ref={headerRef} className="sticky top-0 z-10 border-b border-line bg-surface px-5 pb-3 pt-[max(6px,env(safe-area-inset-top))]">
+          <div className="flex items-center justify-between gap-2.5">
             <div className="min-w-0">
               <div className="whitespace-nowrap text-[10px] font-bold uppercase tracking-[.13em] text-accent">Final Sprint tracker</div>
               <div className="mt-0.5 truncate text-[22px] font-bold leading-tight tracking-[-.015em] text-ink">{TABS.find((t) => t.id === activeTab)?.label}</div>
+              {headerNote[activeTab] && <div className="tnum mt-0.5 truncate text-[11px] leading-[1.45] text-muted">{headerNote[activeTab]}</div>}
             </div>
-            <div className="flex shrink-0 items-end gap-2">
-              {headerExtra}
-              <div className="tnum whitespace-nowrap text-right text-[11px] leading-[1.45] text-muted">{headerNote[activeTab]}</div>
-            </div>
+            <div className="flex shrink-0 items-center gap-2">{headerExtra}</div>
           </div>
           {activeTab === "calculator" && (
             <div className="mt-[11px] flex items-center gap-2">

@@ -83,7 +83,7 @@ export default function Team({
   if (viewing) {
     return (
       <div>
-        <div className="sticky top-[61px] z-[5] flex items-center justify-between border-b border-line bg-accent-soft px-4 py-2 text-[12px] text-accent">
+        <div className="sticky top-[var(--header-h,61px)] z-[5] flex items-center justify-between border-b border-line bg-accent-soft px-4 py-2 text-[12px] text-accent">
           <button type="button" onClick={() => setViewing(null)} className="font-semibold">
             ‹ Back to team
           </button>
