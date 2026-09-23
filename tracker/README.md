@@ -53,7 +53,8 @@ pending_commission, pending_premium, elite_credits_ytd, rnf_date
 
 `fc_code`, `name`, `banding`, `as_of` and the three headline figures are
 required. Optional: `gr_ytd` (first-year gross revenue; without it GR is
-worked out from commission at the FA's band, and Home says so), `wape_ytd`
+worked out from commission at the FA's band, and the detail sheet marks it
+ESTIMATED), `wape_ytd`
 (WAPE as Finexis weights it; only a Custom goal reads it, and says when the
 import has none) and `rnf_date` (a date or just the year), which marks new
 FCs, who qualify for Elite at lower tiers. When the MDRT columns are missing, MDRT credit is taken as the
@@ -190,8 +191,8 @@ banding table stay out of the repo. They live in `src/private/`
 formula, `rates.local.json` for bandings. The app applies them at build
 time. `npm run dev` and `npm run share` on a machine that has them use the
 real figures; the public GitHub Pages build never has them and shows a
-made-up sample catalogue instead. The Calculator's footnote says which is in
-use. Details in `src/private/README.md`.
+made-up sample catalogue instead (its insurers are "Insurer A" to "C").
+Details in `src/private/README.md`.
 
 What the catalogue covers today: HSBC Life's remuneration schedule of 7 Sep
 2026 (regular and single premium plans, universal life, and rider groups)

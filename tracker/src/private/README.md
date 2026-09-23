@@ -27,7 +27,7 @@ Both are applied at build time, so:
 - `npm run share` bakes them into `dist/finexis-tracker.html`, a single file
   to send privately. Treat that file as confidential.
 - The GitHub Actions build for the public site has neither file, so the site
-  shows the sample. The Calculator's footnote says which is in use.
+  shows the sample (insurers "Insurer A" to "C").
 
 When the rates move to the hosted database (Supabase), this folder goes away:
 the catalogue becomes a protected table read after sign-in.
