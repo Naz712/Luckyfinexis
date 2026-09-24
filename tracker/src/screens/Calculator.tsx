@@ -1,13 +1,15 @@
 // The Calculator: build a client's case from the insurers' schedules before
 // meeting them, in the order the business asked for: company and product
-// (dropdowns), annual premium, premium term. The term is typed in years and
-// lands on the schedule row that covers it. Each policy then shows four
-// figures: ① the FC's commission at the schedule's rate, ② the insurer's
-// running incentives, ③ MDRT credit and ④ Finexis Elite credits, with the
-// distance left to the next tier. Riders are added onto their plan, from the
-// riders the schedule lists for it. The full breakdown (later years, incentive
-// conditions, the schedule's fine print) opens under the card. Nothing here
-// is saved.
+// (dropdowns, or the search box), annual premium, premium term. The term is
+// typed in years and lands on the schedule row that covers it. Each policy
+// then shows what the client gets from the insurer's customer campaigns, and
+// four figures: ① the FC's commission at the schedule's rate, ② the insurer's
+// running incentives, each with its circular, ③ MDRT credit (the schedule's
+// commission alone, and only the part the client pays by 31 Dec) and
+// ④ finexis Elite credits (the first-year GR), with the distance left to the
+// next tier. Riders are added onto their plan, from the riders the schedule
+// lists for it. The full breakdown (later years, incentive conditions, the
+// schedule's fine print) opens under the card. Nothing here is saved.
 import { useState, type ReactNode } from "react";
 import { MDRT_MEMBERSHIP_YEAR, TODAY, type Advisor, type BandingCode, type Case, type MetricUnit } from "../mock/data";
 import { soloAim } from "../lib/aims";
@@ -27,13 +29,16 @@ import {
   apeOf,
   CATALOGUE,
   categoriesOf,
+  clientRewardsFor,
+  clientRewardValue,
   defaultPay,
   incentivesFor,
   incentivesOnPolicy,
   insurerList,
   isoShort,
   isRider,
-  mdrtOf,
+  PAY_MODES,
+  paidInYear,
   payOptionByKey,
   payOptions,
   policyById,
@@ -41,17 +46,21 @@ import {
   ridersFor,
   rowForTerm,
   termsText,
+  type ClientReward,
   type Incentive,
-  type MdrtCount,
+  type PayMode,
   type PayOption,
   type Policy,
   type PolicyVariant,
   type Quote,
 } from "../lib/policies";
-import { ELITE, eliteTiersFor, type EliteTier } from "../lib/elite";
+import { ELITE, eliteTiersFor, tiersInView, type EliteTier } from "../lib/elite";
 import { Card, Label } from "../components/ui";
 
 const TIER_LABEL = { mdrt: "MDRT", cot: "COT", tot: "TOT" } as const;
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** The year MDRT credits production in: the calendar year, for the membership year after it. */
+const PRODUCTION_YEAR = TODAY.getFullYear();
 
 interface Row {
   key: number;
@@ -67,6 +76,10 @@ interface Row {
   target: string;
   /** A rider: the key of the plan row it is added onto. */
   parent?: number;
+  /** How often the client pays; a rider goes with its plan. */
+  mode: PayMode;
+  /** The month it is sold in (0 = Jan), for the part MDRT credits this year. */
+  sold: number;
 }
 
 /** The aim chosen in Goals, as the calculator reads it. */
@@ -100,7 +113,17 @@ function defaultYears(option: PayOption): string {
 
 function rowFor(policy: Policy): Row {
   const { option, years } = defaultPay(policy);
-  return { key: nextKey++, policyId: policy.id, payKey: option.key, years: years === null ? "" : String(years), premium: String(policy.typical_premium), premiumTouched: false, target: "" };
+  return {
+    key: nextKey++,
+    policyId: policy.id,
+    payKey: option.key,
+    years: years === null ? "" : String(years),
+    premium: String(policy.typical_premium),
+    premiumTouched: false,
+    target: "",
+    mode: "annual",
+    sold: TODAY.getMonth(),
+  };
 }
 
 /** A row moved to another policy: the typed term and premium carry over when they still apply. */
@@ -303,22 +326,148 @@ function Dropdown({
 /** Every company the catalogue lists, with its plans (riders are added onto a plan, not picked here; none yet for a schedule still to come). */
 const COMPANIES = insurerList().map((c) => ({ ...c, policies: c.policies.filter((p) => !isRider(p)) }));
 
-/** Plans with money from an insurer incentive running today (information-only ones aside), for the "· incentive" tag. */
+/** Plans with money from an insurer incentive running today (information-only ones aside). */
 const hasMoneyIncentive = (p: Policy) => incentivesOnPolicy(p, TODAY).some((i) => i.kind !== "info");
 
-/** One insurer's plans for the Product dropdown: those with an incentive running first, then the rest by category. */
+/** One insurer's plans for the Product dropdown, by category. */
 function productGroups(insurer: string, current: Policy): { label?: string; options: { value: string; label: string }[] }[] {
   const plans = COMPANIES.find((c) => c.name === insurer)?.policies ?? [current];
-  const option = (p: Policy) => ({ value: p.id, label: `${p.name}${hasMoneyIncentive(p) ? " · incentive" : ""}` });
-  const running = plans.filter(hasMoneyIncentive);
-  return [
-    ...(running.length > 0 ? [{ label: "★ Insurer incentive running", options: running.map(option) }] : []),
-    ...categoriesOf(plans.filter((p) => !hasMoneyIncentive(p))).map((g) => ({ label: g.label, options: g.policies.map(option) })),
-  ];
+  return categoriesOf(plans).map((g) => ({ label: g.label, options: g.policies.map((p) => ({ value: p.id, label: p.name })) }));
 }
 
 /** A plan's name without its insurer at the front, for tight spaces. */
 const shortName = (p: Policy) => (p.name.startsWith(`${p.insurer} `) ? p.name.slice(p.insurer.length + 1) : p.name);
+
+/** Every plan the search box looks through, with the words it matches on. */
+const SEARCHABLE = COMPANIES.flatMap((c) => c.policies.map((p) => ({ p, text: `${p.insurer} ${p.name} ${p.category}`.toLowerCase() })));
+
+/** Plans whose company, name or kind holds every word typed. */
+function searchPolicies(query: string): Policy[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [];
+  return SEARCHABLE.filter((x) => words.every((w) => x.text.includes(w))).map((x) => x.p);
+}
+
+/** Type part of a plan's name, its company or its kind ("term", "critical", "investment") and pick it from the matches. */
+function PolicySearch({ id, onPick }: { id: string; onPick: (p: Policy) => void }) {
+  const [query, setQuery] = useState("");
+  const matches = searchPolicies(query);
+  const shown = matches.slice(0, 8);
+  return (
+    <div>
+      <div className="relative flex items-center">
+        <svg className="pointer-events-none absolute left-3 text-muted" width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.6" stroke="currentColor" strokeWidth="1.8" />
+          <path d="M10.4 10.4L14 14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+        <input
+          id={id}
+          type="search"
+          value={query}
+          placeholder="Search policies"
+          aria-label="Search policies"
+          autoComplete="off"
+          onChange={(e) => setQuery(e.target.value)}
+          className="w-full rounded-xl border border-line bg-surface py-[10px] pl-9 pr-3 text-[14px] font-semibold text-ink placeholder:font-normal placeholder:text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16"
+        />
+      </div>
+      {query.trim() !== "" && (
+        <div aria-label="Matching policies" className="drop-in mt-1.5 overflow-hidden rounded-xl border border-line bg-surface">
+          {shown.length === 0 ? (
+            <p className="px-3 py-2.5 text-[12px] text-muted">No policy matches “{query.trim()}”.</p>
+          ) : (
+            shown.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => {
+                  onPick(p);
+                  setQuery("");
+                }}
+                className="flex w-full flex-col border-t border-line px-3 py-2 text-left first:border-t-0 hover:bg-accent-soft/50 focus-visible:bg-accent-soft"
+              >
+                <span className="text-[13px] font-semibold leading-snug text-ink">{p.name}</span>
+                <span className="text-[11px] text-muted">
+                  {p.insurer} · {p.category}
+                </span>
+              </button>
+            ))
+          )}
+          {matches.length > shown.length && <p className="border-t border-line px-3 py-2 text-[11px] text-muted">{matches.length - shown.length} more: type more of the name.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Opens the insurer's circular, when the catalogue says where it is. */
+function CircularLink({ href }: { href?: string }) {
+  if (!href) return null;
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-accent underline-offset-2 hover:underline">
+      Read the circular
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+        <path d="M4.5 2.5h5v5M9.5 2.5L3 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </a>
+  );
+}
+
+/** What the client gets from the insurer's customer campaigns on this plan: a cashback, a discount, passes. */
+function ClientRewards({ rewards, variant, premium }: { rewards: ClientReward[]; variant: PolicyVariant; premium: number }) {
+  if (rewards.length === 0) return null;
+  return (
+    <section aria-label="For your client" className="rounded-xl border border-gold/50 bg-gold-soft px-3 py-2.5">
+      <div className="text-[11px] font-bold uppercase tracking-[.08em] text-gold-ink">For your client</div>
+      <ul className="mt-1.5 flex flex-col divide-y divide-gold/30">
+        {rewards.map((r) => {
+          const value = clientRewardValue(r, variant, premium);
+          return (
+            <li key={r.id} className="py-2 first:pt-0 last:pb-0">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[13px] font-bold leading-snug text-ink">{r.name}</div>
+                  <div className="text-[11px] text-muted">
+                    {r.insurer} · {r.coming_soon ? "coming soon" : `ends ${isoShort(r.period[1])}`}
+                  </div>
+                </div>
+                {r.coming_soon ? (
+                  <span className="shrink-0 rounded-full bg-surface px-2 py-[3px] text-[11px] font-bold text-muted">Coming soon</span>
+                ) : (
+                  value !== null &&
+                  value > 0 && (
+                    <div className="shrink-0 text-right">
+                      <div className="tnum text-[16px] font-bold leading-tight text-gold-ink">{sgd(value)}</div>
+                      <div className="text-[10.5px] text-muted">to the client</div>
+                    </div>
+                  )
+                )}
+              </div>
+              <p className="mt-1 text-[12px] leading-[1.45] text-body">{r.detail}</p>
+              {value !== null && value > 0 && r.value?.kind === "months_premium" && (
+                <p className="tnum mt-1 text-[11.5px] leading-[1.45] text-gold-ink">
+                  Here: {r.value.months} {r.value.months === 1 ? "month" : "months"} of {sgd(premium)} a year = {sgd(value)}.
+                </p>
+              )}
+              {r.conditions && r.conditions.length > 0 && (
+                <ul className="mt-1 flex list-disc flex-col gap-0.5 pl-4 text-[11px] leading-[1.45] text-muted">
+                  {r.conditions.map((c) => (
+                    <li key={c}>{c}</li>
+                  ))}
+                </ul>
+              )}
+              {r.circular && (
+                <div className="mt-1">
+                  <CircularLink href={r.circular} />
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
 
 
 /** A numbered output, ① to ④, as the business's whiteboard lists them. */
@@ -340,6 +489,18 @@ interface Resolved {
   variant: PolicyVariant | null;
   premium: number;
   incentives: Incentive[];
+  /** The client's side: the insurer's customer campaigns on this plan. */
+  rewards: ClientReward[];
+}
+
+/** How the client pays for a row and how much of year 1 lands in this production year: a rider goes with its plan. */
+interface PaySchedule {
+  mode: PayMode;
+  sold: number;
+  single: boolean;
+  paid: number;
+  of: number;
+  share: number;
 }
 
 /** The four figures, the numbers the business asked for. */
@@ -349,23 +510,12 @@ function outputsOf(q: Quote) {
   return { incentiveLines, incentiveGr, commissionToYou: q.base * q.share, incentiveToYou: incentiveGr * q.share };
 }
 
-/** Whether MDRT counts an incentive, in the same words wherever it shows. */
-function MdrtTag({ m }: { m: MdrtCount }) {
-  return (
-    <span className={`inline-flex max-w-full items-center gap-1 rounded-full px-2 py-[3px] text-[11px] font-semibold ${m.counts ? "bg-ok/12 text-ok-ink" : "bg-well text-body"}`}>
-      <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true" className="shrink-0">
-        {m.counts ? (
-          <path d="M2.5 6.2l2.3 2.3 4.7-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-        ) : (
-          <path d="M3 3l6 6M9 3L3 9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-        )}
-      </svg>
-      <span className="min-w-0">
-        {m.counts ? "Counts toward MDRT" : "Doesn't count toward MDRT"}
-        <span className="font-normal"> · {m.why}</span>
-      </span>
-    </span>
-  );
+/** In words, how the client pays and what of year 1 MDRT credits this year: "Monthly from Oct: 3 of 12 payments fall in 2026". */
+function payText(pay: PaySchedule): string {
+  if (pay.single) return `A single premium is paid at once, so all of it counts in ${PRODUCTION_YEAR}`;
+  const mode = PAY_MODES.find((m) => m.code === pay.mode)!;
+  if (pay.of === 1) return `Paid yearly, so the whole first year counts in ${PRODUCTION_YEAR}`;
+  return `${mode.label} from ${MONTHS[pay.sold]}: ${pay.paid === pay.of ? `all ${pay.of}` : `${pay.paid} of ${pay.of}`} payments fall in ${PRODUCTION_YEAR}`;
 }
 
 /** What the FC can change on an incentive: their other APE this quarter, and a one-off reward they say applies. */
@@ -379,7 +529,7 @@ interface IncentiveInputs {
 /**
  * ② on a policy: every insurer incentive (bonus campaign) running on this plan,
  * one panel each: what the campaign is, whether this case qualifies, what the
- * FC earns from it, and whether MDRT counts it. A plan with none offers the
+ * FC earns from it, and a link to the circular. A plan with none offers the
  * same insurer's plans that have one.
  */
 function IncentivePanels({ r, q, inputs, onTry }: { r: Resolved; q: Quote; inputs: IncentiveInputs; onTry: (p: Policy) => void }) {
@@ -397,7 +547,7 @@ function IncentivePanels({ r, q, inputs, onTry }: { r: Resolved; q: Quote; input
                 onClick={() => onTry(p)}
                 className="rounded-full border border-ok/40 bg-ok/7 px-2.5 py-1 text-[11.5px] font-semibold text-ok-ink hover:border-ok hover:bg-ok/12"
               >
-                ★ {shortName(p)}
+                {shortName(p)}
               </button>
             ))}
           </div>
@@ -410,7 +560,6 @@ function IncentivePanels({ r, q, inputs, onTry }: { r: Resolved; q: Quote; input
       {r.incentives.map((i) => {
         const line = q.lines.find((l) => l.id === i.id);
         const note = q.notes.find((n) => n.id === i.id);
-        const m = line?.mdrt ?? note?.mdrt ?? mdrtOf(i);
         const flatElsewhere = i.kind === "flat_cash" && !line && !!inputs.flatOn[i.id];
         const status: { text: string; tone: "ok" | "warn" | "muted" | "accent" } = line
           ? { text: "This case qualifies", tone: "ok" }
@@ -451,9 +600,9 @@ function IncentivePanels({ r, q, inputs, onTry }: { r: Resolved; q: Quote; input
                 )}
               </div>
             </div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <div className="mt-1.5 flex flex-wrap items-center justify-between gap-1.5">
               <span className={`rounded-full px-2 py-[3px] text-[11px] font-bold ${toneClass}`}>{status.text}</span>
-              <MdrtTag m={m} />
+              <CircularLink href={i.circular} />
             </div>
             <p className="mt-1.5 text-[12px] leading-[1.45] text-body">{i.detail}</p>
             {line && (
@@ -495,6 +644,7 @@ function PolicyCard({
   parent,
   onAddRider,
   inputs,
+  pay,
 }: {
   r: Resolved;
   q: Quote | null;
@@ -509,6 +659,8 @@ function PolicyCard({
   /** The FC's Elite credits so far and the tiers that apply to them, for the distance after this case; null in a manager's team view. */
   elite: { achieved: number; tiers: EliteTier[] } | null;
   inputs: IncentiveInputs;
+  /** How the client pays, and the part of year 1 that lands in this production year. */
+  pay: PaySchedule;
 }) {
   const { row, policy, option, variant } = r;
   const [open, setOpen] = useState(false);
@@ -540,6 +692,8 @@ function PolicyCard({
             onChange={(id) => onPatch(switchPolicy(row, policyById(id)!))}
           />
         ) : (
+          <>
+          <PolicySearch id={`search-${row.key}`} onPick={(p) => onPatch(switchPolicy(row, p))} />
           <div className="grid grid-cols-[minmax(0,.8fr)_minmax(0,1.6fr)] gap-2.5">
             <Dropdown
               id={`company-${row.key}`}
@@ -559,6 +713,7 @@ function PolicyCard({
               onChange={(id) => onPatch(switchPolicy(row, policyById(id)!))}
             />
           </div>
+          </>
         )}
 
         {policy.status && <p className="rounded-lg bg-warn/9 px-3 py-2 text-[11.5px] leading-[1.45] text-gold-ink">{policy.status}</p>}
@@ -657,6 +812,7 @@ function PolicyCard({
             <MoneyField id={`target-${row.key}`} value={row.target} onChange={(v) => onPatch({ target: v })} compact className="mt-[5px]" />
           </div>
         )}
+        {variant && <ClientRewards rewards={r.rewards} variant={variant} premium={r.premium} />}
       </div>
 
       {/* ① to ④, the four figures the business asked for. */}
@@ -684,28 +840,60 @@ function PolicyCard({
             </div>
             {q && <IncentivePanels r={r} q={q} inputs={inputs} onTry={(p) => onPatch(switchPolicy(row, p))} />}
           </li>
-          <li className="flex items-start justify-between gap-3">
-            <span className="flex min-w-0 items-start gap-2">
-              <Step n={3} />
-              <span className="min-w-0">
-                <span className="block text-[12.5px] font-semibold text-ink">MDRT</span>
-                <span className="tnum block text-[11.5px] leading-[1.4] text-muted">
-                  {q
-                    ? `commission credit${q.lines.some((l) => l.mdrt?.counts) ? " incl. the uplift" : ""} · ${sgd(q.mdrtPremium)} premium credit · ${MDRT_CATEGORY_LABEL[policy.mdrt_category]}`
-                    : MDRT_CATEGORY_LABEL[policy.mdrt_category]}
+          <li>
+            <div className="flex items-start justify-between gap-3">
+              <span className="flex min-w-0 items-start gap-2">
+                <Step n={3} />
+                <span className="min-w-0">
+                  <span className="block text-[12.5px] font-semibold text-ink">MDRT</span>
+                  <span className="tnum block text-[11.5px] leading-[1.4] text-muted">
+                    {q ? `commission credit in ${PRODUCTION_YEAR} · ${MDRT_CATEGORY_LABEL[policy.mdrt_category]}` : MDRT_CATEGORY_LABEL[policy.mdrt_category]}
+                  </span>
                 </span>
               </span>
-            </span>
-            <span className="tnum shrink-0 text-[14px] font-bold text-ink">{q ? sgd(q.mdrtCommission) : "—"}</span>
+              <span className="tnum shrink-0 text-[14px] font-bold text-ink">{q ? sgd(q.mdrtCommission * pay.share) : "—"}</span>
+            </div>
+            {q && (
+              <div className="ml-[26px] mt-2">
+                {parent ? (
+                  <p className="text-[11.5px] leading-[1.45] text-muted">Paid with the plan above.</p>
+                ) : (
+                  !pay.single && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <Dropdown
+                        id={`mode-${row.key}`}
+                        label="Client pays"
+                        value={row.mode}
+                        groups={[{ options: PAY_MODES.map((m) => ({ value: m.code, label: m.label })) }]}
+                        onChange={(v) => onPatch({ mode: v as PayMode })}
+                      />
+                      <Dropdown
+                        id={`sold-${row.key}`}
+                        label="Sold in"
+                        value={String(row.sold)}
+                        groups={[{ options: MONTHS.map((m, i) => ({ value: String(i), label: `${m} ${PRODUCTION_YEAR}` })) }]}
+                        onChange={(v) => onPatch({ sold: Number(v) })}
+                      />
+                    </div>
+                  )
+                )}
+                <p className="tnum mt-1.5 text-[11.5px] leading-[1.45] text-body">
+                  {payText(pay)}
+                  {pay.share < 1
+                    ? `, so ${sgd(q.mdrtCommission * pay.share)} of the year's ${sgd(q.mdrtCommission)} counts toward ${TIER_LABEL.mdrt} ${MDRT_MEMBERSHIP_YEAR} and the other ${sgd(q.mdrtCommission * (1 - pay.share))} in ${PRODUCTION_YEAR + 1}.`
+                    : "."}{" "}
+                  Premium credit {sgd(q.mdrtPremium * pay.share)}.
+                </p>
+              </div>
+            )}
           </li>
           <li className="flex items-start justify-between gap-3">
             <span className="flex min-w-0 items-start gap-2">
               <Step n={4} />
               <span className="min-w-0">
                 <span className="block text-[12.5px] font-semibold text-ink">Elite credits</span>
-                <span className="tnum block text-[11.5px] leading-[1.4] text-muted">
-                  {q ? `first-year GR ${sgd(q.fygr)} × ${q.eliteMultiplier}${ELITE.multipliers_confirmed ? "" : " (default for now)"}` : "first-year GR × multiplier"}
-                </span>
+                <span className="tnum block text-[11.5px] leading-[1.4] text-muted">{q ? `first-year GR (FYGR)* ${sgd(q.fygr)}` : "first-year GR (FYGR)*"}</span>
+                <span className="block text-[11px] leading-[1.4] text-muted">* FYGR assumes the premium is paid yearly.</span>
                 {q && elite && (
                   <span className="tnum block text-[11.5px] leading-[1.4] text-accent">
                     {nextTier ? `Then ${count(nextTier.credits - elite.achieved - q.elite)} to ${nextTier.name}` : `Every ${ELITE.name} tier reached with this`}
@@ -742,7 +930,7 @@ function PolicyCard({
           </button>
           {open && (
             <div id={`breakdown-${row.key}`} className="drop-in border-t border-line">
-              <Breakdown r={r} q={q} band={band} />
+              <Breakdown r={r} q={q} band={band} pay={pay} />
             </div>
           )}
         </>
@@ -786,7 +974,7 @@ function Line({ label, detail, amount, strong = false }: { label: ReactNode; det
 }
 
 /** Everything behind one policy's figures. */
-function Breakdown({ r, q, band }: { r: Resolved; q: Quote; band: BandingCode }) {
+function Breakdown({ r, q, band, pay }: { r: Resolved; q: Quote; band: BandingCode; pay: PaySchedule }) {
   const { policy, variant } = r;
   const out = outputsOf(q);
   const running = variant ? incentivesFor(policy, variant, TODAY) : [];
@@ -826,9 +1014,6 @@ function Breakdown({ r, q, band }: { r: Resolved; q: Quote; band: BandingCode })
                     </span>
                     <span className={`tnum shrink-0 text-[13px] font-bold ${l ? "text-ok" : "text-muted"}`}>{l ? `+${sgd(l.amount)} GR` : "—"}</span>
                   </div>
-                  <div className="mt-1.5">
-                    <MdrtTag m={mdrtOf(i)} />
-                  </div>
                   <p className="mt-1.5 text-[12px] leading-[1.5] text-body">{i.detail}</p>
                   {l && <p className="tnum mt-1 text-[11.5px] leading-[1.45] text-ok-ink">Here: {l.detail}.</p>}
                   {n && <p className="tnum mt-1 text-[11.5px] leading-[1.45] text-muted">Here: {n.detail}</p>}
@@ -838,6 +1023,11 @@ function Breakdown({ r, q, band }: { r: Resolved; q: Quote; band: BandingCode })
                         <li key={c}>{c}</li>
                       ))}
                     </ul>
+                  )}
+                  {i.circular && (
+                    <div className="mt-1.5">
+                      <CircularLink href={i.circular} />
+                    </div>
                   )}
                 </div>
               );
@@ -853,23 +1043,21 @@ function Breakdown({ r, q, band }: { r: Resolved; q: Quote; band: BandingCode })
       </Section>
 
       <Section n={3} title="MDRT credit">
-        <Line
-          label="Commission credit"
-          detail={`Your share of year-1 commission: the schedule's rate${q.lines.some((l) => l.mdrt?.counts) ? ` plus ${q.lines.filter((l) => l.mdrt?.counts).map((l) => l.label).join(" and ")}` : ""}. Cash bonuses and trips don't count.`}
-          amount={sgd(q.mdrtCommission)}
-        />
-        <Line label="Premium credit" detail={variant?.single ? "6% of a single premium." : "The annual premium in full."} amount={sgd(q.mdrtPremium)} />
+        <Line label="Commission credit, policy year 1" detail="Your share of the schedule's year-1 commission." amount={sgd(q.mdrtCommission)} />
+        <Line label={`Commission credit in ${PRODUCTION_YEAR}`} detail={`${payText(pay)}.`} amount={sgd(q.mdrtCommission * pay.share)} strong />
+        <Line label="Premium credit, policy year 1" detail={variant?.single ? "6% of a single premium." : "The annual premium in full."} amount={sgd(q.mdrtPremium)} />
+        {pay.share < 1 && <Line label={`Premium credit in ${PRODUCTION_YEAR}`} detail="The premium paid by 31 Dec." amount={sgd(q.mdrtPremium * pay.share)} strong />}
         <p className="mt-1 text-[11.5px] leading-[1.45] text-muted">
           Counts as {MDRT_CATEGORY_LABEL[policy.mdrt_category]}. MDRT counts Other Products only once Risk-Protection commission reaches its floor.
         </p>
       </Section>
 
-      <Section n={4} title={`Finexis ${ELITE.name}`}>
-        <Line label="First-year gross revenue" detail="The schedule's year-1 commission and any commission uplift. Insurer cash incentives and later years don't count toward Elite." amount={sgd(q.fygr)} />
-        <Line label="Elite multiplier" detail={ELITE.multipliers_confirmed ? "This product's multiplier." : "Every product at the default until Finexis confirms the multipliers."} amount={`× ${q.eliteMultiplier}`} />
+      <Section n={4} title={`finexis ${ELITE.name}`}>
+        <Line label="First-year gross revenue (FYGR)*" detail="The schedule's year-1 commission and any commission uplift. Insurer cash incentives and later years don't count toward Elite." amount={sgd(q.fygr)} />
         <div className="mt-1 border-t border-line pt-1.5">
           <Line label="Elite credits" amount={`+${count(q.elite)}`} strong />
         </div>
+        <p className="mt-1 text-[11.5px] leading-[1.45] text-muted">* FYGR assumes the premium is paid yearly.</p>
         <p className="mt-1 text-[11.5px] leading-[1.45] text-muted">{ELITE.basis} Credits count year by year, apart from MDRT.</p>
       </Section>
 
@@ -903,7 +1091,7 @@ function Breakdown({ r, q, band }: { r: Resolved; q: Quote; band: BandingCode })
 
       {policy.notes && policy.notes.length > 0 && (
         <Section title="Fine print from the schedule">
-          <p className="text-[11.5px] leading-[1.45] text-muted">The insurer's own notes on this plan: top-ups, renewals, clawbacks and promotions that change the figures.</p>
+          <p className="text-[11.5px] leading-[1.45] text-muted">The insurer's own notes on this plan: top-ups, renewals and clawbacks that change the figures.</p>
           <ul className="mt-1.5 flex list-disc flex-col gap-1 pl-4 text-[12px] leading-[1.5] text-body">
             {policy.notes.map((n) => (
               <li key={n}>{n}</li>
@@ -951,8 +1139,23 @@ export default function Calculator({
     const option = payOptionByKey(policy, row.payKey);
     const variant = rowForTerm(option, Number(row.years));
     const premium = parseMoney(row.premium);
-    return { row, policy, option, variant, premium, incentives: variant ? incentivesFor(policy, variant, TODAY) : [] };
+    return {
+      row,
+      policy,
+      option,
+      variant,
+      premium,
+      incentives: variant ? incentivesFor(policy, variant, TODAY) : [],
+      rewards: variant ? clientRewardsFor(policy, variant, TODAY) : [],
+    };
   });
+  /** A rider is paid with its plan: it takes the plan's mode and month. */
+  const payOf = (r: Resolved): PaySchedule => {
+    const plan = r.row.parent !== undefined ? (rows.find((x) => x.key === r.row.parent) ?? r.row) : r.row;
+    const single = r.variant?.single ?? r.option.variant?.single ?? false;
+    const inYear = single ? { paid: 1, of: 1, share: 1 } : paidInYear(plan.mode, plan.sold);
+    return { mode: plan.mode, sold: plan.sold, single, ...inYear };
+  };
   const quarterIncentives = new Map<string, Incentive>();
   for (const r of resolved) for (const i of r.incentives) if (i.quarter_input) quarterIncentives.set(i.id, i);
   const flatIncentives = new Map<string, Incentive>();
@@ -978,7 +1181,8 @@ export default function Calculator({
     if (best >= 0) flatRow.set(id, best);
   }
   const computed = resolved.map((r, n) => {
-    if (!r.variant) return { r, q: null };
+    const pay = payOf(r);
+    if (!r.variant) return { r, q: null, pay };
     const quarterOther: Record<string, number> = {};
     for (const [id, i] of quarterIncentives) {
       const others = resolved.reduce((t, o, m) => (m === n ? t : t + contribution(o, i)), 0);
@@ -991,16 +1195,21 @@ export default function Calculator({
     }
     const flat = [...flatRow.entries()].filter(([, row]) => row === n).map(([id]) => id);
     const q = quote({ policy: r.policy, variant: r.variant, premium: r.premium, targetPremium: parseMoney(r.row.target) || null, band, today: TODAY, quarterOther, policyOther, flatOn: flat });
-    return { r, q };
+    return { r, q, pay };
   });
 
   const quotes = computed.map((c) => c.q).filter((q): q is Quote => q !== null);
   const totalGr = quotes.reduce((t, q) => t + q.gr, 0);
   const totalEarnings = quotes.reduce((t, q) => t + q.earnings, 0);
-  const totalMdrtPremium = quotes.reduce((t, q) => t + q.mdrtPremium, 0);
   const totalElite = quotes.reduce((t, q) => t + q.elite, 0);
-  const mdrtRisk = computed.filter((c) => c.r.policy.mdrt_category === "risk_protection").reduce((t, c) => t + (c.q?.mdrtCommission ?? 0), 0);
-  const mdrtOther = computed.filter((c) => c.r.policy.mdrt_category === "other").reduce((t, c) => t + (c.q?.mdrtCommission ?? 0), 0);
+  // MDRT credits what the client pays inside the production year, and only the schedule's commission.
+  const mdrtIn = (category: "risk_protection" | "other", figure: "mdrtCommission" | "mdrtPremium") =>
+    computed.filter((c) => c.r.policy.mdrt_category === category).reduce((t, c) => t + (c.q ? c.q[figure] * c.pay.share : 0), 0);
+  const mdrtRisk = mdrtIn("risk_protection", "mdrtCommission");
+  const mdrtOther = mdrtIn("other", "mdrtCommission");
+  const premRisk = mdrtIn("risk_protection", "mdrtPremium");
+  const premOther = mdrtIn("other", "mdrtPremium");
+  const totalMdrtPremium = premRisk + premOther;
   const filled = computed.filter((c) => c.q && c.q.gr > 0 && c.r.row.parent === undefined).length;
   const filledRiders = computed.filter((c) => c.q && c.q.gr > 0 && c.r.row.parent !== undefined).length;
 
@@ -1008,6 +1217,14 @@ export default function Calculator({
   const goal = activeGoalFor(advisor, cases, goalSet, primary);
   /** Elite so far and the FC's tiers: each card says how far from the next tier its case leaves them. */
   const eliteNow = { achieved: metricSnapshot(advisor.id, cases, "elite", TODAY, goalSet).achieved, tiers: eliteTiersFor(advisor) };
+  // Under the aim, the other one: Elite under MDRT, MDRT under Elite, both under a custom goal.
+  const showElite = primary.kind !== "elite";
+  const showMdrt = primary.kind !== "tier";
+  const mdrtNow = mdrtSnapshot(advisor.id, cases, TODAY, goalSet);
+  const routeRows = mdrtNow.routes.map((route) => {
+    const [risk, other] = route.metric === "mdrt_commission" ? [mdrtRisk, mdrtOther] : [premRisk, premOther];
+    return { route, left: Math.max(route.goalThreshold - route.achieved, 0), n: clientsNeededOnRoute(route.credit, route.goalThreshold, risk, other) };
+  });
   const savedTarget = goal.target ?? 0;
   const ratio = goal.target ? Math.min(goal.achieved / goal.target, 1) : 0;
   const toGo = Math.max(savedTarget - goal.achieved, 0);
@@ -1059,7 +1276,7 @@ export default function Calculator({
   return (
     <>
       <div className="flex flex-col gap-2.5 px-4 pb-24 pt-3">
-        {computed.map(({ r, q }) => (
+        {computed.map(({ r, q, pay }) => (
           <PolicyCard
             key={r.row.key}
             r={r}
@@ -1072,6 +1289,7 @@ export default function Calculator({
             parent={r.row.parent !== undefined ? policyById(rows.find((x) => x.key === r.row.parent)!.policyId)! : null}
             onAddRider={r.row.parent === undefined && ridersFor(r.policy).length > 0 ? () => addRider(r.row.key) : null}
             inputs={incentiveInputs}
+            pay={pay}
           />
         ))}
 
@@ -1138,14 +1356,43 @@ export default function Calculator({
               </div>
             </div>
 
-            {totalElite >= 0.5 && (
+            {showMdrt && (
               <div className="mt-[13px] border-t border-line pt-[11px]">
                 <div className="flex items-baseline justify-between gap-2">
-                  <Label>Finexis {ELITE.name}</Label>
+                  <Label>
+                    {TIER_LABEL[mdrtNow.goalTier]} {MDRT_MEMBERSHIP_YEAR}
+                  </Label>
+                  <span className="tnum shrink-0 text-[11px] text-muted">{periodLabel(mdrtNow.period)}</span>
+                </div>
+                <ul className="mt-1.5 divide-y divide-line">
+                  {routeRows.map(({ route, left, n }) => (
+                    <li key={route.metric} className="tnum flex items-baseline justify-between gap-3 py-1.5 text-[12px]">
+                      <span className="font-semibold text-body">{route.label} route</span>
+                      <span className="text-right text-muted">
+                        {left <= 0 && route.credit.gatesMet ? (
+                          <span className="font-semibold text-ok">Reached</span>
+                        ) : n === null ? (
+                          `${sgd(left)} to go`
+                        ) : (
+                          <>
+                            {sgd(left)} to go · <span className="font-semibold text-accent">{n}</span> {n === 1 ? "client" : "clients"} like this
+                          </>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {showElite && totalElite >= 0.5 && (
+              <div className="mt-[13px] border-t border-line pt-[11px]">
+                <div className="flex items-baseline justify-between gap-2">
+                  <Label>finexis {ELITE.name}</Label>
                   <span className="tnum shrink-0 text-[11px] text-muted">{count(eliteNow.achieved)} credits now</span>
                 </div>
                 <ul className="mt-1.5 divide-y divide-line">
-                  {eliteNow.tiers.map((t) => {
+                  {tiersInView(eliteNow.tiers, eliteNow.achieved).map((t) => {
                     const left = t.credits - eliteNow.achieved;
                     const n = clientsNeeded(left, totalElite);
                     return (

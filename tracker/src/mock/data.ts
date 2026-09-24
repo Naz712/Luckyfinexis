@@ -1,4 +1,4 @@
-// Mock data for the Finexis production tracker.
+// Mock data for the finexis production tracker.
 //
 // Section 1 holds reference values: the product panel, banding rates and MDRT
 // thresholds (the Elite scheme is in src/lib/elite.ts). Rows marked PLACEHOLDER are
@@ -169,7 +169,7 @@ export const mdrt_floors: MdrtFloor[] = [
 // Elite credits come straight from the import (the scheme's tiers and rules
 // are in src/lib/elite.ts). Gross revenue is first-year GR: the import's
 // gr_ytd column, or worked out from commission at the FA's band when the
-// file has no such column. WAPE is Finexis's own weighted premium figure and
+// file has no such column. WAPE is finexis' own weighted premium figure and
 // only counts when the import carries it (wape_ytd); it is a Custom goal, not
 // a Home row.
 export const metric_definitions: MetricDefinition[] = [
@@ -267,7 +267,7 @@ export interface ImportRow {
   gr_ytd?: number;
   /** First-year premium, year to date. */
   premium_ytd: number;
-  /** Optional: WAPE, year to date, as Finexis weights it. */
+  /** Optional: WAPE, year to date, as finexis weights it. */
   wape_ytd?: number;
   /** MDRT commission credit, year to date, and the part from Risk-Protection products. */
   mdrt_commission_ytd: number;

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { MDRT_MEMBERSHIP_YEAR, MDRT_THRESHOLDS_CONFIRMED, metric_definitions, TODAY, type Advisor, type Case, type CaseRecord, type MetricUnit, type Tier } from "../mock/data";
-import { ELITE, eliteTiersFor, isNewFc, type EliteTier } from "../lib/elite";
+import { ELITE, eliteTiersFor, isNewFc, tiersInView, type EliteTier } from "../lib/elite";
 import { elitePeriod, soloAim } from "../lib/aims";
 import {
   casesForAdvisor,
@@ -12,13 +12,14 @@ import {
   type GoalSet,
   type MdrtRoute,
   type MdrtRouteMetric,
+  type MdrtSnapshot,
   type MetricSnapshot,
   type Pace,
   type Period,
   type PrimaryGoal,
   type RouteCredit,
 } from "../lib/calc";
-import { count, fmtMetric, paceText, pct, periodLabel, routeGateText, shortDate } from "../lib/format";
+import { count, fmtMetric, paceText, pct, periodLabel, routeGateText, sgd, shortDate } from "../lib/format";
 import type { DataSource } from "../lib/api";
 import { Card, Label } from "../components/ui";
 import DetailSheet, { type DetailTab } from "./Detail";
@@ -134,11 +135,11 @@ interface HeroView {
   missing: boolean;
 }
 
-// ───────────────────────── Finexis Elite: every tier and how far ─────────────────────────
+// ───────────────────────── finexis Elite: the tiers, one at a time ─────────────────────────
 
-
-/** A track to the top tier with a mark at each, then one line per tier: reached, or what is left and the monthly pace to get there. */
-function EliteLadder({ achieved, tiers, period }: { achieved: number; tiers: EliteTier[]; period: Period }) {
+/** A track to the next tier with a mark at each tier shown, then one line per tier: reached, or what is left and the monthly pace to get there. Higher tiers appear once the one before is reached. */
+function EliteLadder({ achieved, tiers: all, period }: { achieved: number; tiers: EliteTier[]; period: Period }) {
+  const tiers = tiersInView(all, achieved);
   const top = tiers[tiers.length - 1]?.credits ?? 1;
   const next = tiers.find((t) => t.credits > achieved) ?? null;
   return (
@@ -189,6 +190,62 @@ function EliteLadder({ achieved, tiers, period }: { achieved: number; tiers: Eli
         })}
       </ul>
     </div>
+  );
+}
+
+// ───────────────────────── MDRT under another aim ─────────────────────────
+
+/** MDRT's two routes toward the tier aimed for, when the goal on top is Elite or custom; each opens its detail tab. */
+function MdrtCard({ mdrt, onOpen }: { mdrt: MdrtSnapshot; onOpen: (tab: DetailTab) => void }) {
+  return (
+    <Card className="overflow-hidden p-0">
+      <div className="flex items-baseline justify-between gap-2 px-4 pb-2.5 pt-3">
+        <Label>
+          {TIER_LABEL[mdrt.goalTier]} {MDRT_MEMBERSHIP_YEAR}
+        </Label>
+        <span className="tnum shrink-0 text-[11px] text-muted">{periodLabel(mdrt.period)}</span>
+      </div>
+      {mdrt.routes.map((r) => {
+        const tone: Tone = r.goalReached ? "ok" : r.pace.onTrack ? "accent" : "warn";
+        const t = TONE[tone];
+        const fill = r.goalProgress;
+        const pendingFill = Math.min(Math.max(r.projected - r.achieved, 0) / r.goalThreshold, 1 - fill);
+        const gate = routeGateText(r.credit);
+        return (
+          <button
+            key={r.metric}
+            type="button"
+            onClick={() => onOpen(r.metric === "mdrt_commission" ? "commission" : "premium")}
+            className="block w-full border-t border-line px-4 pb-[13px] pt-3 text-left hover:bg-canvas/60"
+          >
+            <div className="flex items-center justify-between gap-2.5">
+              <div className="flex min-w-0 items-center gap-[7px]">
+                <span className="whitespace-nowrap text-[13px] font-semibold text-ink">{r.label} route</span>
+                {r.metric === mdrt.closer && <span className="rounded bg-accent-soft px-1 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] text-accent">closest</span>}
+              </div>
+              <div className="flex shrink-0 items-center gap-[7px]">
+                <span className="tnum text-[16px] font-bold text-ink">{sgd(r.achieved)}</span>
+                <Chevron className="text-faint" />
+              </div>
+            </div>
+            <div className="mt-[9px] flex h-[5px] overflow-hidden rounded-full bg-accent-soft" aria-hidden="true">
+              <span className={`${t.fill} transition-[width] duration-[450ms]`} style={{ width: `${fill * 100}%` }} />
+              <span className={`${t.soft} transition-[width] duration-[450ms]`} style={{ width: `${pendingFill * 100}%` }} />
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-2.5">
+              <span className={`tnum flex min-w-0 items-center gap-1.5 text-[12px] font-medium ${t.text}`}>
+                <span className={`h-[5px] w-[5px] shrink-0 rounded-full ${t.dot}`} aria-hidden="true" />
+                <span className="truncate">{r.goalReached ? `${TIER_LABEL[mdrt.goalTier]} reached` : `${sgd(r.goalThreshold - r.achieved)} to go`}</span>
+              </span>
+              <span className="tnum shrink-0 text-[12px] text-muted">
+                {pct(fill)} of {sgd(r.goalThreshold)}
+              </span>
+            </div>
+            {gate && <p className="tnum mt-1.5 text-pretty text-[11px] leading-[1.45] text-muted">{gate}</p>}
+          </button>
+        );
+      })}
+    </Card>
   );
 }
 
@@ -323,8 +380,11 @@ export default function Home({
     ? `${fmt(pendingValue)} pending would take you to ${pct(hero.projected / goal.target)} once the insurer confirms.`
     : `${fmt(pendingValue)} is waiting on the insurer.`;
 
-  // Finexis Elite: the in-house scheme, tracked apart from MDRT, with the distance to every tier.
+  // finexis Elite: the in-house scheme, tracked apart from MDRT, one tier at a time.
   const elite = metricSnapshot(advisor.id, mine, "elite", TODAY, goalSet);
+  // Under the goal on top, the other one: Elite under MDRT, MDRT under Elite, both under a custom goal.
+  const showElite = primary.kind !== "elite";
+  const showMdrt = primary.kind !== "tier";
   const eliteTiers = eliteTiersFor(advisor);
   const newFc = isNewFc(advisor);
 
@@ -483,9 +543,12 @@ export default function Home({
           </div>
         )}
 
+        {showMdrt && <MdrtCard mdrt={mdrt} onOpen={setOpenTab} />}
+
+        {showElite && (
         <Card>
           <div className="flex items-center justify-between gap-2">
-            <Label>Finexis {ELITE.name}</Label>
+            <Label>finexis {ELITE.name}</Label>
             {newFc ? (
               <span className="rounded bg-accent-soft px-1 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] text-accent">new FC tiers</span>
             ) : (
@@ -498,6 +561,7 @@ export default function Home({
           </div>
           <EliteLadder achieved={elite.achieved} tiers={eliteTiers} period={elitePeriod()} />
         </Card>
+        )}
 
         <Card className="overflow-hidden p-0">
           <div className="flex items-baseline justify-between px-4 pb-2.5 pt-3">

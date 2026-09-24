@@ -1,5 +1,5 @@
 // The aims an FC can work toward beyond MDRT, in the business's order:
-// Finexis Elite (a tier of the trip scheme) and a custom goal on commission,
+// finexis Elite (a tier of the trip scheme) and a custom goal on commission,
 // gross revenue or WAPE. MDRT,
 // COT and TOT stay in calc.ts (mdrtSnapshot), with their two routes. Home's
 // hero, Goals and the Calculator's "how far this gets you" read the other
@@ -70,7 +70,7 @@ export function soloAim(advisor: Advisor, cases: Case[], goalSet: GoalSet, prima
       unit: "count",
       period,
       ...figures("elite", period, tier.credits),
-      blurb: `Finexis ${ELITE.name}: first-year gross revenue times each product's multiplier, for ${ELITE.prize}.${tier.perk ? ` ${tier.name}: ${tier.perk}.` : ""}`,
+      blurb: `finexis ${ELITE.name}: first-year gross revenue, for ${ELITE.prize}.${tier.perk ? ` ${tier.name}: ${tier.perk}.` : ""}`,
       inImport: true,
     };
   }

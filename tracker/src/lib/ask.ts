@@ -5,7 +5,7 @@
 // the result. The tools never see anything beyond this advisor's own
 // production and, for a manager, their team's.
 import { MDRT_MEMBERSHIP_YEAR, metric_definitions, TODAY, type Advisor, type Case, type Tier } from "../mock/data";
-import { ELITE, elitePeriodText, eliteTiersFor, isNewFc } from "./elite";
+import { ELITE, elitePeriodText, eliteTiersFor, isNewFc, tiersInView } from "./elite";
 import {
   aggregate,
   casesForAdvisor,
@@ -97,7 +97,7 @@ export const TOOL_DEFS = [
     type: "function",
     function: {
       name: "elite_status",
-      description: "Finexis Elite, the firm's own MDRT-style scheme with a trip as the prize: credits (first-year gross revenue times each product's Elite multiplier) earned so far in the qualifying year, the next tier with the credits to go and the pace needed, whether the advisor qualifies at the lower new-FC tiers, the advisor's own Elite goal if set, and every tier with reached or to go. Use for 'Elite', 'credits', 'trip', 'tier', 'conference'.",
+      description: "finexis Elite, the firm's own MDRT-style scheme with a trip as the prize: credits (first-year gross revenue) earned so far in the qualifying year, the next tier with the credits to go and the pace needed, whether the advisor qualifies at the lower new-FC tiers, the advisor's own Elite goal if set, and every tier with reached or to go. Use for 'Elite', 'credits', 'trip', 'tier', 'conference'.",
       parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
     },
   },
@@ -239,7 +239,7 @@ function eliteStatus(ctx: AskContext): ToolResult {
   const rows: AnswerRow[] = [{ label: "Credits this year", value: count(credits), sub: reached.length > 0 ? `${reached[reached.length - 1]!.name} reached` : "no tier reached yet" }];
   if (next && nextPace) rows.push({ label: `Next tier: ${next.name}`, value: `${count(next.credits - credits)} to go`, sub: `${count(next.credits)} needed · ${paceText(nextPace, "count", false)}` });
   if (goal.target !== null) rows.push({ label: "Your Elite goal", value: `${count(goal.achieved)} of ${count(goal.target)}`, sub: `${goal.cadence ? CADENCE_PER[goal.cadence] : "per year"} · ${paceText(goal.pace, "count", goal.achieved >= goal.target)}` });
-  for (const r of rungs) rows.push({ label: r.name, value: count(r.credits), sub: credits >= r.credits ? "reached" : `${count(r.credits - credits)} to go` });
+  for (const r of tiersInView(rungs, credits)) rows.push({ label: r.name, value: count(r.credits), sub: credits >= r.credits ? "reached" : `${count(r.credits - credits)} to go` });
   // The FC's own goal gets a sentence only when it is not simply the next tier.
   const goalWord = goal.target !== null && goal.target !== next?.credits ? ` Your own goal is ${count(goal.target)}: ${paceText(goal.pace, "count", goal.achieved >= goal.target).toLowerCase()}.` : "";
   return {
@@ -248,7 +248,7 @@ function eliteStatus(ctx: AskContext): ToolResult {
       ? `${count(credits)} credits so far this year, ${count(next.credits - credits)} to go for ${next.name}${reached.length > 0 ? ` (${reached[reached.length - 1]!.name} already reached)` : ""}. ${paceText(nextPace, "count", false)}.${goalWord}`
       : `${count(credits)} credits so far this year; every tier is reached, up to ${rungs[rungs.length - 1]?.name ?? "the top"}.${goalWord}`,
     rows,
-    note: `${ELITE.name}: first-year GR times each product's Elite multiplier, ${elitePeriodText()}.${newFc ? ` As a new FC you qualify at the lower ${ELITE.new_fc_label} tiers.` : ""}${ELITE.tiers_confirmed ? "" : " The tiers are samples."} Credits are as the import counts them.`,
+    note: `${ELITE.name}: first-year GR, ${elitePeriodText()}.${newFc ? ` As a new FC you qualify at the lower ${ELITE.new_fc_label} tiers.` : ""}${ELITE.tiers_confirmed ? "" : " The tiers are samples."} Credits are as the import counts them.`,
     facts: {
       credits: Math.round(credits),
       reached: reached.map((r) => r.name),
@@ -258,7 +258,6 @@ function eliteStatus(ctx: AskContext): ToolResult {
       new_fc: newFc,
       qualifying_period: ELITE.period,
       tiers_confirmed: ELITE.tiers_confirmed,
-      multipliers_confirmed: ELITE.multipliers_confirmed,
     },
   };
 }

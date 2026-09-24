@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /*
- * One accent colour (Finexis brand blue) plus neutrals. No gradients.
+ * One accent colour (finexis brand blue) plus neutrals. No gradients.
  *
  * Two blues on purpose: `brand` is the big solid surfaces (the Home hero,
  * blue cards, blue headers, primary buttons) and stays deep blue with white

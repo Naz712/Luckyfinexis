@@ -46,8 +46,6 @@ export interface Policy {
   status?: string;
   /** Rates apply to premium up to a target premium (universal life); the Calculator asks for it. */
   target_premium?: boolean;
-  /** Elite credits per S$1 of first-year GR; the scheme's default applies when absent. */
-  elite_multiplier?: number;
   /** A rider: the base plans it can be added to. Riders are added onto a plan, never picked on their own. */
   attaches_to?: string[];
   /** A rider's name without its base plan ("CI Plus, Payer Premium Eraser"), for the rider picker. */
@@ -85,19 +83,8 @@ interface IncentiveBase {
   conditions?: string[];
   /** Label for a "rest of the quarter" figure the tier or threshold depends on. */
   quarter_input?: string;
-  /** Whether MDRT counts it, when the circular says so; otherwise it follows the kind (see mdrtOf). */
-  mdrt?: MdrtCount;
-}
-
-/**
- * Whether an incentive counts toward MDRT, and why, in a few words. MDRT's
- * commission and premium routes count commissions only: an uplift paid as
- * commission counts; a cash bonus is not commission, and a trip is non-cash
- * compensation MDRT excludes outright (2027 Membership Information, section V).
- */
-export interface MdrtCount {
-  counts: boolean;
-  why: string;
+  /** Where the circular can be opened: a URL, or a path published next to the page. */
+  circular?: string;
 }
 
 export type Incentive =
@@ -120,22 +107,32 @@ export type Incentive =
   /** Shown for information only. */
   | (IncentiveBase & { kind: "info" });
 
-/** Whether MDRT counts an incentive: what the circular says, else what its kind is. */
-export function mdrtOf(i: Incentive): MdrtCount {
-  if (i.mdrt) return i.mdrt;
-  switch (i.kind) {
-    case "uplift":
-      return { counts: true, why: "paid as commission" };
-    case "convention":
-      return { counts: false, why: "a trip, not money" };
-    case "info":
-      return { counts: false, why: "not commission" };
-    default:
-      return { counts: false, why: "a cash bonus, not commission" };
-  }
+/**
+ * Something the client gets from an insurer's customer campaign: a cashback,
+ * a premium discount, passes or vouchers. Shown beside the policy it applies
+ * to; the adviser's own figures don't change with it.
+ */
+export interface ClientReward {
+  id: string;
+  insurer: string;
+  /** "Client cashback", "Premium discount". */
+  name: string;
+  /** ISO dates, inclusive. */
+  period: [string, string];
+  targets: { policy: string; variants?: string[] }[];
+  /** One sentence on what the client gets. */
+  detail: string;
+  /** What the Calculator can work out from the premium: months of the annual premium, or a fixed amount. */
+  value?: { kind: "months_premium"; months: number } | { kind: "flat"; amount: number };
+  /** Announced but not open yet. */
+  coming_soon?: boolean;
+  conditions?: string[];
+  source: string;
+  /** Where the circular can be opened: a URL, or a path published next to the page. */
+  circular?: string;
 }
 
-/** Finexis Elite: the in-house scheme (a trip), counted on first-year GR, tracked apart from MDRT. */
+/** finexis Elite: the in-house scheme (a trip), counted on first-year GR, tracked apart from MDRT. */
 export interface EliteRules {
   name: string;
   /** What the top performers win. */
@@ -151,11 +148,6 @@ export interface EliteRules {
   new_fc_label: string;
   /** False while the tiers are stand-ins. */
   tiers_confirmed: boolean;
-  /** False while every product counts at the default multiplier. */
-  multipliers_confirmed: boolean;
-  default_multiplier: number;
-  /** Per policy id. */
-  multipliers: Record<string, number>;
   rules: string[];
   source: string;
 }
@@ -171,6 +163,8 @@ export interface Catalogue {
   fc_formula: { share: number; band_deduction: number };
   policies: Policy[];
   incentives: Incentive[];
+  /** The insurers' customer campaigns: what the client gets. */
+  client_rewards?: ClientReward[];
 }
 
 const files = import.meta.glob("../private/policies.local.json", { eager: true, import: "default" }) as Record<string, Catalogue>;
@@ -217,6 +211,41 @@ export function incentivesOnPolicy(policy: Policy, today: Date): Incentive[] {
   return CATALOGUE.incentives.filter((i) => inPeriod(i, today) && i.targets.some((t) => t.policy === policy.id));
 }
 
+/** Customer campaigns running on `today` for this policy (and row, when the campaign lists rows); coming-soon ones included. */
+export function clientRewardsFor(policy: Policy, variant: PolicyVariant, today: Date): ClientReward[] {
+  return (CATALOGUE.client_rewards ?? []).filter(
+    (r) => (r.coming_soon || within(r.period, today)) && r.targets.some((t) => t.policy === policy.id && (!t.variants || t.variants.includes(variant.id))),
+  );
+}
+
+/** What a client reward is worth on this premium, when the Calculator can tell. */
+export function clientRewardValue(r: ClientReward, variant: PolicyVariant, premium: number): number | null {
+  if (!r.value || r.coming_soon) return null;
+  if (r.value.kind === "flat") return r.value.amount;
+  return variant.single ? null : (premium * r.value.months) / 12;
+}
+
+/** How often the client pays the premium. */
+export type PayMode = "annual" | "half" | "quarter" | "month";
+export const PAY_MODES: { code: PayMode; label: string; perYear: number }[] = [
+  { code: "annual", label: "Yearly", perYear: 1 },
+  { code: "half", label: "Half-yearly", perYear: 2 },
+  { code: "quarter", label: "Quarterly", perYear: 4 },
+  { code: "month", label: "Monthly", perYear: 12 },
+];
+
+/**
+ * How much of the first year's premium is paid by 31 Dec when the policy is
+ * sold in `month` (0 = Jan): MDRT credits what is paid inside its production
+ * year. Yearly (or a single premium) is all of it; monthly from October is
+ * October to December, 3 of 12.
+ */
+export function paidInYear(mode: PayMode, month: number): { paid: number; of: number; share: number } {
+  const of = PAY_MODES.find((m) => m.code === mode)?.perYear ?? 1;
+  const paid = Math.min(Math.ceil((12 - month) / (12 / of)), of);
+  return { paid, of, share: paid / of };
+}
+
 /** APE: the annualised premium, or 10% of a single premium. */
 export function apeOf(variant: PolicyVariant, premium: number): number {
   return variant.single ? premium * 0.1 : premium;
@@ -257,8 +286,6 @@ export interface QuoteLine {
   kind: "base" | "uplift" | "cash";
   /** "until 30 Sep 2026" for incentives. */
   until?: string;
-  /** Incentives: whether MDRT counts this line. */
-  mdrt?: MdrtCount;
   /** Tiered incentives: the next tier up, when there is one: "7% from S$8,000 APE credits, S$800 more". */
   next?: string;
 }
@@ -270,7 +297,6 @@ export interface QuoteNote {
   until?: string;
   /** short: a tier or threshold not reached yet; toggle: a one-off the FC can tick; credits: trip credits; ineligible: this row doesn't qualify; info: for reading. */
   kind: "short" | "toggle" | "credits" | "ineligible" | "info";
-  mdrt?: MdrtCount;
   /** A threshold not met yet, or a one-off not ticked: the gross revenue it would add once it applies. */
   potential?: number;
 }
@@ -301,23 +327,19 @@ export interface Quote {
   notes: QuoteNote[];
   /** Year-1 GR, incentives included. */
   gr: number;
-  /** Year-1 commission only (policy rate and commission uplifts), what MDRT counts. */
+  /** Year-1 commission only: the policy rate and commission uplifts. */
   commissionGr: number;
   /** The FC's year-1 earnings on all of GR. */
   earnings: number;
   /** Later policy years from the schedule (and any uplift), with the FC's share. */
   later: { year: number; rate: number; gr: number; earnings: number }[];
-  /** Year-1 GR MDRT counts: the policy rate plus the incentives that count (commission uplifts). */
-  mdrtGr: number;
-  /** MDRT commission credit: the FC's share of mdrtGr. */
+  /** MDRT commission credit for the policy's first year: the FC's share of the schedule's commission alone, no insurer incentive. */
   mdrtCommission: number;
   /** MDRT premium credit: 100% of a regular premium, 6% of a single premium. */
   mdrtPremium: number;
   /** First-year GR as Elite counts it: the schedule's rate and commission uplifts, cash incentives left out. */
   fygr: number;
-  /** The Elite multiplier applied to it. */
-  eliteMultiplier: number;
-  /** Elite credits: FYGR × the multiplier. */
+  /** Elite credits: the FYGR. */
   elite: number;
   share: number;
 }
@@ -353,12 +375,8 @@ export function quote(input: QuoteInput): Quote {
 
   const upliftByYear: number[] = [];
   let cash = 0;
-  let mdrtExtra = 0;
   for (const i of incentivesFor(policy, variant, input.today)) {
     const until = `until ${isoShort(i.period[1])}`;
-    const mdrt = mdrtOf(i);
-    const lineCount = lines.length;
-    const noteCount = notes.length;
     switch (i.kind) {
       case "uplift": {
         const u = i.uplift[variant.id] ?? i.uplift["*"];
@@ -446,11 +464,6 @@ export function quote(input: QuoteInput): Quote {
         notes.push({ id: i.id, label: i.name, detail: i.detail, until, kind: "info" });
         break;
     }
-    for (const l of lines.slice(lineCount)) {
-      l.mdrt = mdrt;
-      if (mdrt.counts) mdrtExtra += l.amount;
-    }
-    for (const n of notes.slice(noteCount)) n.mdrt = mdrt;
   }
 
   const upliftY1 = ((upliftByYear[0] ?? 0) * commissionable) / 100;
@@ -461,8 +474,6 @@ export function quote(input: QuoteInput): Quote {
     const g = (premium * rate) / 100;
     return { year: n + 2, rate, gr: g, earnings: g * share };
   });
-  const eliteMultiplier = eliteMultiplierOf(policy);
-  const mdrtGr = base + mdrtExtra;
   return {
     ape,
     base,
@@ -472,12 +483,10 @@ export function quote(input: QuoteInput): Quote {
     commissionGr,
     earnings: gr * share,
     later,
-    mdrtGr,
-    mdrtCommission: mdrtGr * share,
+    mdrtCommission: base * share,
     mdrtPremium: premium * (variant.single ? 0.06 : 1),
     fygr: commissionGr,
-    eliteMultiplier,
-    elite: commissionGr * eliteMultiplier,
+    elite: commissionGr,
     share,
   };
 }
@@ -488,11 +497,6 @@ export const isRider = (p: Policy) => (p.attaches_to?.length ?? 0) > 0;
 /** The riders that can go on a base plan. */
 export function ridersFor(base: Policy): Policy[] {
   return CATALOGUE.policies.filter((p) => p.attaches_to?.includes(base.id));
-}
-
-/** Elite credits per S$1 of first-year GR on this policy. */
-export function eliteMultiplierOf(policy: Policy): number {
-  return policy.elite_multiplier ?? CATALOGUE.elite.multipliers[policy.id] ?? CATALOGUE.elite.default_multiplier;
 }
 
 /** The companies the picker offers, in order, with their policies (none yet for a schedule still to come). */

@@ -1,7 +1,8 @@
-// Finexis Elite: the firm's own MDRT-style scheme, with a trip as the prize.
-// Credits are first-year gross revenue (FYGR) times each product's Elite
-// multiplier, counted afresh each qualifying year and tracked apart from
-// MDRT. New FCs qualify at lower tiers. The rules come from the policy
+// finexis Elite: the firm's own MDRT-style scheme, with a trip as the prize.
+// Credits are first-year gross revenue (FYGR), counted afresh each
+// qualifying year and tracked apart from MDRT. New FCs qualify at lower
+// tiers, and the tiers show one at a time: the next one appears once the
+// one before it is reached. The rules come from the policy
 // catalogue: the real scheme is in the confidential file, and the public
 // build carries made-up sample tiers.
 import { CATALOGUE } from "./policies";
@@ -26,6 +27,12 @@ export function isNewFc(advisor: Pick<Advisor, "rnf_year">): boolean {
 export function eliteTiersFor(advisor: Pick<Advisor, "rnf_year">): EliteTier[] {
   const fresh = isNewFc(advisor);
   return ELITE.tiers.map((t) => ({ code: t.code, name: t.name, credits: fresh ? (t.new_fc_credits ?? t.credits) : t.credits, perk: t.perk }));
+}
+
+/** The tiers to show, one at a time: those already reached, then the next one. Higher tiers stay hidden until the one before is reached. */
+export function tiersInView(tiers: EliteTier[], achieved: number): EliteTier[] {
+  const next = tiers.findIndex((t) => t.credits > achieved);
+  return next === -1 ? tiers : tiers.slice(0, next + 1);
 }
 
 /** "2 Jan to 31 Dec 2026". */

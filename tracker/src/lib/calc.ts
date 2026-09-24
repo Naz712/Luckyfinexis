@@ -26,7 +26,7 @@ import {
   type Tier,
 } from "../mock/data";
 
-import { CATALOGUE, fcShare } from "./policies";
+import { fcShare } from "./policies";
 
 export type { MdrtRouteMetric } from "../mock/data";
 
@@ -70,7 +70,7 @@ export const defaultGoalSet: GoalSet = { targets: goals, mdrtTiers: mdrt_tier_go
 
 /**
  * The one aim the FC is working toward, as the business's whiteboard lists
- * them: their MDRT tier (held in GoalSet.mdrtTiers), a Finexis Elite tier, or
+ * them: their MDRT tier (held in GoalSet.mdrtTiers), a finexis Elite tier, or
  * one of their own targets.
  * src/lib/aims.ts turns the non-MDRT ones into figures.
  */
@@ -141,8 +141,8 @@ export function metricsForCase(c: Case): CaseMetrics {
     premium: c.premium_amount,
     mdrt_premium: c.premium_amount * creditRate(c.product_id, "mdrt_premium"),
     mdrt_commission: commission * creditRate(c.product_id, "mdrt_commission"),
-    // Elite: first-year GR at the scheme's default multiplier (a hypothetical case has no product multiplier).
-    elite: c.gross_revenue * CATALOGUE.elite.default_multiplier,
+    // Elite: the first-year GR.
+    elite: c.gross_revenue,
     wape: 0,
   };
 }

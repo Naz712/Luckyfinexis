@@ -1,4 +1,4 @@
-/* Finexis tracker: network first, cache as the fallback, so the installed app opens without a connection. */
+/* finexis tracker: network first, cache as the fallback, so the installed app opens without a connection. */
 const CACHE = "finexis-tracker-v1";
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => {

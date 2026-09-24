@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sample circular</title>
+<style>
+  :root { color-scheme: light; --ink: #14235e; --body: #2b3245; --muted: #6b7280; --line: #e5e7eb; --bg: #f4f5f9; --card: #fff; }
+  @media (prefers-color-scheme: dark) { :root { color-scheme: dark; --ink: #eef1fa; --body: #c9d0e2; --muted: #8d97ae; --line: #283150; --bg: #0e1322; --card: #171d31; } }
+  body { margin: 0; background: var(--bg); color: var(--body); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { color: var(--ink); font-size: 22px; margin: 0 0 4px; }
+  h2 { color: var(--ink); font-size: 16px; margin: 24px 0 6px; }
+  .tag { display: inline-block; margin-bottom: 12px; padding: 2px 8px; border-radius: 6px; background: var(--card); border: 1px solid var(--line); color: var(--muted); font-size: 12px; font-weight: 600; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 4px 16px 12px; margin-top: 12px; }
+  li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<main>
+  <span class="tag">Sample only. Nothing here is real.</span>
+  <h1>Sample Q3 2026 campaigns</h1>
+  <p>A made-up circular, so the public version of the tracker has something to open. The real circulars are only in the private version.</p>
+  <section>
+    <h2>Insurer A · commission uplift</h2>
+    <ul><li>+5% of the year-1 premium on 20-year terms, 1 Jul to 30 Sep 2026.</li></ul>
+    <h2>Insurer A · attraction passes for the client</h2>
+    <ul><li>A family pass worth S$120 with each term plan.</li></ul>
+  </section>
+  <section>
+    <h2>Insurer B · adviser cash incentive</h2>
+    <ul><li>3% of APE credits from S$10,000 in the quarter, 6% from S$30,000.</li><li>ILPs count 1.5 times their APE.</li></ul>
+    <h2>Insurer B · client cashback</h2>
+    <ul><li>One month of the annual premium back to the client, once 3 months' premiums are in.</li></ul>
+  </section>
+</main>
+</body>
+</html>

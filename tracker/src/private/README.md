@@ -12,10 +12,12 @@ Two files can live here:
   term ranges, plans, MIPs, premium charges) with the commission rate by
   policy year (riders name the plans they attach to), and the incentives
   running on top of it (commission uplifts,
-  APE-based cash rewards, trip credits). It also carries the payout formula
+  APE-based cash rewards, trip credits), each with an optional `circular`
+  link. It also carries the insurers' customer campaigns (`client_rewards`:
+  cashbacks, discounts, passes), the payout formula
   (`fc_formula`: FC earnings = share × (banding rate − deduction) × gross
-  revenue), the companies the Calculator lists (`insurers`) and the Finexis
-  Elite scheme (`elite`: tiers, new-FC tiers, qualifying period, multipliers). The shape is the `Catalogue` type in `src/lib/policies.ts`;
+  revenue), the companies the Calculator lists (`insurers`) and the finexis
+  Elite scheme (`elite`: tiers, new-FC tiers, qualifying period). The shape is the `Catalogue` type in `src/lib/policies.ts`;
   `src/mock/policies.sample.ts` is a made-up example of it. Without this
   file the app uses that sample.
 - **`rates.local.json`**: optional overrides for the banding table and the

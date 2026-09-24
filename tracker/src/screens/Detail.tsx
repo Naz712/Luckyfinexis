@@ -1,6 +1,6 @@
 import { useState, type CSSProperties } from "react";
 import { MDRT_MEMBERSHIP_YEAR, TODAY, TRACKER_LAUNCH, type Advisor, type Case, type CaseRecord, type Tier } from "../mock/data";
-import { eliteTiersFor } from "../lib/elite";
+import { eliteTiersFor, tiersInView } from "../lib/elite";
 import { elitePeriod } from "../lib/aims";
 import { effectiveDate, mdrtSnapshot, metricSnapshot, metricsForCase, pace as paceToward, parseISODate, periodBounds, type GoalSet, type MdrtRoute, type Period } from "../lib/calc";
 import { grFromCommission } from "../lib/importer";
@@ -230,8 +230,8 @@ function DetailBody({
   const mdrt = mdrtSnapshot(advisor.id, cases, TODAY, goalSet);
   const route: MdrtRoute | null = goal ? null : code === "premium" ? (mdrt.routes.find((r) => r.metric === "mdrt_premium") ?? null) : code === "commission" ? (mdrt.routes.find((r) => r.metric === "mdrt_commission") ?? null) : null;
 
-  // Elite: every tier and how far.
-  const tiers = eliteTiersFor(advisor);
+  // Elite: the tiers one at a time, those reached and then the next, and how far.
+  const tiers = tiersInView(eliteTiersFor(advisor), total);
   const nextTier = tiers.find((t) => t.credits > total) ?? null;
   const ep = elitePeriod();
 

@@ -1,7 +1,7 @@
 {
   "name": "Final Sprint tracker",
   "short_name": "Final Sprint",
-  "description": "Production tracker mockup for Finexis consultants",
+  "description": "Production tracker mockup for finexis consultants",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",

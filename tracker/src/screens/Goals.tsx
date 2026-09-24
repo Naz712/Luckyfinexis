@@ -36,7 +36,7 @@ import {
 import { CADENCE_LABEL, CADENCE_PER, count, fmtMetric, paceText, pct, periodLabel, routeGateText, sgd, shortDate } from "../lib/format";
 import { Card, Label } from "../components/ui";
 import { CUSTOM_METRICS, eliteTierOf, soloAim, type SoloAim } from "../lib/aims";
-import { eliteTiersFor } from "../lib/elite";
+import { eliteTiersFor, tiersInView } from "../lib/elite";
 
 export type { PrimaryGoal } from "../lib/calc";
 
@@ -286,8 +286,13 @@ export default function Goals({
   // The metric the Custom aim focuses and the Elite tier aimed for; remembered so picking the aim again returns to them.
   const [lastCustom, setLastCustom] = useState<MetricCode>(primary.kind === "custom" ? primary.metric : "commission");
   const customMetric: MetricCode = primary.kind === "custom" ? primary.metric : lastCustom;
-  const [lastElite, setLastElite] = useState<string>(primary.kind === "elite" ? primary.tier : eliteTiers[0]!.code);
-  const eliteCode = primary.kind === "elite" ? primary.tier : lastElite;
+  // Elite tiers show one at a time: those reached, then the next; the aim defaults to the next one.
+  const eliteAchieved = soloAim(advisor, cases, goalSet, { kind: "elite", tier: eliteTiers[0]!.code }, TODAY).achieved;
+  const eliteShown = tiersInView(eliteTiers, eliteAchieved);
+  const nextElite = eliteShown[eliteShown.length - 1]!;
+  const [lastElite, setLastElite] = useState<string>(primary.kind === "elite" ? primary.tier : nextElite.code);
+  const chosenElite = primary.kind === "elite" ? primary.tier : lastElite;
+  const eliteCode = eliteShown.some((t) => t.code === chosenElite) ? chosenElite : nextElite.code;
 
   // Editor state per metric: the text in the amount field, and the cadence chosen while no target exists yet.
   // The GoalSet itself is the source of truth for every figure; these only carry what it cannot.
@@ -536,7 +541,7 @@ export default function Goals({
 
           {primary.kind === "elite" && (
             <div role="radiogroup" aria-label="Elite tier" className="mt-[11px] flex flex-col gap-2">
-              {eliteTiers.map((t) => {
+              {eliteShown.map((t) => {
                 const on = eliteCode === t.code;
                 // Every tier counts the same credits over the same period; only the bar differs.
                 const reached = elite.achieved >= t.credits;
