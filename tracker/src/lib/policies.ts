@@ -85,6 +85,19 @@ interface IncentiveBase {
   conditions?: string[];
   /** Label for a "rest of the quarter" figure the tier or threshold depends on. */
   quarter_input?: string;
+  /** Whether MDRT counts it, when the circular says so; otherwise it follows the kind (see mdrtOf). */
+  mdrt?: MdrtCount;
+}
+
+/**
+ * Whether an incentive counts toward MDRT, and why, in a few words. MDRT's
+ * commission and premium routes count commissions only: an uplift paid as
+ * commission counts; a cash bonus is not commission, and a trip is non-cash
+ * compensation MDRT excludes outright (2027 Membership Information, section V).
+ */
+export interface MdrtCount {
+  counts: boolean;
+  why: string;
 }
 
 export type Incentive =
@@ -103,6 +116,21 @@ export type Incentive =
   | (IncentiveBase & { kind: "convention"; ape: { share: Record<string, ApeShare>; multiplier: Record<string, number>; tickets: number[] } })
   /** Shown for information only. */
   | (IncentiveBase & { kind: "info" });
+
+/** Whether MDRT counts an incentive: what the circular says, else what its kind is. */
+export function mdrtOf(i: Incentive): MdrtCount {
+  if (i.mdrt) return i.mdrt;
+  switch (i.kind) {
+    case "uplift":
+      return { counts: true, why: "paid as commission" };
+    case "convention":
+      return { counts: false, why: "a trip, not money" };
+    case "info":
+      return { counts: false, why: "not commission" };
+    default:
+      return { counts: false, why: "a cash bonus, not commission" };
+  }
+}
 
 /** Finexis Elite: the in-house scheme (a trip), counted on first-year GR, tracked apart from MDRT. */
 export interface EliteRules {
@@ -220,6 +248,10 @@ export interface QuoteLine {
   kind: "base" | "uplift" | "cash";
   /** "until 30 Sep 2026" for incentives. */
   until?: string;
+  /** Incentives: whether MDRT counts this line. */
+  mdrt?: MdrtCount;
+  /** Tiered incentives: the next tier up, when there is one: "7% from S$8,000 APE credits, S$800 more". */
+  next?: string;
 }
 
 export interface QuoteNote {
@@ -229,6 +261,9 @@ export interface QuoteNote {
   until?: string;
   /** short: a tier or threshold not reached yet; toggle: a one-off the FC can tick; credits: trip credits; ineligible: this row doesn't qualify; info: for reading. */
   kind: "short" | "toggle" | "credits" | "ineligible" | "info";
+  mdrt?: MdrtCount;
+  /** A threshold not met yet, or a one-off not ticked: the gross revenue it would add once it applies. */
+  potential?: number;
 }
 
 export interface QuoteInput {
@@ -261,7 +296,9 @@ export interface Quote {
   earnings: number;
   /** Later policy years from the schedule (and any uplift), with the FC's share. */
   later: { year: number; rate: number; gr: number; earnings: number }[];
-  /** MDRT commission credit: the FC's share of year-1 commission. */
+  /** Year-1 GR MDRT counts: the policy rate plus the incentives that count (commission uplifts). */
+  mdrtGr: number;
+  /** MDRT commission credit: the FC's share of mdrtGr. */
   mdrtCommission: number;
   /** MDRT premium credit: 100% of a regular premium, 6% of a single premium. */
   mdrtPremium: number;
@@ -305,8 +342,12 @@ export function quote(input: QuoteInput): Quote {
 
   const upliftByYear: number[] = [];
   let cash = 0;
+  let mdrtExtra = 0;
   for (const i of incentivesFor(policy, variant, input.today)) {
     const until = `until ${isoShort(i.period[1])}`;
+    const mdrt = mdrtOf(i);
+    const lineCount = lines.length;
+    const noteCount = notes.length;
     switch (i.kind) {
       case "uplift": {
         const u = i.uplift[variant.id] ?? i.uplift["*"];
@@ -335,11 +376,13 @@ export function quote(input: QuoteInput): Quote {
             detail: `${creditText}${other > 0 ? ` plus ${money(other)} this quarter` : ""}: ${money(first.min - total)} short of the ${pctText(first.pct)} tier${i.ape.basis === "cumulative" ? " across your quarter" : ""}.`,
             until,
             kind: "short",
+            potential: (credits * first.pct) / 100,
           });
           break;
         }
         const amount = (credits * tier.pct) / 100;
         cash += amount;
+        const up = i.ape.tiers.find((t) => t.min > total);
         lines.push({
           id: i.id,
           label: i.name,
@@ -347,6 +390,7 @@ export function quote(input: QuoteInput): Quote {
           amount,
           kind: "cash",
           until,
+          ...(up ? { next: `${pctText(up.pct)} from ${money(up.min)} of APE credits${i.ape.basis === "cumulative" ? " across your quarter" : ""}, ${money(up.min - total)} more` } : {}),
         });
         break;
       }
@@ -358,7 +402,14 @@ export function quote(input: QuoteInput): Quote {
         }
         const quarter = ape + (input.quarterOther?.[i.id] ?? 0);
         if (quarter < i.sales.min_quarter_ape) {
-          notes.push({ id: i.id, label: i.name, detail: `Pays ${pctText(pct)} of the premium once your quarter's APE reaches ${money(i.sales.min_quarter_ape)}; ${money(i.sales.min_quarter_ape - quarter)} to go.`, until, kind: "short" });
+          notes.push({
+            id: i.id,
+            label: i.name,
+            detail: `Pays ${pctText(pct)} of the premium once your quarter's APE reaches ${money(i.sales.min_quarter_ape)}; ${money(i.sales.min_quarter_ape - quarter)} to go.`,
+            until,
+            kind: "short",
+            potential: (premium * pct) / 100,
+          });
           break;
         }
         const amount = (premium * pct) / 100;
@@ -372,7 +423,7 @@ export function quote(input: QuoteInput): Quote {
         if (input.flatOn?.includes(i.id)) {
           cash += amount;
           lines.push({ id: i.id, label: i.name, detail: "one-off, once per adviser", amount, kind: "cash", until });
-        } else notes.push({ id: i.id, label: i.name, detail: `${money(amount)} once, if you tick “${i.flat.toggle}” below.`, until, kind: "toggle" });
+        } else notes.push({ id: i.id, label: i.name, detail: `${money(amount)} once, if you tick “${i.flat.toggle}” below.`, until, kind: "toggle", potential: amount });
         break;
       }
       case "convention": {
@@ -384,6 +435,11 @@ export function quote(input: QuoteInput): Quote {
         notes.push({ id: i.id, label: i.name, detail: i.detail, until, kind: "info" });
         break;
     }
+    for (const l of lines.slice(lineCount)) {
+      l.mdrt = mdrt;
+      if (mdrt.counts) mdrtExtra += l.amount;
+    }
+    for (const n of notes.slice(noteCount)) n.mdrt = mdrt;
   }
 
   const upliftY1 = ((upliftByYear[0] ?? 0) * commissionable) / 100;
@@ -395,6 +451,7 @@ export function quote(input: QuoteInput): Quote {
     return { year: n + 2, rate, gr: g, earnings: g * share };
   });
   const eliteMultiplier = eliteMultiplierOf(policy);
+  const mdrtGr = base + mdrtExtra;
   return {
     ape,
     base,
@@ -404,7 +461,8 @@ export function quote(input: QuoteInput): Quote {
     commissionGr,
     earnings: gr * share,
     later,
-    mdrtCommission: commissionGr * share,
+    mdrtGr,
+    mdrtCommission: mdrtGr * share,
     mdrtPremium: premium * (variant.single ? 0.06 : 1),
     fygr: commissionGr,
     eliteMultiplier,

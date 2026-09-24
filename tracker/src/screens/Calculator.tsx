@@ -33,6 +33,7 @@ import {
   insurerList,
   isoShort,
   isRider,
+  mdrtOf,
   payOptionByKey,
   payOptions,
   policyById,
@@ -41,6 +42,7 @@ import {
   rowForTerm,
   termsText,
   type Incentive,
+  type MdrtCount,
   type PayOption,
   type Policy,
   type PolicyVariant,
@@ -304,6 +306,20 @@ const COMPANIES = insurerList().map((c) => ({ ...c, policies: c.policies.filter(
 /** Plans with money from an insurer incentive running today (information-only ones aside), for the "· incentive" tag. */
 const hasMoneyIncentive = (p: Policy) => incentivesOnPolicy(p, TODAY).some((i) => i.kind !== "info");
 
+/** One insurer's plans for the Product dropdown: those with an incentive running first, then the rest by category. */
+function productGroups(insurer: string, current: Policy): { label?: string; options: { value: string; label: string }[] }[] {
+  const plans = COMPANIES.find((c) => c.name === insurer)?.policies ?? [current];
+  const option = (p: Policy) => ({ value: p.id, label: `${p.name}${hasMoneyIncentive(p) ? " · incentive" : ""}` });
+  const running = plans.filter(hasMoneyIncentive);
+  return [
+    ...(running.length > 0 ? [{ label: "★ Insurer incentive running", options: running.map(option) }] : []),
+    ...categoriesOf(plans.filter((p) => !hasMoneyIncentive(p))).map((g) => ({ label: g.label, options: g.policies.map(option) })),
+  ];
+}
+
+/** A plan's name without its insurer at the front, for tight spaces. */
+const shortName = (p: Policy) => (p.name.startsWith(`${p.insurer} `) ? p.name.slice(p.insurer.length + 1) : p.name);
+
 
 /** A numbered output, ① to ④, as the business's whiteboard lists them. */
 function Step({ n }: { n: number }) {
@@ -333,6 +349,141 @@ function outputsOf(q: Quote) {
   return { incentiveLines, incentiveGr, commissionToYou: q.base * q.share, incentiveToYou: incentiveGr * q.share };
 }
 
+/** Whether MDRT counts an incentive, in the same words wherever it shows. */
+function MdrtTag({ m }: { m: MdrtCount }) {
+  return (
+    <span className={`inline-flex max-w-full items-center gap-1 rounded-full px-2 py-[3px] text-[11px] font-semibold ${m.counts ? "bg-ok/12 text-ok-ink" : "bg-well text-body"}`}>
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true" className="shrink-0">
+        {m.counts ? (
+          <path d="M2.5 6.2l2.3 2.3 4.7-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        ) : (
+          <path d="M3 3l6 6M9 3L3 9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        )}
+      </svg>
+      <span className="min-w-0">
+        {m.counts ? "Counts toward MDRT" : "Doesn't count toward MDRT"}
+        <span className="font-normal"> · {m.why}</span>
+      </span>
+    </span>
+  );
+}
+
+/** What the FC can change on an incentive: their other APE this quarter, and a one-off reward they say applies. */
+interface IncentiveInputs {
+  quarter: Record<string, string>;
+  setQuarter: (id: string, value: string) => void;
+  flatOn: Record<string, boolean>;
+  setFlat: (id: string, on: boolean) => void;
+}
+
+/**
+ * ② on a policy: every insurer incentive (bonus campaign) running on this plan,
+ * one panel each: what the campaign is, whether this case qualifies, what the
+ * FC earns from it, and whether MDRT counts it. A plan with none offers the
+ * same insurer's plans that have one.
+ */
+function IncentivePanels({ r, q, inputs, onTry }: { r: Resolved; q: Quote; inputs: IncentiveInputs; onTry: (p: Policy) => void }) {
+  if (r.incentives.length === 0) {
+    const others = (COMPANIES.find((c) => c.name === r.policy.insurer)?.policies ?? []).filter((p) => p.id !== r.policy.id && hasMoneyIncentive(p));
+    return (
+      <div className="mt-2 rounded-xl border border-line bg-surface px-3 py-2.5">
+        <div className="text-[12.5px] font-semibold text-body">No insurer incentive on this plan</div>
+        {others.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5" aria-label={`${r.policy.insurer} plans with an incentive running`}>
+            {others.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => onTry(p)}
+                className="rounded-full border border-ok/40 bg-ok/7 px-2.5 py-1 text-[11.5px] font-semibold text-ok-ink hover:border-ok hover:bg-ok/12"
+              >
+                ★ {shortName(p)}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2 flex flex-col gap-2">
+      {r.incentives.map((i) => {
+        const line = q.lines.find((l) => l.id === i.id);
+        const note = q.notes.find((n) => n.id === i.id);
+        const m = line?.mdrt ?? note?.mdrt ?? mdrtOf(i);
+        const flatElsewhere = i.kind === "flat_cash" && !line && !!inputs.flatOn[i.id];
+        const status: { text: string; tone: "ok" | "warn" | "muted" | "accent" } = line
+          ? { text: "This case qualifies", tone: "ok" }
+          : flatElsewhere
+            ? { text: "Paid once, on another policy here", tone: "muted" }
+            : note?.kind === "short"
+              ? { text: "Not yet", tone: "warn" }
+              : note?.kind === "toggle"
+                ? { text: "Only if this applies to you", tone: "warn" }
+                : note?.kind === "credits"
+                  ? { text: "Trip credits, no cash", tone: "accent" }
+                  : note?.kind === "ineligible"
+                    ? { text: "This option doesn't qualify", tone: "muted" }
+                    : { text: "Not worked out here", tone: "muted" };
+        const toneClass = { ok: "bg-ok/12 text-ok-ink", warn: "bg-warn/12 text-gold-ink", muted: "bg-well text-muted", accent: "bg-accent-soft text-accent" }[status.tone];
+        return (
+          <section key={i.id} aria-label={i.name} className={`rounded-xl border bg-surface px-3 py-2.5 ${line ? "border-ok/45" : "border-line"}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[13px] font-bold leading-snug text-ink">{i.name}</div>
+                <div className="text-[11px] text-muted">
+                  {i.insurer} · ends {isoShort(i.period[1])}
+                </div>
+              </div>
+              <div className="shrink-0 text-right">
+                {line ? (
+                  <>
+                    <div className="tnum text-[16px] font-bold leading-tight text-ok">+{sgd(line.amount * q.share)}</div>
+                    <div className="text-[10.5px] text-muted">you earn</div>
+                  </>
+                ) : note?.potential && !flatElsewhere ? (
+                  <>
+                    <div className="tnum text-[16px] font-bold leading-tight text-muted">+{sgd(note.potential * q.share)}</div>
+                    <div className="text-[10.5px] text-muted">once it qualifies</div>
+                  </>
+                ) : (
+                  <div className="text-[13px] font-semibold text-muted">—</div>
+                )}
+              </div>
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <span className={`rounded-full px-2 py-[3px] text-[11px] font-bold ${toneClass}`}>{status.text}</span>
+              <MdrtTag m={m} />
+            </div>
+            <p className="mt-1.5 text-[12px] leading-[1.45] text-body">{i.detail}</p>
+            {line && (
+              <p className="tnum mt-1 text-[11.5px] leading-[1.45] text-ok-ink">
+                Here: {line.detail} = {sgd(line.amount)} to the firm, your {(q.share * 100).toFixed(2)}% is {sgd(line.amount * q.share)}.
+              </p>
+            )}
+            {line?.next && <p className="tnum mt-1 text-[11.5px] leading-[1.45] text-body">Next tier: {line.next}.</p>}
+            {!line && note && note.kind !== "info" && note.kind !== "toggle" && <p className="tnum mt-1 text-[11.5px] leading-[1.45] text-gold-ink">{note.detail}</p>}
+            {i.kind === "flat_cash" && (
+              <label className="mt-2 flex items-start gap-2 text-[12px] font-semibold text-body">
+                <input type="checkbox" checked={!!inputs.flatOn[i.id]} onChange={(e) => inputs.setFlat(i.id, e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-brand)]" />
+                {i.flat.toggle}
+              </label>
+            )}
+            {i.quarter_input && (
+              <div className="mt-2">
+                <label htmlFor={`quarter-${r.row.key}-${i.id}`} className="text-[11.5px] text-muted">
+                  {i.quarter_input}
+                </label>
+                <MoneyField id={`quarter-${r.row.key}-${i.id}`} value={inputs.quarter[i.id] ?? ""} onChange={(v) => inputs.setQuarter(i.id, v)} compact className="mt-1" />
+              </div>
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
 function PolicyCard({
   r,
   q,
@@ -343,6 +494,7 @@ function PolicyCard({
   elite,
   parent,
   onAddRider,
+  inputs,
 }: {
   r: Resolved;
   q: Quote | null;
@@ -356,6 +508,7 @@ function PolicyCard({
   onAddRider: (() => void) | null;
   /** The FC's Elite credits so far and the tiers that apply to them, for the distance after this case; null in a manager's team view. */
   elite: { achieved: number; tiers: EliteTier[] } | null;
+  inputs: IncentiveInputs;
 }) {
   const { row, policy, option, variant } = r;
   const [open, setOpen] = useState(false);
@@ -402,10 +555,7 @@ function PolicyCard({
               id={`policy-${row.key}`}
               label="Product"
               value={policy.id}
-              groups={categoriesOf(COMPANIES.find((c) => c.name === policy.insurer)?.policies ?? [policy]).map((g) => ({
-                label: g.label,
-                options: g.policies.map((p) => ({ value: p.id, label: `${p.name}${hasMoneyIncentive(p) ? " · incentive" : ""}` })),
-              }))}
+              groups={productGroups(policy.insurer, policy)}
               onChange={(id) => onPatch(switchPolicy(row, policyById(id)!))}
             />
           </div>
@@ -524,37 +674,15 @@ function PolicyCard({
             </span>
             <span className="tnum shrink-0 text-[14px] font-bold text-ink">{out ? sgd(out.commissionToYou) : "—"}</span>
           </li>
-          <li className="flex items-start justify-between gap-3">
-            <span className="flex min-w-0 items-start gap-2">
-              <Step n={2} />
-              <span className="min-w-0">
-                <span className="block text-[12.5px] font-semibold text-ink">Insurer incentive</span>
-                {q && out && out.incentiveLines.length > 0 && (
-                  <span className="tnum block text-[11.5px] leading-[1.4] text-muted">{out.incentiveLines.map((l) => `${l.label} ${sgd(l.amount)} GR`).join(" · ")}</span>
-                )}
-                {q && q.notes.some((n) => n.kind === "short" || n.kind === "toggle") && (
-                  <span className="mt-0.5 flex flex-col gap-0.5">
-                    {q.notes
-                      .filter((n) => n.kind === "short" || n.kind === "toggle")
-                      .map((n) => (
-                        <span key={n.id} className="line-clamp-2 text-[11px] leading-[1.4] text-muted">
-                          <span className="font-semibold text-body">{n.label}:</span> {n.detail}
-                        </span>
-                      ))}
-                  </span>
-                )}
-                {q && q.notes.some((n) => n.kind !== "short" && n.kind !== "toggle") && (
-                  <span className="mt-0.5 block text-[11px] leading-[1.4] text-muted">
-                    Also running: {q.notes
-                      .filter((n) => n.kind !== "short" && n.kind !== "toggle")
-                      .map((n) => n.label)
-                      .join(" · ")}
-                  </span>
-                )}
-                {q && out && out.incentiveLines.length === 0 && q.notes.length === 0 && <span className="block text-[11.5px] text-muted">None running on this plan now</span>}
+          <li>
+            <div className="flex items-start justify-between gap-3">
+              <span className="flex min-w-0 items-start gap-2">
+                <Step n={2} />
+                <span className="block text-[12.5px] font-semibold text-ink">Insurer incentives</span>
               </span>
-            </span>
-            <span className={`tnum shrink-0 text-[14px] font-bold ${out && out.incentiveToYou > 0 ? "text-ok" : "text-muted"}`}>{out && out.incentiveToYou > 0 ? `+${sgd(out.incentiveToYou)}` : "—"}</span>
+              <span className={`tnum shrink-0 text-[14px] font-bold ${out && out.incentiveToYou > 0 ? "text-ok" : "text-muted"}`}>{out && out.incentiveToYou > 0 ? `+${sgd(out.incentiveToYou)}` : "—"}</span>
+            </div>
+            {q && <IncentivePanels r={r} q={q} inputs={inputs} onTry={(p) => onPatch(switchPolicy(row, p))} />}
           </li>
           <li className="flex items-start justify-between gap-3">
             <span className="flex min-w-0 items-start gap-2">
@@ -562,7 +690,9 @@ function PolicyCard({
               <span className="min-w-0">
                 <span className="block text-[12.5px] font-semibold text-ink">MDRT</span>
                 <span className="tnum block text-[11.5px] leading-[1.4] text-muted">
-                  {q ? `commission credit · ${sgd(q.mdrtPremium)} premium credit · ${MDRT_CATEGORY_LABEL[policy.mdrt_category]}` : MDRT_CATEGORY_LABEL[policy.mdrt_category]}
+                  {q
+                    ? `commission credit${q.lines.some((l) => l.mdrt?.counts) ? " incl. the uplift" : ""} · ${sgd(q.mdrtPremium)} premium credit · ${MDRT_CATEGORY_LABEL[policy.mdrt_category]}`
+                    : MDRT_CATEGORY_LABEL[policy.mdrt_category]}
                 </span>
               </span>
             </span>
@@ -696,6 +826,9 @@ function Breakdown({ r, q, band }: { r: Resolved; q: Quote; band: BandingCode })
                     </span>
                     <span className={`tnum shrink-0 text-[13px] font-bold ${l ? "text-ok" : "text-muted"}`}>{l ? `+${sgd(l.amount)} GR` : "—"}</span>
                   </div>
+                  <div className="mt-1.5">
+                    <MdrtTag m={mdrtOf(i)} />
+                  </div>
                   <p className="mt-1.5 text-[12px] leading-[1.5] text-body">{i.detail}</p>
                   {l && <p className="tnum mt-1 text-[11.5px] leading-[1.45] text-ok-ink">Here: {l.detail}.</p>}
                   {n && <p className="tnum mt-1 text-[11.5px] leading-[1.45] text-muted">Here: {n.detail}</p>}
@@ -722,7 +855,7 @@ function Breakdown({ r, q, band }: { r: Resolved; q: Quote; band: BandingCode })
       <Section n={3} title="MDRT credit">
         <Line
           label="Commission credit"
-          detail={`Your share of year-1 commission (the schedule's rate${out.incentiveLines.some((l) => l.kind === "uplift") ? " and commission uplifts" : ""}); cash incentives don't count.`}
+          detail={`Your share of year-1 commission: the schedule's rate${q.lines.some((l) => l.mdrt?.counts) ? ` plus ${q.lines.filter((l) => l.mdrt?.counts).map((l) => l.label).join(" and ")}` : ""}. Cash bonuses and trips don't count.`}
           amount={sgd(q.mdrtCommission)}
         />
         <Line label="Premium credit" detail={variant?.single ? "6% of a single premium." : "The annual premium in full."} amount={sgd(q.mdrtPremium)} />
@@ -909,6 +1042,12 @@ export default function Calculator({
       return [...rs.slice(0, at + 1), riderRowFor(base, rider), ...rs.slice(at + 1)];
     });
   const plans = rows.filter((r) => r.parent === undefined).length;
+  const incentiveInputs: IncentiveInputs = {
+    quarter,
+    setQuarter: (id, value) => setQuarter((m) => ({ ...m, [id]: value })),
+    flatOn,
+    setFlat: (id, on) => setFlatOn((m) => ({ ...m, [id]: on })),
+  };
 
   return (
     <>
@@ -925,6 +1064,7 @@ export default function Calculator({
             elite={personal ? eliteNow : null}
             parent={r.row.parent !== undefined ? policyById(rows.find((x) => x.key === r.row.parent)!.policyId)! : null}
             onAddRider={r.row.parent === undefined && ridersFor(r.policy).length > 0 ? () => addRider(r.row.key) : null}
+            inputs={incentiveInputs}
           />
         ))}
 
@@ -938,35 +1078,6 @@ export default function Calculator({
           </svg>
           Add another policy
         </button>
-
-        {(quarterIncentives.size > 0 || flatIncentives.size > 0) && (
-          <Card>
-            <Label>Your quarter so far</Label>
-            <div className="mt-2.5 flex flex-col gap-3">
-              {[...quarterIncentives.values()].map((i) => (
-                <div key={i.id}>
-                  <label htmlFor={`quarter-${i.id}`} className="text-[12px] text-muted">
-                    {i.quarter_input}
-                  </label>
-                  <MoneyField id={`quarter-${i.id}`} value={quarter[i.id] ?? ""} onChange={(v) => setQuarter((m) => ({ ...m, [i.id]: v }))} compact className="mt-[5px]" />
-                  <p className="mt-1 text-[11px] leading-[1.45] text-muted">{i.detail}</p>
-                </div>
-              ))}
-              {[...flatIncentives.values()].map(
-                (i) =>
-                  i.kind === "flat_cash" && (
-                    <label key={i.id} className="flex items-start gap-2.5 text-[12.5px] text-body">
-                      <input type="checkbox" checked={!!flatOn[i.id]} onChange={(e) => setFlatOn((m) => ({ ...m, [i.id]: e.target.checked }))} className="mt-0.5 h-4 w-4 accent-[var(--color-brand)]" />
-                      <span>
-                        <span className="font-semibold">{i.flat.toggle}</span>
-                        <span className="block text-[11px] leading-[1.45] text-muted">{i.detail}</span>
-                      </span>
-                    </label>
-                  ),
-              )}
-            </div>
-          </Card>
-        )}
 
         {personal && (
           <Card className="mt-0.5">

@@ -123,8 +123,9 @@ part of the deployment choice, written up separately.
   distance card, a projection chart (confirmed line, run rate, the pace that
   reaches the goal), and the chosen aim's settings.
 - **Calculator** — band strip in the header; plans carrying an insurer
-  incentive running today are tagged "· incentive" in the product dropdown;
-  one card per policy, filled in
+  incentive running today come first in the product dropdown, under "★
+  Insurer incentive running", and are tagged "· incentive"; one card per
+  policy, filled in
   the business's order: company and product dropdowns (Singlife greyed out
   until its schedule comes; riders are not products of their own: "Add a
   rider" on a plan offers the riders the schedule lists for it, on the plan's
@@ -133,16 +134,25 @@ part of the deployment choice, written up separately.
   term typed in years. The typed term lands on the schedule row that covers it ("20" →
   "10 to 24 years"); a term the schedule doesn't list says so. Each card then
   shows ① commission (the schedule's year-1 rate, to the FC by the firm's
-  payout formula), ② insurer incentives running that day (commission uplifts,
-  APE-based cash, cash on sales; tiers not reached yet and trip credits as
-  notes), ③ MDRT commission and premium credit and ④ Elite credits (first-year
-  GR × the product's multiplier, then the distance left to the next tier).
-  "Full breakdown" opens under the card: each incentive's conditions, the
-  later policy years and the schedule's fine print. "Your quarter so far"
-  takes the rest of the quarter where a tier depends on it. A pinned total per
-  client and "How far this gets you" against whichever aim Goals has (MDRT
-  credit leaves cash incentives out), with the clients like this that reach
-  each Elite tier.
+  payout formula), ② the insurer incentives (bonus campaigns) running that
+  day, one panel each: what the campaign is and when it ends, whether this
+  case qualifies (or what it is short of, the next tier up, a yes/no the FC
+  ticks, or trip credits only), what the FC earns from it, the rest of the
+  quarter where a tier depends on it, and whether it counts toward MDRT; ③
+  MDRT commission and premium credit and ④ Elite credits (first-year GR × the
+  product's multiplier, then the distance left to the next tier). A plan with
+  no incentive offers the same insurer's plans that have one. "Full
+  breakdown" opens under the card: each incentive's conditions, the later
+  policy years and the schedule's fine print. A pinned total per client and
+  "How far this gets you" against whichever aim Goals has, with the clients
+  like this that reach each Elite tier.
+
+  **Incentives and MDRT.** MDRT's commission and premium routes count
+  commissions only (2027 Membership Information, section V): a commission
+  uplift is paid as commission and counts; a cash bonus is not commission and
+  doesn't; a trip is non-cash compensation MDRT excludes outright. An
+  incentive can say otherwise in the catalogue (`mdrt`) when its circular
+  does; the MDRT credit on each card follows those flags.
 - **Team** (a manager's team view) — the team's commission (the FCs', not the
   manager's own), on-track count, MDRT qualified, one row per FC with
   commission, MDRT progress and Elite credits, tap for their Home read-only,
