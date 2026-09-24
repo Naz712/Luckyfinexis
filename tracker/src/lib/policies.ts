@@ -112,8 +112,11 @@ export type Incentive =
   | (IncentiveBase & { kind: "sales_cash"; sales: { pct: Record<string, number>; min_quarter_ape: number } })
   /** A one-off amount per adviser, behind a yes/no condition. */
   | (IncentiveBase & { kind: "flat_cash"; flat: { amount: Record<string, number>; toggle: string } })
-  /** APE credits toward a trip; no money. */
-  | (IncentiveBase & { kind: "convention"; ape: { share: Record<string, ApeShare>; multiplier: Record<string, number>; tickets: number[] } })
+  /** APE credits toward a trip; no money. The multipliers apply only to policies incepted in `boost_period`, when it is set. */
+  | (IncentiveBase & {
+      kind: "convention";
+      ape: { share: Record<string, ApeShare>; multiplier: Record<string, number>; boost_period?: [string, string]; tickets: number[] };
+    })
   /** Shown for information only. */
   | (IncentiveBase & { kind: "info" });
 
@@ -198,10 +201,9 @@ export function fcShare(band: BandingCode): number {
   return Math.max(CATALOGUE.fc_formula.share * (rate - CATALOGUE.fc_formula.band_deduction), 0);
 }
 
-const inPeriod = (i: Incentive, today: Date) => {
-  const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-  return day >= i.period[0] && day <= i.period[1];
-};
+const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const within = (period: [string, string], today: Date) => isoDay(today) >= period[0] && isoDay(today) <= period[1];
+const inPeriod = (i: Incentive, today: Date) => within(i.period, today);
 
 /** Incentives running on `today` that name this policy (and this variant, when the incentive lists variants). */
 export function incentivesFor(policy: Policy, variant: PolicyVariant, today: Date): Incentive[] {
@@ -232,10 +234,17 @@ function shareFor(spec: ApeShare | undefined, variant: PolicyVariant): number {
   return spec.short ?? 0;
 }
 
+/** The APE multiplier an incentive gives this policy on `today`: a booster only counts inside its window. */
+export function apeMultiplier(i: Incentive, policy: Policy, today: Date): number {
+  if (i.kind !== "ape_cash" && i.kind !== "convention") return 1;
+  if (i.kind === "convention" && i.ape.boost_period && !within(i.ape.boost_period, today)) return 1;
+  return i.ape.multiplier[policy.id] ?? 1;
+}
+
 /** APE credits this policy earns under an APE-based incentive. */
-export function apeCredits(i: Incentive, policy: Policy, variant: PolicyVariant, premium: number): number {
+export function apeCredits(i: Incentive, policy: Policy, variant: PolicyVariant, premium: number, today: Date): number {
   if (i.kind !== "ape_cash" && i.kind !== "convention") return 0;
-  return apeOf(variant, premium) * shareFor(i.ape.share[policy.id], variant) * (i.ape.multiplier[policy.id] ?? 1);
+  return apeOf(variant, premium) * shareFor(i.ape.share[policy.id], variant) * apeMultiplier(i, policy, today);
 }
 
 export interface QuoteLine {
@@ -276,6 +285,8 @@ export interface QuoteInput {
   today: Date;
   /** Per incentive id: APE (or APE credits) from the rest of the quarter, for tiers and thresholds. */
   quarterOther?: Record<string, number>;
+  /** Per incentive id: APE credits from the same policy's other rows (its plan or riders), for per-policy tiers. */
+  policyOther?: Record<string, number>;
   /** Flat rewards the FC has said yes to (incentive ids), applied on this row. */
   flatOn?: string[];
 }
@@ -358,22 +369,22 @@ export function quote(input: QuoteInput): Quote {
         break;
       }
       case "ape_cash": {
-        const credits = apeCredits(i, policy, variant, premium);
+        const credits = apeCredits(i, policy, variant, premium, input.today);
         if (credits <= 0) {
           notes.push({ id: i.id, label: i.name, detail: "This premium term earns no APE credits for it.", until, kind: "ineligible" });
           break;
         }
-        const other = i.ape.basis === "cumulative" ? (input.quarterOther?.[i.id] ?? 0) : 0;
+        const other = i.ape.basis === "cumulative" ? (input.quarterOther?.[i.id] ?? 0) : (input.policyOther?.[i.id] ?? 0);
         const total = credits + other;
         const tier = i.ape.tiers.filter((t) => total >= t.min).pop();
-        const mult = i.ape.multiplier[policy.id] ?? 1;
+        const mult = apeMultiplier(i, policy, input.today);
         const creditText = `${money(credits)} APE credits${mult !== 1 ? ` (${mult}× APE)` : ""}`;
         if (!tier) {
           const first = i.ape.tiers[0]!;
           notes.push({
             id: i.id,
             label: i.name,
-            detail: `${creditText}${other > 0 ? ` plus ${money(other)} this quarter` : ""}: ${money(first.min - total)} short of the ${pctText(first.pct)} tier${i.ape.basis === "cumulative" ? " across your quarter" : ""}.`,
+            detail: `${creditText}${other > 0 ? ` plus ${money(other)} ${i.ape.basis === "cumulative" ? "this quarter" : "on the rest of the policy"}` : ""}: ${money(first.min - total)} short of the ${pctText(first.pct)} tier${i.ape.basis === "cumulative" ? " across your quarter" : ""}.`,
             until,
             kind: "short",
             potential: (credits * first.pct) / 100,
@@ -386,7 +397,7 @@ export function quote(input: QuoteInput): Quote {
         lines.push({
           id: i.id,
           label: i.name,
-          detail: `${pctText(tier.pct)}${i.ape.gst ? " (+GST)" : ""} of ${creditText}${i.ape.basis === "cumulative" ? ` · tier on ${money(total)} this quarter` : ""}`,
+          detail: `${pctText(tier.pct)}${i.ape.gst ? " (+GST)" : ""} of ${creditText}${i.ape.basis === "cumulative" ? ` · tier on ${money(total)} this quarter` : other > 0 ? ` · tier on ${money(total)} with the rest of the policy` : ""}`,
           amount,
           kind: "cash",
           until,
@@ -427,7 +438,7 @@ export function quote(input: QuoteInput): Quote {
         break;
       }
       case "convention": {
-        const credits = apeCredits(i, policy, variant, premium);
+        const credits = apeCredits(i, policy, variant, premium, input.today);
         if (credits > 0) notes.push({ id: i.id, label: i.name, detail: `Adds ${money(credits)} of APE credits. First ticket at ${money(i.ape.tickets[0] ?? 0)}.`, until, kind: "credits" });
         break;
       }

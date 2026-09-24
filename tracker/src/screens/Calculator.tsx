@@ -959,7 +959,9 @@ export default function Calculator({
   for (const r of resolved) for (const i of r.incentives) if (i.kind === "flat_cash") flatIncentives.set(i.id, i);
   /** What a row contributes toward an incentive's quarter figure: APE credits for tiers, APE for thresholds. */
   const contribution = (r: Resolved, i: Incentive) =>
-    !r.variant ? 0 : i.kind === "ape_cash" ? apeCredits(i, r.policy, r.variant, r.premium) : i.kind === "sales_cash" && r.policy.insurer === i.insurer ? apeOf(r.variant, r.premium) : 0;
+    !r.variant ? 0 : i.kind === "ape_cash" ? apeCredits(i, r.policy, r.variant, r.premium, TODAY) : i.kind === "sales_cash" && r.policy.insurer === i.insurer ? apeOf(r.variant, r.premium) : 0;
+  /** A plan and the riders added onto it are one policy: per-policy tiers count them together. */
+  const policyOf = (r: Resolved) => r.row.parent ?? r.row.key;
   // A one-off reward goes on the row where it is largest, once.
   const flatRow = new Map<string, number>();
   for (const [id, i] of flatIncentives) {
@@ -982,8 +984,13 @@ export default function Calculator({
       const others = resolved.reduce((t, o, m) => (m === n ? t : t + contribution(o, i)), 0);
       quarterOther[id] = parseMoney(quarter[id] ?? "") + others;
     }
+    const policyOther: Record<string, number> = {};
+    for (const i of r.incentives) {
+      if (i.kind !== "ape_cash" || i.ape.basis !== "per_policy") continue;
+      policyOther[i.id] = resolved.reduce((t, o, m) => (m !== n && policyOf(o) === policyOf(r) ? t + contribution(o, i) : t), 0);
+    }
     const flat = [...flatRow.entries()].filter(([, row]) => row === n).map(([id]) => id);
-    const q = quote({ policy: r.policy, variant: r.variant, premium: r.premium, targetPremium: parseMoney(r.row.target) || null, band, today: TODAY, quarterOther, flatOn: flat });
+    const q = quote({ policy: r.policy, variant: r.variant, premium: r.premium, targetPremium: parseMoney(r.row.target) || null, band, today: TODAY, quarterOther, policyOther, flatOn: flat });
     return { r, q };
   });
 
