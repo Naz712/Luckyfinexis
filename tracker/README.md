@@ -123,30 +123,37 @@ part of the deployment choice, written up separately.
   last-quarter push the whole app serves, not a goal of its own.) One at a time: a
   distance card, a projection chart (confirmed line, run rate, the pace that
   reaches the goal), and the chosen aim's settings.
-- **Calculator** — band strip in the header; one card per policy, filled in
-  the business's order: a search box over every plan (by name, company or
-  kind), or company and product dropdowns (Singlife greyed out
-  until its schedule comes; riders are not products of their own: "Add a
-  rider" on a plan offers the riders the schedule lists for it, on the plan's
-  term, and Future First's riders go into its own premium at its rates), premium type where there is a choice (regular or
-  limited pay, single premium, a plan), the annual premium and the premium
-  term typed in years. The typed term lands on the schedule row that covers it ("20" →
-  "10 to 24 years"); a term the schedule doesn't list says so. Where the
-  insurer runs a customer campaign on the plan, "For your client" shows what
-  the client gets (a cashback worked out on the premium, a discount, passes),
-  its conditions and the circular. Each card then shows ① commission (the
-  schedule's year-1 rate, to the FC by the firm's payout formula), ② the
-  insurer incentives (bonus campaigns) running that day, one panel each: what
-  the campaign is and when it ends, whether this case qualifies (or what it
-  is short of, the next tier up, a yes/no the FC ticks, or trip credits
-  only), what the FC earns from it, the rest of the quarter where a tier
-  depends on it, and a link to the circular; ③ MDRT credit and ④ Elite
-  credits (the first-year GR, marked * as assuming a yearly premium, then the
-  distance left to the next tier). A plan with no incentive offers the same
-  insurer's plans that have one. "Full breakdown" opens under the card: each
+- **Calculator** — laid out from the "Calculator, suggested" design as
+  numbered steps. The band sits in a pill under the header ("Band B3 · 50%"),
+  tapped open to the five bands. A banner counts the insurer incentives
+  running today and opens them all, by insurer, with the plans each covers
+  (tap one to use it), the client offers and the circulars. Then per policy:
+  ① **Choose the plan**: a card with the insurer, the MDRT category and
+  whether an incentive is running, opening a picker with a search box over
+  every plan (by name, company or kind) or one company's plans by category
+  (Singlife greyed out until its schedule comes); the premium type as a
+  segmented control where there is a choice, and the premium term with − and
+  +, which lands on the schedule row that covers it ("20" → "10 to 24
+  years"; a term the schedule doesn't list says so). ② **Enter the annual
+  premium**: how the client pays it and the month it is sold (for MDRT), and
+  "For your client" where the insurer runs a customer campaign (a cashback
+  worked out on the premium, a discount, passes; a plan whose riders pay its
+  own rates takes their premium in its own). **Riders**, optional: the rider groups
+  the schedule lists for the plan, each added with its own premium and term.
+  ③ **What you earn**: year 1 to the FC by the firm's payout formula, the
+  later years, the plan and each rider, where the premium goes (the FC's
+  share, the firm's, what stays with the insurer, with "What is gross
+  revenue?"), and the insurer incentives on it, one panel each: whether this
+  case qualifies (or what it is short of, the next tier up, a yes/no the FC
+  ticks, or trip credits only), what the FC earns, the rest of the quarter
+  where a tier depends on it, and the circular. "Full breakdown" opens each
   incentive's conditions, the later policy years and the schedule's fine
-  print. A pinned total per client and "How far this gets you" against
-  whichever aim Goals has, with the other aim under it as on Home.
+  print. Under the policies: **What it adds to your goals** (MDRT commission
+  and premium credit, Elite credits as the first-year GR, marked * as
+  assuming a yearly premium; the aim set in Goals, so far and with this case,
+  the clients like this still needed, and the other aim under it as on
+  Home), **Same case, every band** (tap a band to switch to it), "Add
+  another policy", and a pinned total per client.
 
   **MDRT in the Calculator.** MDRT counts the schedule's commission alone;
   insurer incentives, uplifts included, are left out. It also counts only

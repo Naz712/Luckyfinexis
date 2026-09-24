@@ -129,6 +129,8 @@ export default function App() {
   // The Calculator's band lives in the header strip, so the shell holds it.
   const [band, setBand] = useState<BandingCode | null>(null);
   const bandInUse = band ?? me.banding_code;
+  /** The band picker under the Calculator's header: folded into a pill until tapped. */
+  const [bandOpen, setBandOpen] = useState(false);
   const setTier = (tier: Tier) => setGoalSet((set) => withAdvisorTier(set, me.id, TODAY.getFullYear(), tier));
 
   const onApiChange = (next: ApiSettings) => {
@@ -219,26 +221,44 @@ export default function App() {
             <div className="flex shrink-0 items-center gap-2">{headerExtra}</div>
           </div>
           {activeTab === "calculator" && (
-            <div className="mt-[11px] flex items-center gap-2">
-              <span className="shrink-0 text-[11px] font-bold uppercase tracking-[.08em] text-muted">Band</span>
-              <div className="flex flex-1 gap-0.5 rounded-[9px] bg-canvas p-0.5" role="radiogroup" aria-label="Banding">
-                {bandings.map((b) => {
-                  const on = b.code === bandInUse;
-                  return (
-                    <button
-                      key={b.code}
-                      type="button"
-                      role="radio"
-                      aria-checked={on}
-                      onClick={() => setBand(b.code)}
-                      className={`flex-1 rounded-[7px] py-[5px] text-center ${on ? "bg-surface shadow-[0_1px_2px_rgba(20,35,94,.14)]" : ""}`}
-                    >
-                      <div className={`text-[12px] ${on ? "font-bold text-accent" : "font-medium text-muted"}`}>{b.code}</div>
-                      <div className={`tnum text-[9.5px] ${on ? "text-muted" : "text-faint"}`}>{pct(b.commission_rate)}</div>
-                    </button>
-                  );
-                })}
+            <div className="mt-2.5 flex flex-col gap-1.5">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  aria-expanded={bandOpen}
+                  aria-controls="band-picker"
+                  onClick={() => setBandOpen((o) => !o)}
+                  className="tnum flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-accent-soft px-3 text-[13px] font-extrabold text-accent"
+                >
+                  Band {bandInUse} · {pct(bandings.find((b) => b.code === bandInUse)?.commission_rate ?? 0)}
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" className={`transition-transform duration-200 ${bandOpen ? "rotate-180" : ""}`}>
+                    <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
               </div>
+              {bandOpen && (
+                <div id="band-picker" className="drop-in flex flex-col gap-1.5">
+                  <span className="text-[12px] text-muted">Your band sets your share of gross revenue.</span>
+                  <div role="radiogroup" aria-label="Band" className="grid grid-cols-5 gap-1 rounded-xl bg-well p-1">
+                    {bandings.map((b) => {
+                      const on = b.code === bandInUse;
+                      return (
+                        <button
+                          key={b.code}
+                          type="button"
+                          role="radio"
+                          aria-checked={on}
+                          onClick={() => setBand(b.code)}
+                          className={`flex h-12 flex-col items-center justify-center rounded-[9px] ${on ? "bg-surface text-accent shadow-[0_1px_2px_rgba(20,35,94,.18)]" : "text-muted"}`}
+                        >
+                          <span className="text-[14px] font-extrabold">{b.code}</span>
+                          <span className="tnum text-[11px]">{pct(b.commission_rate)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </header>
@@ -252,7 +272,17 @@ export default function App() {
           <Goals key={me.id} advisor={me} cases={cases} goalSet={goalSet} onGoalSetChange={setGoalSet} primary={primaryGoal} onPrimaryChange={setPrimaryGoal} onTierChange={setTier} />
         )}
         {activeTab === "calculator" && (
-          <Calculator key={`${me.id}-${teamView}`} advisor={me} cases={myCases} goalSet={goalSet} primary={primaryGoal} band={bandInUse} onGoToGoals={() => setTab("goals")} personal={!teamView} />
+          <Calculator
+            key={`${me.id}-${teamView}`}
+            advisor={me}
+            cases={myCases}
+            goalSet={goalSet}
+            primary={primaryGoal}
+            band={bandInUse}
+            onBandChange={setBand}
+            onGoToGoals={() => setTab("goals")}
+            personal={!teamView}
+          />
         )}
         {activeTab === "team" && teamView && <Team key={me.id} manager={me} advisors={advisors} cases={cases} goalSet={goalSet} source={source} records={records} />}
       </main>

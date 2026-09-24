@@ -206,6 +206,16 @@ export function incentivesFor(policy: Policy, variant: PolicyVariant, today: Dat
   );
 }
 
+/** Every insurer incentive running on `today`. */
+export function incentivesRunning(today: Date): Incentive[] {
+  return CATALOGUE.incentives.filter((i) => inPeriod(i, today));
+}
+
+/** Every customer campaign running on `today`, coming-soon ones included. */
+export function clientRewardsRunning(today: Date): ClientReward[] {
+  return (CATALOGUE.client_rewards ?? []).filter((r) => r.coming_soon || within(r.period, today));
+}
+
 /** Incentives running on `today` that name this policy in any of its rows. */
 export function incentivesOnPolicy(policy: Policy, today: Date): Incentive[] {
   return CATALOGUE.incentives.filter((i) => inPeriod(i, today) && i.targets.some((t) => t.policy === policy.id));
