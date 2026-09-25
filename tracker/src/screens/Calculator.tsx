@@ -172,7 +172,7 @@ function riderRowFor(base: Row, rider: Policy): Row {
   return base.years !== "" && rowForTerm(option, Number(base.years)) ? { ...row, years: base.years } : row;
 }
 
-/** How the FC's share of gross revenue at a band is worked out, in the payout formula's own figures: "0.97 × (50% − 1%)". */
+/** How the FC's share of gross revenue at a band is worked out, in the payout formula's own figures: "share × (band rate − deduction)". */
 function shareWorking(band: BandingCode, share: number): string {
   const f = CATALOGUE.fc_formula;
   if (f.share === 1 && f.band_deduction === 0) return `${band}'s rate`;
