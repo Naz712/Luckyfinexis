@@ -92,6 +92,7 @@ export const SAMPLE_CATALOGUE: Catalogue = {
       ],
       onwards: "Year 2 onwards",
       notes: ["Sample only: later years pay a small renewal on the premium."],
+      lump_sum: { rate: 3, note: "a made-up top-up rate for the sample" },
       source: SRC,
     },
     {

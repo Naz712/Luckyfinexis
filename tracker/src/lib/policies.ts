@@ -52,6 +52,8 @@ export interface Policy {
   short_name?: string;
   /** The plan's riders pay the plan's own rates, so their premium goes in with the plan's. */
   riders_in_premium?: boolean;
+  /** A lump sum paid on top of the regular premium (a top-up): the % of it the schedule pays as commission, and where the rate comes from. */
+  lump_sum?: { rate: number; note: string };
   source: string;
 }
 

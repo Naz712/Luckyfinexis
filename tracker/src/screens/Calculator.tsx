@@ -100,6 +100,8 @@ interface Row {
   parent?: number;
   /** How often the client pays; a rider goes with its plan. */
   mode: PayMode;
+  /** A lump sum paid now on top of the regular premium (a top-up), as typed; plans whose schedule pays on one only. */
+  lumpSum: string;
 }
 
 /** The aim chosen in Goals, as the calculator reads it. */
@@ -140,6 +142,7 @@ function rowFor(policy: Policy): Row {
     premiumTouched: false,
     target: "",
     mode: "annual",
+    lumpSum: "",
   };
 }
 
@@ -153,6 +156,7 @@ function switchPolicy(row: Row, policy: Policy, perYear: number): Partial<Row> {
     years: keep ? row.years : years === null ? "" : String(years),
     premium: row.premiumTouched ? row.premium : typicalPayment(policy, option.variant?.single ? 1 : perYear),
     target: "",
+    lumpSum: policy.lump_sum ? row.lumpSum : "",
   };
 }
 
@@ -166,6 +170,27 @@ function riderRowFor(base: Row, rider: Policy): Row {
   const row = { ...rowFor(rider), parent: base.key, mode: base.mode, premium: typicalPayment(rider, perYearOf(base.mode)) };
   const option = payOptionByKey(rider, row.payKey);
   return base.years !== "" && rowForTerm(option, Number(base.years)) ? { ...row, years: base.years } : row;
+}
+
+/** How the FC's share of gross revenue at a band is worked out, in the payout formula's own figures: "0.97 × (50% − 1%)". */
+function shareWorking(band: BandingCode, share: number): string {
+  const f = CATALOGUE.fc_formula;
+  if (f.share === 1 && f.band_deduction === 0) return `${band}'s rate`;
+  const rate = share / f.share + f.band_deduction;
+  return `${f.share} × (${Math.round(rate * 100)}% − ${Math.round(f.band_deduction * 100)}%)`;
+}
+
+/** One line of the working: what it is, how it is worked out, and the result. */
+function MathRow({ label, expr, value, strong = false }: { label: string; expr?: ReactNode; value: ReactNode; strong?: boolean }) {
+  return (
+    <div className={`flex items-start justify-between gap-3 py-1.5 ${strong ? "mt-0.5 border-t border-line pt-2" : ""}`}>
+      <span className="min-w-0">
+        <span className={`block text-[12.5px] ${strong ? "font-extrabold text-ink" : "font-semibold text-body"}`}>{label}</span>
+        {expr && <span className="tnum block text-[11.5px] leading-[1.4] text-muted">{expr}</span>}
+      </span>
+      <span className={`tnum shrink-0 text-right ${strong ? "text-[15px] font-extrabold text-accent" : "text-[13px] font-bold text-ink"}`}>{value}</span>
+    </div>
+  );
 }
 
 const pctText = (n: number) => `${Number(n.toFixed(2))}%`;
@@ -455,6 +480,8 @@ interface Resolved {
   premium: number;
   /** One payment as the client makes it. */
   payment: number;
+  /** A lump sum top-up paid now (0 when the plan takes none). */
+  lump: number;
   incentives: Incentive[];
   /** The client's side: the insurer's customer campaigns on this plan. */
   rewards: ClientReward[];
@@ -485,26 +512,35 @@ function payText(pay: PaySchedule): string {
   return `${mode.label} from this month (${MONTHS[THIS_MONTH]}): ${pay.paid === pay.of ? `all ${pay.of}` : `${pay.paid} of ${pay.of}`} payments land by 31 Dec${rest > 0 ? `; the other ${rest} count next year` : ""}`;
 }
 
+/** MDRT's premium credit on a lump sum, as on a single premium. */
+const LUMP_MDRT_PREMIUM = 0.06;
+
 /**
- * What a row brings in by 31 Dec: commission and uplift on the payments made
- * by then, cash incentives in full. MDRT and Elite count this part; the
- * first-year commission (FYC) shown to the FC is the whole first year.
+ * One row's figures. The FC's first-year commission (FYC) is the whole first
+ * year's, however the client pays, plus the commission on a lump sum top-up.
+ * Toward the year-end goals only what is paid by 31 Dec counts: the
+ * regular payments made by then and the lump sum. MDRT counts the
+ * schedule's commission alone (6% of a lump sum as premium, as for a single
+ * premium); Elite counts the first-year GR, commission uplifts included.
+ * Insurer incentives are worked out on the regular premium only.
  */
-function sprintOf(c: Computed & { q: Quote }) {
+function figuresOf(c: Computed & { q: Quote }) {
   const { q, pay, r } = c;
   const uplift = q.lines.filter((l) => l.kind === "uplift").reduce((t, l) => t + l.amount, 0);
   const cash = q.lines.filter((l) => l.kind === "cash").reduce((t, l) => t + l.amount, 0);
-  const commissionGr = q.base * pay.share;
-  const incentiveGr = uplift * pay.share + cash;
+  const lumpGr = (r.lump * (r.policy.lump_sum?.rate ?? 0)) / 100;
+  const grByEoy = q.base * pay.share + lumpGr + uplift * pay.share + cash;
   return {
-    premium: r.premium * pay.share,
-    commissionGr,
-    commissionToYou: commissionGr * q.share,
-    incentiveGr,
-    incentiveToYou: incentiveGr * q.share,
-    toYou: (commissionGr + incentiveGr) * q.share,
-    /** Elite credits: the first-year GR (commission and uplift) on the payments made by 31 Dec. */
-    elite: q.elite * pay.share,
+    lumpGr,
+    /** Gross revenue from the schedule over the first year, and on the lump sum. */
+    commissionGr: q.base + lumpGr,
+    fyc: (q.base + lumpGr) * q.share,
+    incentiveYear: (uplift + cash) * q.share,
+    mdrtCommission: (q.base * pay.share + lumpGr) * q.share,
+    mdrtPremium: q.mdrtPremium * pay.share + r.lump * LUMP_MDRT_PREMIUM,
+    elite: q.elite * pay.share + lumpGr,
+    grByEoy,
+    toYouByEoy: grByEoy * q.share,
   };
 }
 
@@ -790,16 +826,29 @@ function PolicyBlock({
   const quoted = items.filter((c): c is Computed & { q: Quote } => c.q !== null);
   const share = quoted[0]?.q.share ?? fcShare(band);
   // The FC's figure is the first-year commission (FYC), however the client pays; incentives are shown on top.
-  const commissionGr = quoted.reduce((t, c) => t + c.q.base, 0);
-  const fyc = commissionGr * share;
-  const incentiveYear = quoted.reduce((t, c) => t + (c.q.gr - c.q.base) * c.q.share, 0);
+  // Toward the year-end goals, only what is paid by 31 Dec counts. Every figure comes from figuresOf.
+  const figs = quoted.map((c) => ({ c, f: figuresOf(c) }));
+  const sum = (k: keyof ReturnType<typeof figuresOf>) => figs.reduce((t, x) => t + x.f[k], 0);
+  const fyc = sum("fyc");
+  const commissionGr = sum("commissionGr");
+  const incentiveYear = sum("incentiveYear");
+  const mdrtIn = sum("mdrtCommission");
+  const mdrtPremIn = sum("mdrtPremium");
+  const eliteIn = sum("elite");
+  const lump = r.lump;
+  const lumpRate = policy.lump_sum?.rate ?? 0;
+  const lumpGr = (lump * lumpRate) / 100;
+  const regularGr = quoted.reduce((t, c) => t + c.q.base, 0);
+  const eliteGrYear = quoted.reduce((t, c) => t + c.q.elite, 0);
+  const premCreditYear = quoted.reduce((t, c) => t + c.q.mdrtPremium, 0);
   const paymentTotal = quoted.reduce((t, c) => t + c.r.payment, 0);
   const yearPremium = quoted.reduce((t, c) => t + c.r.premium, 0);
-  const grPct = Math.min(pctOf(commissionGr, yearPremium), 100);
-  const youPct = Math.min(pctOf(fyc, yearPremium), grPct);
-  // Toward the year-end goals: only what the client pays by 31 Dec.
-  const mdrtIn = quoted.reduce((t, c) => t + c.q.mdrtCommission * c.pay.share, 0);
-  const eliteIn = quoted.reduce((t, c) => t + sprintOf(c).elite, 0);
+  const premiumTotal = yearPremium + lump;
+  const paidByEoy = yearPremium * pay.share + lump;
+  const grPct = Math.min(pctOf(commissionGr, premiumTotal), 100);
+  const youPct = Math.min(pctOf(fyc, premiumTotal), grPct);
+  const partYear = !single && pay.share < 1;
+  const fraction = `${pay.paid}/${pay.of}`;
   const withIncentives = quoted.filter((c) => c.r.incentives.length > 0);
   const money = moneyIncentives(policy);
   const firstEnd = money.map((i) => i.period[1]).sort()[0];
@@ -810,8 +859,6 @@ function PolicyBlock({
       Remove rider
     </button>
   );
-  const lumpSum = single || pay.of === 1;
-
   return (
     <div className="flex flex-col gap-3">
       {total > 1 && (
@@ -887,14 +934,40 @@ function PolicyBlock({
 
       <StepCard label={`Policy ${n}: the premium`}>
         <StepHead step={2} title={single ? "Enter the single premium" : "Enter the premium"} />
+        {policy.lump_sum && !single && (
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor={`lump-${row.key}`} className="text-[13px] font-bold text-ink">
+              Lump sum now <span className="text-[12px] font-semibold text-faint">optional</span>
+            </label>
+            <div className="flex h-12 items-center gap-1.5 rounded-xl border-[1.5px] border-hairline bg-surface px-3 focus-within:border-accent focus-within:ring-[3px] focus-within:ring-accent/16">
+              <span aria-hidden="true" className="text-[15px] font-bold text-faint">
+                S$
+              </span>
+              <input
+                id={`lump-${row.key}`}
+                type="number"
+                inputMode="decimal"
+                min={0}
+                value={row.lumpSum}
+                placeholder="0"
+                onChange={(e) => onPatch(row.key, { lumpSum: e.target.value })}
+                className="tnum w-full min-w-0 bg-transparent text-[20px] font-extrabold text-ink placeholder:font-normal placeholder:text-faint focus:outline-none"
+              />
+              <span className="whitespace-nowrap text-[11px] text-muted">once, now</span>
+            </div>
+            <p className="text-[11.5px] leading-[1.45] text-muted">
+              A top-up paid now, on top of the regular premium. It earns {pctText(lumpRate)} commission ({policy.lump_sum.note}), not the regular rate.
+            </p>
+          </div>
+        )}
         {!single && (
           <div className="flex flex-col gap-2">
-            <span className="text-[13px] font-bold text-ink">Client pays</span>
+            <span className="text-[13px] font-bold text-ink">{policy.lump_sum ? "Then the client pays" : "Client pays"}</span>
             <Segmented
               label="Client pays"
               small
               value={row.mode}
-              options={PAY_MODES.map((m) => ({ value: m.code, label: m.label, sub: m.perYear === 1 ? "lump sum" : `${m.perYear} payments` }))}
+              options={PAY_MODES.map((m) => ({ value: m.code, label: m.label, sub: m.perYear === 1 ? "lump sum" : `${m.perYear} a year` }))}
               onChange={onSetMode}
             />
           </div>
@@ -918,6 +991,7 @@ function PolicyBlock({
         </div>
         <p className="-mt-1 text-[12px] leading-[17px] text-muted">
           {single ? "Type the single premium from the client's quote." : row.mode === "annual" ? "Type the year's premium, paid at once." : `Type each ${MODE_WORD[row.mode]} payment from the client's quote; the first comes in this month.`}{" "}
+          {!single && !policy.lump_sum && "This plan takes no lump sum on top: to pay the year at once, choose Yearly. "}
           Everything below updates as you type.
         </p>
         {policy.target_premium && (
@@ -989,16 +1063,12 @@ function PolicyBlock({
               <span className="tnum text-[52px] font-extrabold leading-[58px] tracking-[-.03em] text-accent">{sgd(fyc)}</span>
               <span className="tnum text-[13px] leading-[1.45] text-muted">
                 {single ? (
-                  <>
-                    On the single premium of <b className="text-ink">{sgd(yearPremium)}</b>.
-                  </>
-                ) : lumpSum ? (
-                  <>
-                    On the year's <b className="text-ink">{sgd(yearPremium)}</b>, paid at once.
-                  </>
+                  <>On the single premium of {sgd(yearPremium)}.</>
+                ) : pay.of === 1 ? (
+                  <>On the year's {sgd(yearPremium)}, paid at once{lump > 0 ? `, and the ${sgd(lump)} lump sum` : ""}.</>
                 ) : (
                   <>
-                    <b className="text-ink">{sgd(fyc / pay.of)}</b> from each {MODE_WORD[row.mode]} payment of {sgd(paymentTotal)}, over {pay.of} payments.
+                    {sgd((regularGr * share) / pay.of)} from each {MODE_WORD[row.mode]} payment of {sgd(paymentTotal)}, over {pay.of} payments{lump > 0 ? `, plus ${sgd(lumpGr * share)} on the lump sum` : ""}.
                   </>
                 )}
                 {incentiveYear > 0 && (
@@ -1012,39 +1082,91 @@ function PolicyBlock({
 
             <div className="flex flex-col gap-1.5 rounded-xl bg-ok/10 px-3 py-2.5">
               <span className="text-[11px] font-bold uppercase tracking-[.08em] text-ok-ink">Toward your goals by 31 Dec</span>
-              <div className="grid grid-cols-2 gap-2">
-                <span className="flex flex-col">
-                  <span className="text-[11.5px] text-ok-ink">MDRT commission</span>
-                  <span className="tnum text-[20px] font-extrabold leading-tight text-ok-ink">+{sgd(mdrtIn)}</span>
-                </span>
-                <span className="flex flex-col">
-                  <span className="text-[11.5px] text-ok-ink">Elite credits</span>
-                  <span className="tnum text-[20px] font-extrabold leading-tight text-ok-ink">+{count(eliteIn)}</span>
-                </span>
-              </div>
-              <span className="tnum text-[11.5px] leading-[1.45] text-ok-ink">{payText(pay)}.</span>
-            </div>
-
-            {(riders.length > 0 || incentiveYear > 0) && (
-              <div className="tnum flex flex-col gap-1.5 rounded-[10px] bg-canvas px-3 py-2.5 text-[13px]">
-                {quoted.map((c) => (
-                  <span key={c.r.row.key} className="flex gap-3">
-                    <span className="min-w-0 flex-1 truncate text-body">{nameOf(c)}</span>
-                    <b className="shrink-0 text-ink">{sgd(c.q.base * c.q.share)}</b>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { label: "MDRT commission", value: `+${sgd(mdrtIn)}` },
+                  { label: "MDRT premium", value: `+${sgd(mdrtPremIn)}` },
+                  { label: "Elite credits", value: `+${count(eliteIn)}` },
+                ].map((t) => (
+                  <span key={t.label} className="flex min-w-0 flex-col">
+                    <span className="min-h-[2.5em] text-[11px] leading-tight text-ok-ink">{t.label}</span>
+                    <span className={`tnum whitespace-nowrap font-extrabold leading-tight text-ok-ink ${t.value.length > 8 ? "text-[14px]" : "text-[17px]"}`}>{t.value}</span>
                   </span>
                 ))}
-                {incentiveYear > 0 && (
-                  <span className="flex gap-3">
-                    <span className="min-w-0 flex-1 text-body">Insurer incentives</span>
-                    <b className="shrink-0 text-ok">+{sgd(incentiveYear)}</b>
-                  </span>
-                )}
               </div>
-            )}
+              <span className="tnum text-[11.5px] leading-[1.45] text-ok-ink">
+                {payText(pay)}
+                {lump > 0 ? ", and the lump sum counts now" : ""}.
+              </span>
+            </div>
 
-            {yearPremium > 0 && (
+            <section aria-label="How it's worked out" className="rounded-xl border border-line px-3 py-2">
+              <div className="pb-0.5 pt-1 text-[11px] font-bold uppercase tracking-[.08em] text-muted">How it's worked out</div>
+              {quoted.map((c) => (
+                <div key={c.r.row.key}>
+                  <MathRow
+                    label={quoted.length > 1 ? nameOf(c) : single ? "Single premium" : "Premium, first year"}
+                    expr={
+                      c.r.variant?.single
+                        ? "paid once"
+                        : pay.of === 1
+                          ? "paid at once"
+                          : `${sgd(c.r.payment)} ${MODE_SUFFIX[row.mode]} × ${pay.of} payments`
+                    }
+                    value={sgd(c.r.premium)}
+                  />
+                  <MathRow
+                    label="Gross revenue"
+                    expr={`${c.q.lines
+                      .filter((l) => l.kind === "base")
+                      .map((l) => l.detail)
+                      .join(" + ")}, year 1 (${c.r.variant!.label})`}
+                    value={sgd(c.q.base)}
+                  />
+                </div>
+              ))}
+              {lump > 0 && <MathRow label="Lump sum top-up" expr={`${pctText(lumpRate)} of ${sgd(lump)}`} value={sgd(lumpGr)} />}
+              <MathRow label={`Your share at Band ${band}`} expr={shareWorking(band, share)} value={pctText(share * 100)} />
+              <MathRow label="FYC to you" expr={`${pctText(share * 100)} × ${sgd(commissionGr)} gross revenue`} value={sgd(fyc)} strong />
+
+              <div className="pb-0.5 pt-3 text-[11px] font-bold uppercase tracking-[.08em] text-muted">By 31 Dec</div>
+              <MathRow
+                label="Paid by 31 Dec"
+                expr={
+                  partYear
+                    ? `${pay.paid} of ${pay.of} ${MODE_WORD[row.mode]} payments (${MONTHS[THIS_MONTH]} to Dec)${lump > 0 ? " + the lump sum" : ""}`
+                    : `${single ? "the single premium" : "the year's premium"}${lump > 0 ? " + the lump sum" : ""}, all now`
+                }
+                value={sgd(paidByEoy)}
+              />
+              <MathRow
+                label="MDRT commission"
+                expr={`${pctText(share * 100)} × (${sgd(regularGr)}${partYear ? ` × ${fraction}` : ""}${lump > 0 ? ` + ${sgd(lumpGr)}` : ""})`}
+                value={sgd(mdrtIn)}
+              />
+              <MathRow
+                label="MDRT premium"
+                expr={`${single ? `6% of ${sgd(yearPremium)}` : sgd(premCreditYear)}${partYear ? ` × ${fraction}` : ""}${lump > 0 ? ` + 6% of ${sgd(lump)}` : ""}`}
+                value={sgd(mdrtPremIn)}
+              />
+              <MathRow
+                label="Elite credits"
+                expr={`${sgd(eliteGrYear)} first-year GR${partYear ? ` × ${fraction}` : ""}${lump > 0 ? ` + ${sgd(lumpGr)}` : ""}`}
+                value={count(eliteIn)}
+              />
+              {partYear && (
+                <p className="tnum pb-1 pt-1.5 text-[11.5px] leading-[1.45] text-muted">
+                  The other {pay.of - pay.paid} payments count next year: {sgd(regularGr * share * (1 - pay.share))} MDRT commission, {sgd(premCreditYear * (1 - pay.share))} premium, {count(eliteGrYear * (1 - pay.share))} Elite
+                  credits.
+                </p>
+              )}
+            </section>
+
+            {premiumTotal > 0 && (
               <div className="flex flex-col gap-2.5">
-                <span className="tnum text-[13px] font-extrabold text-ink">Where the first year's {sgd(yearPremium)} goes</span>
+                <span className="tnum text-[13px] font-extrabold text-ink">
+                  Where the first year's {sgd(premiumTotal)} goes{lump > 0 ? " (with the lump sum)" : ""}
+                </span>
                 <div
                   className="flex h-7 gap-[2px] overflow-hidden rounded-lg"
                   role="img"
@@ -1061,7 +1183,7 @@ function PolicyBlock({
                     swatch={<span className="h-3 w-3 shrink-0 rounded-[3px]" style={HATCH_KEY} />}
                     title="Stays with the insurer"
                     sub="not paid out as commission"
-                    value={sgd(Math.max(yearPremium - commissionGr, 0))}
+                    value={sgd(Math.max(premiumTotal - commissionGr, 0))}
                     pct={100 - grPct}
                     last
                   />
@@ -1364,6 +1486,7 @@ export default function Calculator({
       variant,
       premium: payment * (single ? 1 : perYearOf(planRow.mode)),
       payment,
+      lump: policy.lump_sum && !single && row.parent === undefined ? parseMoney(row.lumpSum) : 0,
       incentives: variant ? incentivesFor(policy, variant, TODAY) : [],
       rewards: variant ? clientRewardsFor(policy, variant, TODAY) : [],
     };
@@ -1419,16 +1542,15 @@ export default function Calculator({
   const plans = computed.filter((c) => c.r.row.parent === undefined);
   const ridersOf = (key: number) => computed.filter((c) => c.r.row.parent === key);
 
-  const quotes = computed.map((c) => c.q).filter((q): q is Quote => q !== null);
-  // By 31 Dec: commission on the payments made by then, cash incentives in full.
-  const sprints = computed.filter((c): c is Computed & { q: Quote } => c.q !== null).map(sprintOf);
-  const totalGr = sprints.reduce((t, s) => t + s.commissionGr + s.incentiveGr, 0);
-  const totalEarnings = sprints.reduce((t, s) => t + s.toYou, 0);
-  const totalElite = sprints.reduce((t, s) => t + s.elite, 0);
-  const totalFyc = quotes.reduce((t, q) => t + q.base * q.share, 0);
+  // Each row's figures: FYC over the first year, and what counts by 31 Dec.
+  const figures = computed.filter((c): c is Computed & { q: Quote } => c.q !== null).map((c) => ({ c, f: figuresOf(c) }));
+  const totalGr = figures.reduce((t, x) => t + x.f.grByEoy, 0);
+  const totalEarnings = figures.reduce((t, x) => t + x.f.toYouByEoy, 0);
+  const totalElite = figures.reduce((t, x) => t + x.f.elite, 0);
+  const totalFyc = figures.reduce((t, x) => t + x.f.fyc, 0);
   // MDRT credits what the client pays inside the production year, and only the schedule's commission.
   const mdrtIn = (category: "risk_protection" | "other", figure: "mdrtCommission" | "mdrtPremium") =>
-    computed.filter((c) => c.r.policy.mdrt_category === category).reduce((t, c) => t + (c.q ? c.q[figure] * c.pay.share : 0), 0);
+    figures.filter((x) => x.c.r.policy.mdrt_category === category).reduce((t, x) => t + x.f[figure], 0);
   const mdrtRisk = mdrtIn("risk_protection", "mdrtCommission");
   const mdrtOther = mdrtIn("other", "mdrtCommission");
   const premRisk = mdrtIn("risk_protection", "mdrtPremium");
@@ -1672,8 +1794,8 @@ export default function Calculator({
         className="fixed inset-x-0 bottom-[calc(82px+env(safe-area-inset-bottom))] z-10 mx-auto flex w-full max-w-[430px] items-center gap-3 bg-brand-hover px-4 py-3 text-white"
       >
         <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-[11px] font-extrabold uppercase tracking-[.08em] text-white/78">{countLabel} · first-year commission</span>
-          <span className="tnum truncate text-[12px] text-[#54d4a0]">
+          <span className="truncate text-[11px] font-extrabold uppercase tracking-[.08em] text-white/78">{countLabel} · FYC to you</span>
+          <span className="tnum text-[12px] leading-snug text-[#54d4a0]">
             By 31 Dec: +{sgd(mdrtRisk + mdrtOther)} MDRT · +{count(totalElite)} Elite
           </span>
         </div>

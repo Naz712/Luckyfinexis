@@ -135,34 +135,42 @@ part of the deployment choice, written up separately.
   type as a segmented control where there is a choice, and the premium term
   with − and +, which lands on the schedule row that covers it ("20" → "10 to
   24 years"; a term the schedule doesn't list says so). ② **Enter the
-  premium**: how the client pays (a lump sum for the year, half-yearly,
-  quarterly or monthly) and one payment as they pay it, the first coming in
-  this month; switching converts the amount and keeps the year's premium.
-  "For your client" shows the insurer's customer campaign where there is one
-  (a cashback worked out on the premium, a discount, passes). **Riders**,
-  optional: the rider groups the schedule lists for the plan, each with its
-  own premium (paid the plan's way) and term. ③ **What you earn**: the
-  first-year commission (FYC) to the FC by the firm's payout formula,
-  however the client pays (per payment when paid in instalments), the
-  insurer incentives on top, "Toward your goals by 31 Dec" (the MDRT
-  commission credit and Elite credits from what the client pays by then:
-  a lump sum counts in full, monthly from September 4 of 12 payments), the
-  plan and each rider, where the first year's premium goes (the FC's share,
-  the firm's, what stays with the insurer), and the insurer incentives, one
-  panel each: whether this case qualifies (or what it is short of, the next
-  tier up, a yes/no the FC ticks, or trip credits only), what the FC earns,
-  the rest of the quarter where a tier depends on it, and the circular.
-  Under the policies: **What it adds to your goals** (MDRT commission and
-  premium credit and Elite credits by 31 Dec; the aim set in Goals, so far
-  and with this case, the clients like this still needed, and the other aim
-  under it as on Home), "Add another policy", and a pinned total: the case's
-  FYC, with what it adds to MDRT and Elite by 31 Dec.
+  premium**: on a plan whose schedule pays on top-ups, first a lump sum paid
+  now (optional, at the schedule's top-up rate, which is far below the
+  regular rate), then how the client pays the regular premium (a lump sum
+  for the year, half-yearly, quarterly or monthly) and one payment as they
+  pay it, the first coming in this month; switching converts the amount and
+  keeps the year's premium. Plans without a top-up rate (term, CI, whole
+  life) have the regular premium only. "For your client" shows the insurer's
+  customer campaign where there is one (a cashback worked out on the
+  premium, a discount, passes). **Riders**, optional: the rider groups the
+  schedule lists for the plan, each with its own premium (paid the plan's
+  way) and term. ③ **What you earn**: the first-year commission (FYC) to the
+  FC by the firm's payout formula, however the client pays, with the
+  commission on the lump sum; the insurer incentives on top; "Toward your
+  goals by 31 Dec" (MDRT commission and premium credit and Elite credits
+  from what is paid by then: the lump sum and a lump-sum year in full,
+  monthly from September 4 of 12 payments); "How it's worked out", every
+  figure line by line (premium × payments, the schedule's year-1 rate, the
+  top-up rate, the band's share in the payout formula's own figures, then
+  each goal by 31 Dec and what the rest of the payments add next year);
+  where the first year's premium goes (the FC's share, the firm's, what
+  stays with the insurer); and the insurer incentives, one panel each:
+  whether this case qualifies (or what it is short of, the next tier up, a
+  yes/no the FC ticks, or trip credits only), what the FC earns, the rest of
+  the quarter where a tier depends on it, and the circular. Incentives are
+  worked out on the regular premium only. Under the policies: **What it adds
+  to your goals** (the case's MDRT and Elite by 31 Dec; the aim set in
+  Goals, so far and with this case, the clients like this still needed, and
+  the other aim under it as on Home), "Add another policy", and a pinned
+  total: the case's FYC, with what it adds to MDRT and Elite by 31 Dec.
 
   **MDRT and Elite in the Calculator.** MDRT counts the schedule's
   commission alone; insurer incentives, uplifts included, are left out. Elite
   counts the first-year GR (commission and uplifts). Both count only what the
-  client pays inside the year (Jan to Dec): a lump sum or a single
-  premium counts in full, monthly from this month counts this month to
+  client pays inside the year (Jan to Dec): a lump sum, a lump-sum year or a
+  single premium counts in full (a lump sum or single premium as 6% on the
+  premium route), monthly from this month counts this month to
   December (in September, 4 of 12), and the rest falls in the next year.
   Riders are paid with their plan. The goal maths uses the part that counts
   this year.
