@@ -17,7 +17,7 @@ export interface ApiSettings {
 }
 
 /** Where the rows on screen came from: the bundled sample, the server (the signed-in FA's own rows), or the sample because the server could not be used. */
-export type DataSource = { kind: "sample" } | { kind: "server"; as_of: string | null } | { kind: "error"; message: string };
+export type DataSource = { kind: "sample" } | { kind: "server"; as_of: string | null } | { kind: "team"; as_of: string } | { kind: "error"; message: string };
 
 export interface Session {
   fc_code: string;

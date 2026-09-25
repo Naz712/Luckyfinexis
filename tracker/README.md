@@ -28,8 +28,9 @@ npm run build      # typecheck + production build into dist/
 | `src/lib/elite.ts` | finexis Elite: the scheme's tiers (new-FC tiers too, shown one at a time) and qualifying period, read from the catalogue. |
 | `src/lib/aims.ts` | The aims beyond MDRT (an Elite tier, a custom goal) as figures, shared by Home, Goals and the Calculator. |
 | `src/lib/privateRates.ts`, `src/private/` | Confidential schedules, incentives, payout formula and bandings, loaded from gitignored files when present. |
+| `src/lib/team.ts`, `scripts/team-sheet.mjs`, `src/screens/SignIn.tsx` | The private team sheet: the script that turns the sheet's CSV into the gitignored `src/private/team.local.json`, its rows as import rows, and the email-and-password sign-in in front of it. |
 | `src/lib/ask.ts`, `src/components/Ask.tsx` | The assistant: its tools over the FA's own production, the stand-in keyword router, and the sheet, which also holds Connect and sign-in. |
-| `src/screens/` | Home, Goals (+ editor), Calculator, Team. Screens read only through `calc.ts`. |
+| `src/screens/` | Home, Goals (+ editor), Calculator, Team, SignIn. Screens read only through `calc.ts`. |
 | `src/components/` | Small shared pieces (card, select, money input, segmented control), the SVG column chart, the bottom sheet, the slide-up page. |
 | `server/` | Node 22, no dependencies: the import store, per-FA links, `/me`, `/ask`. Holds the keys. |
 | `public/sample-import.csv` | The sample import as a file: exactly the columns the backend expects. |
@@ -45,14 +46,16 @@ the sample manager's team view and "FC view" returns to the sample FC.
 One CSV, one row per FA per month end, year-to-date figures:
 
 ```
-fc_code, name, banding, manager_fc_code, as_of,
+fc_code, name, banding, manager_fc_code, manager_fc_code_2, as_of,
 commission_ytd, gr_ytd, premium_ytd, wape_ytd,
 mdrt_commission_ytd, mdrt_commission_risk_ytd, mdrt_premium_ytd, mdrt_premium_risk_ytd,
 pending_commission, pending_premium, elite_credits_ytd, rnf_date
 ```
 
 `fc_code`, `name`, `banding`, `as_of` and the three headline figures are
-required. Optional: `gr_ytd` (first-year gross revenue; without it GR is
+required. `banding` is a band code (`B1` to `B5`) or the FA's payout rate as
+a percentage (`65%`). An FA can have two managers (`manager_fc_code`,
+`manager_fc_code_2`), and both see them on Team. Optional: `gr_ytd` (first-year gross revenue; without it GR is
 worked out from commission at the FA's band, and the detail sheet marks it
 ESTIMATED), `wape_ytd`
 (WAPE as finexis weights it; only a Custom goal reads it, and says when the
@@ -95,6 +98,27 @@ Changing `LINK_SECRET` invalidates every link. Typing a link in by hand is
 possible in the assistant sheet under "Server and sign-in". Real single sign-on
 with the firm's existing accounts (Microsoft Entra ID or Google Workspace) is
 part of the deployment choice, written up separately.
+
+## The team sheet: a private stand-in with sign-in
+
+Until the server holds the real import, a team's figures can come from a
+simple sheet, one row per FC: name, email, password, up to two managers'
+emails, banding (a percentage), MDRT progress by commission and by premium,
+Elite progress, FYC, WAPE, GR and whether the FC is in their first Elite year.
+The sheet names real people, so it never goes in the repo:
+
+```bash
+node scripts/team-sheet.mjs path/to/team-sheet.csv [YYYY-MM-DD]   # as-of date, default today
+```
+
+writes `src/private/team.local.json` (gitignored) with each password stored
+only as a SHA-256 hash. When that file is present, the app opens on a sign-in
+page: an FC sees their own numbers, and a manager (named in either manager
+column) also gets Team with every FC who names them. "Sign out" is at the foot
+of Home and Team. The sheet is one snapshot, so the year's figures sit in its
+month, premium is taken as MDRT premium, and all MDRT credit counts as
+Risk-Protection. Hashed passwords in a page are a stand-in only: real sign-in
+belongs on the server (Supabase Auth or the firm's single sign-on).
 
 ## Screens
 
@@ -154,11 +178,8 @@ part of the deployment choice, written up separately.
   commission on the lump sum; the insurer incentives on top; "Toward your
   goals by 31 Dec" (MDRT commission and premium credit and Elite credits
   from what is paid by then: the lump sum and a lump-sum year in full,
-  monthly from September 4 of 12 payments); "How it's worked out", every
-  figure line by line (premium × payments, the schedule's year-1 rate, the
-  top-up rate, the FC's payout rate at the band, then
-  each goal by 31 Dec and what the rest of the payments add next year); and
-  the insurer incentives, one panel each:
+  monthly from September 4 of 12 payments, and how many count next year);
+  and the insurer incentives, one panel each:
   whether this case qualifies (or what it is short of, the next tier up, a
   yes/no the FC ticks, or trip credits only), what the FC earns, the rest of
   the quarter where a tier depends on it, and the circular. Incentives are

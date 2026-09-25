@@ -1,5 +1,5 @@
 // Display formatting only. No business logic here.
-import type { MetricUnit } from "../mock/data";
+import type { BandingCode, MetricUnit } from "../mock/data";
 import type { Pace, RouteCredit } from "./calc";
 
 const sgdFormatter = new Intl.NumberFormat("en-SG", { maximumFractionDigits: 0 });
@@ -109,4 +109,9 @@ export function routeGateText(credit: RouteCredit): string | null {
     return `${sgd(credit.locked)} of Other Products credit is not counted yet. MDRT needs ${sgd(credit.riskShortfall)} more from Risk-Protection products first.`;
   }
   return null;
+}
+
+/** A band as people say it: "Band 3" for the sample table's B3, "Banding 65%" for a percentage. */
+export function bandLabel(code: BandingCode): string {
+  return code.endsWith("%") ? `Banding ${code}` : `Band ${code.slice(1)}`;
 }

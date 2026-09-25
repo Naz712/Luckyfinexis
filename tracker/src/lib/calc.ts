@@ -2,7 +2,7 @@
 // Screens must get every number from here (or from src/mock/data.ts).
 
 import {
-  bandings,
+  bandRate,
   credit_rates,
   goals,
   mdrt_floors,
@@ -41,9 +41,9 @@ export function productsForInsurer(insurerId: string): Product[] {
 }
 
 export function bandingRate(code: BandingCode): number {
-  const b = bandings.find((x) => x.code === code);
-  if (!b) throw new Error(`Unknown banding code: ${code}`);
-  return b.commission_rate;
+  const rate = bandRate(code);
+  if (rate <= 0) throw new Error(`Unknown banding code: ${code}`);
+  return rate;
 }
 
 export function creditRate(productId: string, metric: CreditMetric): number {

@@ -27,7 +27,7 @@ import {
   type PrimaryGoal,
   type RouteCredit,
 } from "../lib/calc";
-import { count, fmtMetric, periodLabel, sgd } from "../lib/format";
+import { bandLabel, count, fmtMetric, periodLabel, sgd } from "../lib/format";
 import {
   apeCredits,
   apeOf,
@@ -202,18 +202,6 @@ function riderRowFor(base: Row, rider: Policy): Row {
   return base.years !== "" && rowForTerm(option, Number(base.years)) ? { ...row, years: base.years } : row;
 }
 
-/** One line of the working: what it is, how it is worked out, and the result. */
-function MathRow({ label, expr, value, strong = false }: { label: string; expr?: ReactNode; value: ReactNode; strong?: boolean }) {
-  return (
-    <div className={`flex items-start justify-between gap-3 py-1.5 ${strong ? "mt-0.5 border-t border-line pt-2" : ""}`}>
-      <span className="min-w-0">
-        <span className={`block text-[12.5px] ${strong ? "font-extrabold text-ink" : "font-semibold text-body"}`}>{label}</span>
-        {expr && <span className="tnum block text-[11.5px] leading-[1.4] text-muted">{expr}</span>}
-      </span>
-      <span className={`tnum shrink-0 text-right ${strong ? "text-[15px] font-extrabold text-accent" : "text-[13px] font-bold text-ink"}`}>{value}</span>
-    </div>
-  );
-}
 
 const pctText = (n: number) => `${Number(n.toFixed(2))}%`;
 
@@ -874,7 +862,6 @@ function PolicyBlock({
   const figs = quoted.map((c) => ({ c, f: figuresOf(c) }));
   const sum = (k: keyof ReturnType<typeof figuresOf>) => figs.reduce((t, x) => t + x.f[k], 0);
   const fyc = sum("fyc");
-  const commissionGr = sum("commissionGr");
   const incentiveYear = sum("incentiveYear");
   const mdrtIn = sum("mdrtCommission");
   const mdrtPremIn = sum("mdrtPremium");
@@ -883,13 +870,8 @@ function PolicyBlock({
   const lumpRate = policy.lump_sum?.rate ?? 0;
   const lumpGr = (lump * lumpRate) / 100;
   const regularGr = quoted.reduce((t, c) => t + c.q.base, 0);
-  const eliteGrYear = quoted.reduce((t, c) => t + c.q.elite, 0);
-  const premCreditYear = quoted.reduce((t, c) => t + c.q.mdrtPremium, 0);
   const paymentTotal = quoted.reduce((t, c) => t + c.r.payment, 0);
   const yearPremium = quoted.reduce((t, c) => t + c.r.premium, 0);
-  const paidByEoy = yearPremium * pay.share + lump;
-  const partYear = !single && pay.share < 1;
-  const fraction = `${pay.paid}/${pay.of}`;
   const withIncentives = quoted.filter((c) => c.r.incentives.length > 0);
   const money = moneyIncentives(policy);
   const firstEnd = money.map((i) => i.period[1]).sort()[0];
@@ -1097,7 +1079,7 @@ function PolicyBlock({
       )}
 
       <StepCard highlight label={`Policy ${n}: what you earn`}>
-        <StepHead step={3} title="What you earn" aside={<span className="shrink-0 text-[12px] text-muted">Band {band}</span>} />
+        <StepHead step={3} title="What you earn" aside={<span className="shrink-0 text-[12px] text-muted">{bandLabel(band)}</span>} />
         {quoted.length === 0 ? (
           <p className="text-[13px] leading-[1.45] text-muted">Pick a term the schedule lists to see the figures.</p>
         ) : (
@@ -1143,72 +1125,6 @@ function PolicyBlock({
                 {lump > 0 ? ", and the lump sum counts now" : ""}.
               </span>
             </div>
-
-            <section aria-label="How it's worked out" className="rounded-xl border border-line px-3 py-2">
-              <div className="pb-0.5 pt-1 text-[11px] font-bold uppercase tracking-[.08em] text-muted">How it's worked out</div>
-              {quoted.map((c) => (
-                <div key={c.r.row.key}>
-                  <MathRow
-                    label={quoted.length > 1 ? nameOf(c) : single ? "Single premium" : "Premium, first year"}
-                    expr={
-                      c.r.variant?.single
-                        ? "paid once"
-                        : pay.of === 1
-                          ? "paid at once"
-                          : `${sgd(c.r.payment)} ${MODE_SUFFIX[row.mode]} × ${pay.of} payments`
-                    }
-                    value={sgd(c.r.premium)}
-                  />
-                  <MathRow
-                    label="Gross revenue"
-                    expr={`${c.q.lines
-                      .filter((l) => l.kind === "base")
-                      .map((l) => l.detail)
-                      .join(" + ")} in year 1 · ${c.r.variant!.label}`}
-                    value={sgd(c.q.base)}
-                  />
-                </div>
-              ))}
-              {lump > 0 && <MathRow label="Lump sum top-up" expr={`${pctText(lumpRate)} of ${sgd(lump)}`} value={sgd(lumpGr)} />}
-              <MathRow label={`Your payout at Band ${band}`} expr="of gross revenue" value={pctText(share * 100)} />
-              <MathRow label="FYC to you" expr={`${pctText(share * 100)} × ${sgd(commissionGr)} gross revenue`} value={sgd(fyc)} strong />
-
-              <div className="pb-0.5 pt-3 text-[11px] font-bold uppercase tracking-[.08em] text-muted">By 31 Dec</div>
-              <MathRow
-                label="Paid by 31 Dec"
-                expr={
-                  partYear
-                    ? `${pay.paid} of ${pay.of} ${MODE_WORD[row.mode]} payments (${MONTHS[THIS_MONTH]} to Dec)${lump > 0 ? " + the lump sum" : ""}`
-                    : `${single ? "the single premium" : "the year's premium"}${lump > 0 ? " + the lump sum" : ""}, all now`
-                }
-                value={sgd(paidByEoy)}
-              />
-              <MathRow
-                label="MDRT commission"
-                expr={
-                  partYear || lump > 0
-                    ? `${pctText(share * 100)} × (${sgd(regularGr)}${partYear ? ` × ${fraction}` : ""}${lump > 0 ? ` + ${sgd(lumpGr)}` : ""})`
-                    : `${pctText(share * 100)} × ${sgd(regularGr)}`
-                }
-                value={sgd(mdrtIn)}
-              />
-              <MathRow
-                label="MDRT premium"
-                expr={`${single ? `6% of ${sgd(yearPremium)}` : sgd(premCreditYear)}${partYear ? ` × ${fraction}` : ""}${lump > 0 ? ` + 6% of ${sgd(lump)}` : ""}`}
-                value={sgd(mdrtPremIn)}
-              />
-              <MathRow
-                label="Elite credits"
-                expr={`${sgd(eliteGrYear)} first-year GR${partYear ? ` × ${fraction}` : ""}${lump > 0 ? ` + ${sgd(lumpGr)}` : ""}`}
-                value={count(eliteIn)}
-              />
-              {partYear && (
-                <p className="tnum pb-1 pt-1.5 text-[11.5px] leading-[1.45] text-muted">
-                  The other {pay.of - pay.paid} payments count next year: {sgd(regularGr * share * (1 - pay.share))} MDRT commission, {sgd(premCreditYear * (1 - pay.share))} premium, {count(eliteGrYear * (1 - pay.share))} Elite
-                  credits.
-                </p>
-              )}
-            </section>
 
             {withIncentives.length > 0 && (
               <div className="flex flex-col gap-2">

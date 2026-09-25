@@ -332,7 +332,7 @@ function goalsStatus(ctx: AskContext): ToolResult {
 }
 
 function teamStatus(ctx: AskContext): ToolResult {
-  const team = ctx.advisors.filter((a) => a.manager_id === ctx.advisor.id);
+  const team = ctx.advisors.filter((a) => a.manager_ids.includes(ctx.advisor.id));
   if (team.length === 0) return { label: "Team", summary: "You don't manage a team in this app, so there is no team view for you.", rows: [], facts: { manager: false } };
   const rows = team
     .map((a) => {

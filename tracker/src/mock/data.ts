@@ -16,7 +16,8 @@
 export type ProductCategory = "life" | "ilp" | "health" | "endowment";
 export type PremiumType = "regular" | "single";
 export type MdrtCategory = "risk_protection" | "other";
-export type BandingCode = "B1" | "B2" | "B3" | "B4" | "B5";
+/** A band from the sample table (B1 to B5), or the adviser's banding as the firm states it, a percentage ("65%"). */
+export type BandingCode = "B1" | "B2" | "B3" | "B4" | "B5" | `${number}%`;
 export type CreditMetric = "mdrt_premium" | "mdrt_commission";
 export type Tier = "mdrt" | "cot" | "tot";
 export type PeriodType = "jan_dec" | "jan_jun" | "feb_jan" | "apr_mar";
@@ -113,6 +114,15 @@ export const bandings: Banding[] = [
   { code: "B5", label: "Band 5", commission_rate: 0.7 },
 ];
 
+/** A band's rate: a percentage banding as written ("65%" is 0.65), else the sample table's; 0 when unknown. */
+export function bandRate(code: BandingCode): number {
+  if (code.endsWith("%")) {
+    const n = Number(code.slice(0, -1));
+    return Number.isFinite(n) ? n / 100 : 0;
+  }
+  return bandings.find((b) => b.code === code)?.commission_rate ?? 0;
+}
+
 // PLACEHOLDER — the MDRT rates follow MDRT's "Eligible Products and Credit"
 // table (2027 Membership Information, page 4): 100% of first-year commission
 // for every product; premium credit 100% of first-year premium for regular
@@ -195,8 +205,8 @@ export interface Advisor {
   name: string;
   fc_code: string;
   banding_code: BandingCode;
-  /** null for a manager with no manager above them in the import; otherwise the manager's advisor id. */
-  manager_id: string | null;
+  /** The advisor ids of their managers (up to two in the import); empty at the top of the tree. Each can see this adviser in their team. */
+  manager_ids: string[];
   /** The year of the FC's RNF, when the import says; Elite has lower tiers for new FCs. */
   rnf_year: number | null;
 }
@@ -259,6 +269,8 @@ export interface ImportRow {
   banding: BandingCode;
   /** Empty for the top of the tree. */
   manager_fc_code: string;
+  /** Optional: a second manager who can also see this adviser. */
+  manager_fc_code_2?: string;
   /** ISO date, the month end the figures are as of. */
   as_of: string;
   /** First-year commission, year to date. */

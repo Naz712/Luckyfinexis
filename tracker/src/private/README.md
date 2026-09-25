@@ -5,7 +5,7 @@ payout formula and the banding table are confidential. They never go in the
 repo, and the public GitHub Pages build never carries them. Everything in
 this folder except this README and `rates.example.json` is gitignored.
 
-Two files can live here:
+Three files can live here:
 
 - **`policies.local.json`**: the policy catalogue the Calculator and the
   assistant's what-ifs read. Each policy lists its schedule rows (premium
@@ -20,6 +20,11 @@ Two files can live here:
   Elite scheme (`elite`: tiers, new-FC tiers, qualifying period). The shape is the `Catalogue` type in `src/lib/policies.ts`;
   `src/mock/policies.sample.ts` is a made-up example of it. Without this
   file the app uses that sample.
+- **`team.local.json`**: the team sheet, written by
+  `node scripts/team-sheet.mjs sheet.csv [as-of date]`: each FC's name, email,
+  managers, banding and year-to-date progress, with passwords as SHA-256
+  hashes. When present, the app signs people in and shows these figures
+  instead of the sample.
 - **`rates.local.json`**: optional overrides for the banding table and the
   older product placeholders, shaped like `rates.example.json`.
 

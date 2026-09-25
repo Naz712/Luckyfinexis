@@ -2,22 +2,31 @@
 // header. A manager has two views: their own numbers (Home, Goals,
 // Calculator, like any FC) and their team (Team and the Calculator), never
 // both on one screen. Data is the monthly production import: the bundled sample
-// (the stand-in) or, with a server connected and an individual link opened,
-// the signed-in FA's own rows from the server. Everything else is derived.
+// (the stand-in), a private team sheet built into the page (with a sign-in
+// first: an FC sees their own numbers, a manager also the FCs who name them as
+// either of their two managers), or, with a server connected and an individual
+// link opened, the signed-in FA's own rows from the server. Everything else is
+// derived.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import "./lib/privateRates";
 import { case_records, DEFAULT_USER_ID, import_rows, MANAGER_USER_ID, TODAY, type BandingCode, type ImportRow, type Tier } from "./mock/data";
 import { casesForAdvisor, defaultGoalSet, periodBounds, weeksLeftIn, withAdvisorTier, type GoalSet, type PrimaryGoal } from "./lib/calc";
 import { advisorsFromRows, asOf, entriesFromRows } from "./lib/importer";
+import { loadTeamUser, saveTeamUser, signIn, TEAM, teamRows } from "./lib/team";
 import { isoDay } from "./lib/format";
 import { fetchMe, loadApiSettings, loadSession, saveApiSettings, saveSession, type ApiSettings, type DataSource, type Session } from "./lib/api";
 import Home from "./screens/Home";
 import Goals from "./screens/Goals";
 import Calculator from "./screens/Calculator";
 import Team from "./screens/Team";
+import SignIn from "./screens/SignIn";
 import AskSheet, { AskButton } from "./components/Ask";
 
 type Tab = "home" | "goals" | "calculator" | "team";
+
+/** The rows the app starts from: the private team sheet when the build has one, else the sample import. */
+const BASE_ROWS: ImportRow[] = TEAM ? teamRows(TEAM) : import_rows;
+const BASE_SOURCE: DataSource = TEAM ? { kind: "team", as_of: TEAM.as_of } : { kind: "sample" };
 
 const TABS: { id: Tab; label: string; managerOnly?: boolean }[] = [
   { id: "home", label: "Home" },
@@ -74,9 +83,11 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("home");
   const [api, setApi] = useState<ApiSettings>(loadApiSettings);
   const [session, setSession] = useState<Session | null>(loadSession);
-  const [rows, setRows] = useState<ImportRow[]>(import_rows);
-  const [source, setSource] = useState<DataSource>({ kind: "sample" });
-  const [userId, setUserId] = useState(DEFAULT_USER_ID);
+  const [rows, setRows] = useState<ImportRow[]>(BASE_ROWS);
+  const [source, setSource] = useState<DataSource>(BASE_SOURCE);
+  /** Signed in from the team sheet (an email), when the build has one. */
+  const [teamUser, setTeamUser] = useState<string | null>(() => (TEAM ? loadTeamUser() : null));
+  const [userId, setUserId] = useState(teamUser ?? DEFAULT_USER_ID);
   const [askOpen, setAskOpen] = useState(false);
   /** A manager's view: their team or their own numbers; null means the default, the team. */
   const [view, setView] = useState<"me" | "team" | null>(null);
@@ -84,8 +95,8 @@ export default function App() {
   // With a server and an individual link, the FA's own rows replace the sample. Anything else keeps the sample and says why.
   useEffect(() => {
     if (!api.url || !session) {
-      setRows(import_rows);
-      setSource({ kind: "sample" });
+      setRows(BASE_ROWS);
+      setSource(BASE_SOURCE);
       return;
     }
     let cancelled = false;
@@ -114,9 +125,9 @@ export default function App() {
   const advisors = useMemo(() => advisorsFromRows(rows), [rows]);
   const cases = useMemo(() => entriesFromRows(rows), [rows]);
   // Case-by-case records: the sample's made-up cases alongside the sample import; the server does not send any yet.
-  const records = source.kind === "server" ? [] : case_records;
+  const records = source.kind === "sample" ? case_records : [];
   const me = advisors.find((a) => a.id === userId) ?? advisors.find((a) => a.id === DEFAULT_USER_ID) ?? advisors[0]!;
-  const isManager = advisors.some((a) => a.manager_id === me.id);
+  const isManager = advisors.some((a) => a.manager_ids.includes(me.id));
   const teamView = isManager && (view ?? "team") === "team";
   const myCases = casesForAdvisor(me.id, cases);
   // The team view is the team and the Calculator; the own view is what any FC sees.
@@ -143,8 +154,8 @@ export default function App() {
   const switchUser = () => {
     setPrimaryGoal({ kind: "tier" });
     setView(null);
-    const manager = advisors.find((a) => advisors.some((b) => b.manager_id === a.id))?.id ?? MANAGER_USER_ID;
-    const fc = advisors.find((a) => a.manager_id !== null)?.id ?? DEFAULT_USER_ID;
+    const manager = advisors.find((a) => advisors.some((b) => b.manager_ids.includes(a.id)))?.id ?? MANAGER_USER_ID;
+    const fc = advisors.find((a) => a.manager_ids.length > 0)?.id ?? DEFAULT_USER_ID;
     setUserId(isManager ? fc : manager);
     setTab(isManager ? "home" : "team");
   };
@@ -159,7 +170,7 @@ export default function App() {
     dark: "h-8 whitespace-nowrap rounded-full bg-white/16 px-3 text-[12px] font-semibold text-white ring-1 ring-white/30 hover:bg-white/24",
   } as const;
   const viewSwitch = (tone: "light" | "dark"): ReactNode =>
-    source.kind === "server" ? (
+    source.kind === "server" || source.kind === "team" ? (
       isManager ? (
         <button type="button" onClick={switchView} className={switchClass[tone]}>
           {teamView ? "My numbers" : "My team"}
@@ -188,7 +199,7 @@ export default function App() {
   const headerNote: Record<Exclude<Tab, "home">, ReactNode> = {
     goals: `${weeksLeft} weeks left in ${TODAY.getFullYear()}`,
     calculator: null,
-    team: `${advisors.filter((a) => a.manager_id === me.id).length} FCs · ${source.kind === "server" && source.as_of ? `as of ${isoDay(source.as_of)}` : "sample import"}`,
+    team: `${advisors.filter((a) => a.manager_ids.includes(me.id)).length} FCs · ${(source.kind === "server" || source.kind === "team") && source.as_of ? `as of ${isoDay(source.as_of)}` : "sample import"}`,
   };
 
   // The header's height, for anything that sticks just under it (the team drill-down's banner).
@@ -202,6 +213,30 @@ export default function App() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [activeTab]);
+
+  /** The team sheet's sign-in: the member's email becomes the signed-in adviser. */
+  const doSignIn = async (email: string, password: string): Promise<boolean> => {
+    if (!TEAM) return false;
+    const m = await signIn(TEAM, email, password);
+    if (!m) return false;
+    saveTeamUser(m.email);
+    setTeamUser(m.email);
+    setUserId(m.email);
+    setView(null);
+    setPrimaryGoal({ kind: "tier" });
+    setTab("home");
+    return true;
+  };
+  const signOut = () => {
+    saveTeamUser(null);
+    setTeamUser(null);
+    setView(null);
+    setTab("home");
+  };
+  const onSignOut = source.kind === "team" ? signOut : undefined;
+
+  // With the team sheet in the build, nobody sees a figure before signing in (a server link signs in its own way).
+  if (TEAM && !teamUser && !(api.url && session)) return <SignIn onSignIn={doSignIn} />;
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-canvas sm:border-x sm:border-line">
@@ -220,7 +255,7 @@ export default function App() {
 
       <main className="flex-1 pb-[calc(84px+env(safe-area-inset-bottom))]">
         {activeTab === "home" && (
-          <Home key={me.id} advisor={me} cases={cases} goalSet={goalSet} primary={primaryGoal} onChangeGoal={() => setTab("goals")} identityExtra={heroExtra} source={source} records={records} />
+          <Home key={me.id} advisor={me} cases={cases} goalSet={goalSet} primary={primaryGoal} onChangeGoal={() => setTab("goals")} identityExtra={heroExtra} source={source} records={records} onSignOut={onSignOut} />
         )}
         {activeTab === "goals" && (
           <Goals key={me.id} advisor={me} cases={cases} goalSet={goalSet} onGoalSetChange={setGoalSet} primary={primaryGoal} onPrimaryChange={setPrimaryGoal} onTierChange={setTier} />
@@ -237,7 +272,7 @@ export default function App() {
             personal={!teamView}
           />
         )}
-        {activeTab === "team" && teamView && <Team key={me.id} manager={me} advisors={advisors} cases={cases} goalSet={goalSet} source={source} records={records} />}
+        {activeTab === "team" && teamView && <Team key={me.id} manager={me} advisors={advisors} cases={cases} goalSet={goalSet} source={source} records={records} onSignOut={onSignOut} />}
       </main>
       <AskSheet
         open={askOpen}

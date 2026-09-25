@@ -19,10 +19,11 @@ import {
   type PrimaryGoal,
   type RouteCredit,
 } from "../lib/calc";
-import { count, fmtMetric, paceText, pct, periodLabel, routeGateText, sgd, shortDate } from "../lib/format";
+import { bandLabel, count, fmtMetric, paceText, pct, periodLabel, routeGateText, sgd, shortDate } from "../lib/format";
 import type { DataSource } from "../lib/api";
 import { Card, Label } from "../components/ui";
 import DetailSheet, { type DetailTab } from "./Detail";
+import { SignedIn } from "./Team";
 
 const TIER_LABEL: Record<Tier, string> = { mdrt: "MDRT", cot: "COT", tot: "TOT" };
 
@@ -89,6 +90,8 @@ function sourceNote(source: DataSource): { text: string; tone: "muted" | "warn" 
       return { text: "Sample import, January to August 2026. Nothing here is real.", tone: "muted" };
     case "server":
       return { text: source.as_of ? `Your production as of ${longDay(source.as_of)}.` : "Your production, from the server.", tone: "muted" };
+    case "team":
+      return { text: `Your production as of ${longDay(source.as_of)}.`, tone: "muted" };
     case "error":
       return { text: `${source.message} Showing the sample instead.`, tone: "warn" };
   }
@@ -305,6 +308,7 @@ export default function Home({
   identityExtra,
   source,
   records = [],
+  onSignOut,
 }: {
   advisor: Advisor;
   cases: Case[];
@@ -316,6 +320,8 @@ export default function Home({
   source?: DataSource;
   /** Individual cases since the tracker's launch, for the detail sheet's case list. */
   records?: CaseRecord[];
+  /** Signed in from the team sheet: offers to sign out at the foot. */
+  onSignOut?: () => void;
 }) {
   const mine = casesForAdvisor(advisor.id, cases);
   const mdrt = mdrtSnapshot(advisor.id, mine, TODAY, goalSet);
@@ -405,7 +411,7 @@ export default function Home({
             <div className="min-w-0">
               <div className="text-pretty break-words text-[14px] font-semibold leading-[18px]">{advisor.name}</div>
               <div className="text-[11px] leading-4 text-white/72">
-                {advisor.fc_code} · Band {advisor.banding_code.slice(1)}
+                {advisor.fc_code} · {bandLabel(advisor.banding_code)}
               </div>
             </div>
           </div>
@@ -574,6 +580,7 @@ export default function Home({
       </div>
 
       {note && note.tone === "warn" && <p className="tnum px-5 pb-5 text-center text-[11px] leading-[1.5] text-warn">{note.text}</p>}
+      {onSignOut && <SignedIn email={advisor.fc_code} onSignOut={onSignOut} />}
 
       <DetailSheet tab={openTab} onTab={setOpenTab} onClose={() => setOpenTab(null)} advisor={advisor} cases={mine} records={records} goalSet={goalSet} />
     </div>

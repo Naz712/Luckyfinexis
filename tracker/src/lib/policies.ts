@@ -8,7 +8,7 @@
 // schedule's rate for that policy year times the premium, plus any insurer
 // incentive. The FC's earnings are the firm's payout formula applied to GR
 // (share × (banding rate − deduction) × GR), also taken from the catalogue.
-import { bandings, type BandingCode, type MdrtCategory } from "../mock/data";
+import { bandRate, type BandingCode, type MdrtCategory } from "../mock/data";
 import { SAMPLE_CATALOGUE } from "../mock/policies.sample";
 
 export interface PolicyVariant {
@@ -193,7 +193,7 @@ export function defaultVariant(policy: Policy): PolicyVariant {
 
 /** The FC's share of GR at a band, by the catalogue's payout formula. */
 export function fcShare(band: BandingCode): number {
-  const rate = bandings.find((b) => b.code === band)?.commission_rate ?? 0;
+  const rate = bandRate(band);
   return Math.max(CATALOGUE.fc_formula.share * (rate - CATALOGUE.fc_formula.band_deduction), 0);
 }
 

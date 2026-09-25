@@ -12,6 +12,7 @@ export const IMPORT_COLUMNS = [
   "name",
   "banding",
   "manager_fc_code",
+  "manager_fc_code_2",
   "as_of",
   "commission_ytd",
   "gr_ytd",
@@ -70,7 +71,9 @@ export interface ParsedImport {
   errors: string[];
 }
 
-const BANDS = new Set(bandings.map((b) => b.code));
+const BANDS = new Set<string>(bandings.map((b) => b.code));
+/** A band from the table (B1 to B5), or a percentage banding ("65%"). */
+const isBand = (b: string): b is BandingCode => BANDS.has(b) || /^\d+(\.\d+)?%$/.test(b);
 const num = (s: string | undefined): number | null => {
   const t = (s ?? "").replace(/[S$,\s]/g, "");
   if (t === "") return 0;
@@ -98,7 +101,7 @@ export function parseImportCsv(text: string): ParsedImport {
     const banding = (cell(r, "banding") ?? "").toUpperCase() as BandingCode;
     const as_of = cell(r, "as_of") ?? "";
     if (!fc) return errors.push(`Line ${line}: no fc_code.`);
-    if (!BANDS.has(banding)) return errors.push(`Line ${line}: banding "${cell(r, "banding")}" is not one of ${[...BANDS].join(", ")}.`);
+    if (!isBand(banding)) return errors.push(`Line ${line}: banding "${cell(r, "banding")}" is not one of ${[...BANDS].join(", ")} or a percentage like 65%.`);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(as_of)) return errors.push(`Line ${line}: as_of "${as_of}" is not a date like 2026-08-31.`);
     const commission = num(cell(r, "commission_ytd"));
     const premium = num(cell(r, "premium_ytd"));
@@ -123,6 +126,7 @@ export function parseImportCsv(text: string): ParsedImport {
       name: cell(r, "name") || fc,
       banding,
       manager_fc_code: (cell(r, "manager_fc_code") ?? "").toUpperCase(),
+      ...(cell(r, "manager_fc_code_2") ? { manager_fc_code_2: cell(r, "manager_fc_code_2")!.toUpperCase() } : {}),
       as_of,
       commission_ytd: commission,
       ...(gr === null ? {} : { gr_ytd: gr }),
@@ -175,7 +179,7 @@ export function advisorsFromRows(rows: ImportRow[]): Advisor[] {
     fc_code: r.fc_code,
     banding_code: r.banding,
     rnf_year: rnfYear(r.rnf_date),
-    manager_id: r.manager_fc_code && codes.has(r.manager_fc_code) ? r.manager_fc_code : null,
+    manager_ids: [r.manager_fc_code, r.manager_fc_code_2 ?? ""].filter((m, i, all) => m !== "" && m !== r.fc_code && codes.has(m) && all.indexOf(m) === i),
   }));
 }
 
@@ -295,7 +299,7 @@ export function entriesFromRows(rows: ImportRow[]): Case[] {
 export function rowsVisibleTo(rows: ImportRow[], fcCode: string): ImportRow[] {
   const mine = rows.filter((r) => r.fc_code === fcCode);
   if (mine.length === 0) return [];
-  const reports = new Set(rows.filter((r) => r.manager_fc_code === fcCode).map((r) => r.fc_code));
+  const reports = new Set(rows.filter((r) => r.manager_fc_code === fcCode || r.manager_fc_code_2 === fcCode).map((r) => r.fc_code));
   return rows.filter((r) => r.fc_code === fcCode || reports.has(r.fc_code));
 }
 

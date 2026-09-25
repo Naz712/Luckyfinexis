@@ -2,7 +2,7 @@ import { useState } from "react";
 import { TODAY, type Advisor, type Case, type CaseRecord } from "../mock/data";
 import { ELITE, isNewFc } from "../lib/elite";
 import { mdrtSnapshot, metricSnapshot, parseISODate, type GoalSet, type MdrtSnapshot, type MetricSnapshot } from "../lib/calc";
-import { CADENCE_PER, count, periodLabel, pct, sgd, shortDate } from "../lib/format";
+import { bandLabel, CADENCE_PER, count, periodLabel, pct, sgd, shortDate } from "../lib/format";
 import type { DataSource } from "../lib/api";
 import { Card, Label } from "../components/ui";
 import Home from "./Home";
@@ -30,6 +30,8 @@ function importNote(source: DataSource | undefined): { text: string; tone: "mute
       return { text: "Showing the sample import, January to August 2026.", tone: "muted" };
     case "server":
       return { text: source.as_of ? `Latest import: ${longDay(source.as_of)}.` : "Latest import loaded from the server.", tone: "muted" };
+    case "team":
+      return { text: `Team sheet as of ${longDay(source.as_of)}.`, tone: "muted" };
     case "error":
       return { text: `${source.message} Showing the sample import instead.`, tone: "warn" };
   }
@@ -53,6 +55,7 @@ export default function Team({
   goalSet,
   source,
   records = [],
+  onSignOut,
 }: {
   manager: Advisor;
   advisors: Advisor[];
@@ -60,11 +63,13 @@ export default function Team({
   goalSet: GoalSet;
   source?: DataSource;
   records?: CaseRecord[];
+  /** Signed in from the team sheet: offers to sign out at the foot. */
+  onSignOut?: () => void;
 }) {
   const [viewing, setViewing] = useState<Advisor | null>(null);
 
   const rows: Row[] = advisors
-    .filter((a) => a.manager_id === manager.id)
+    .filter((a) => a.manager_ids.includes(manager.id))
     .map((advisor) => ({
       advisor,
       commission: metricSnapshot(advisor.id, cases, "commission", TODAY, goalSet),
@@ -144,7 +149,7 @@ export default function Team({
                     <div className="min-w-0">
                       <span className="truncate text-[15px] font-semibold text-ink">{advisor.name}</span>
                       <span className="ml-2 text-[11px] text-muted">
-                        {advisor.fc_code} · <span className="font-semibold text-body">{advisor.banding_code}</span>
+                        {advisor.fc_code} · <span className="font-semibold text-body">{bandLabel(advisor.banding_code)}</span>
                       </span>
                     </div>
                     <div className="shrink-0 whitespace-nowrap">
@@ -190,6 +195,19 @@ export default function Team({
       </Card>
 
       {note && note.tone === "warn" && <p className="tnum px-1 text-center text-[12px] leading-[1.5] text-warn">{note.text}</p>}
+      {onSignOut && <SignedIn email={manager.fc_code} onSignOut={onSignOut} />}
+    </div>
+  );
+}
+
+/** "Signed in as … · Sign out", at the foot of a signed-in screen. */
+export function SignedIn({ email, onSignOut }: { email: string; onSignOut: () => void }) {
+  return (
+    <div className="flex items-center justify-center gap-2 px-5 pb-5 pt-1 text-[12px] text-muted">
+      <span className="min-w-0 truncate">Signed in as {email}</span>
+      <button type="button" onClick={onSignOut} className="shrink-0 font-bold text-accent hover:underline">
+        Sign out
+      </button>
     </div>
   );
 }

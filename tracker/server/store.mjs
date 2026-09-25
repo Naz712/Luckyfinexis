@@ -21,6 +21,7 @@ export const IMPORT_COLUMNS = [
   "name",
   "banding",
   "manager_fc_code",
+  "manager_fc_code_2",
   "as_of",
   "commission_ytd",
   "gr_ytd",
@@ -37,6 +38,8 @@ export const IMPORT_COLUMNS = [
 ];
 const REQUIRED = ["fc_code", "name", "banding", "as_of", "commission_ytd", "premium_ytd", "elite_credits_ytd"];
 const BANDS = ["B1", "B2", "B3", "B4", "B5"];
+/** A band from the table, or a percentage banding ("65%"). */
+const isBand = (b) => BANDS.includes(b) || /^\d+(\.\d+)?%$/.test(b);
 
 // ── Parsing ──
 
@@ -108,7 +111,7 @@ export function parseImportCsv(text) {
     const banding = (cell(r, "banding") ?? "").toUpperCase();
     const as_of = cell(r, "as_of") ?? "";
     if (!fc) return errors.push(`Line ${line}: no fc_code.`);
-    if (!BANDS.includes(banding)) return errors.push(`Line ${line}: banding "${cell(r, "banding")}" is not one of ${BANDS.join(", ")}.`);
+    if (!isBand(banding)) return errors.push(`Line ${line}: banding "${cell(r, "banding")}" is not one of ${BANDS.join(", ")} or a percentage like 65%.`);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(as_of)) return errors.push(`Line ${line}: as_of "${as_of}" is not a date like 2026-08-31.`);
     const commission = num(cell(r, "commission_ytd"));
     const premium = num(cell(r, "premium_ytd"));
@@ -133,6 +136,7 @@ export function parseImportCsv(text) {
       name: cell(r, "name") || fc,
       banding,
       manager_fc_code: (cell(r, "manager_fc_code") ?? "").toUpperCase(),
+      ...(cell(r, "manager_fc_code_2") ? { manager_fc_code_2: cell(r, "manager_fc_code_2").toUpperCase() } : {}),
       as_of,
       commission_ytd: commission,
       ...(gr === null ? {} : { gr_ytd: gr }),
@@ -227,7 +231,7 @@ export function rowsFor(fcCode) {
   const fc = trim(fcCode).toUpperCase();
   const mine = held.filter((r) => r.fc_code === fc);
   if (mine.length === 0) return [];
-  const reports = new Set(held.filter((r) => r.manager_fc_code === fc).map((r) => r.fc_code));
+  const reports = new Set(held.filter((r) => r.manager_fc_code === fc || r.manager_fc_code_2 === fc).map((r) => r.fc_code));
   return held.filter((r) => r.fc_code === fc || reports.has(r.fc_code));
 }
 

@@ -91,6 +91,8 @@ function sourceLine(source: DataSource): { text: string; flag: boolean } {
       return { text: "Showing the sample import.", flag: false };
     case "server":
       return { text: `Showing your production as of ${source.as_of ? isoDay(source.as_of) : "—"}.`, flag: false };
+    case "team":
+      return { text: `Showing the team sheet as of ${isoDay(source.as_of)}.`, flag: false };
     case "error":
       return { text: source.message, flag: true };
   }
