@@ -1,19 +1,20 @@
-// The Calculator: build a client's case from the insurers' schedules before
-// meeting them, laid out as numbered steps. A banner opens every insurer
-// incentive running now (with the plans it covers and its circular). Then,
-// per policy: ① choose the plan (a picker with a search box, the premium
-// type and the term, which lands on the schedule row that covers it),
-// ② the annual premium (how the client pays it and the month it is sold, and
-// what the client gets from the insurer's customer campaigns), riders
-// (optional, each with its own premium and term) and ③ what the FC earns:
-// year 1 to them, the later years, where the premium goes (their share, the
-// firm's, the insurer's) and the insurer incentives on it. Under the
-// policies: what the case adds to the goals (MDRT credit is the schedule's
-// commission alone, and only what is paid by 31 Dec; Elite credits are the
-// first-year GR), the aim set in Goals with the other one under it, and the
-// same case at every band. Nothing here is saved.
+// The Calculator, for the final sprint: what a case brings in by 31 Dec, at
+// the FC's own band. A card lists the plans with an insurer incentive
+// running now, each with a link to its circular. Then, per policy, numbered
+// steps: ① choose the plan (a picker with search, and filters for the
+// provider and the type of plan; the premium type and the term, which lands
+// on the schedule row that covers it), ② the premium as the client pays it
+// (a lump sum for the year, or half-yearly, quarterly or monthly payments,
+// the first arriving this month) and what the client gets from the
+// insurer's customer campaigns, riders (optional, each with its own premium
+// and term, paid with the plan) and ③ what the FC earns by 31 Dec: from the
+// payments made by then, where that premium goes, and the insurer
+// incentives on it. Under the policies: what the case adds to the goals
+// (MDRT credit is the schedule's commission alone on what is paid by 31 Dec;
+// Elite credits are the first-year GR), the aim set in Goals and the other
+// one under it. Nothing here is saved.
 import { useState, type ReactNode } from "react";
-import { bandings, MDRT_MEMBERSHIP_YEAR, TODAY, type Advisor, type BandingCode, type Case, type MetricUnit } from "../mock/data";
+import { MDRT_MEMBERSHIP_YEAR, TODAY, type Advisor, type BandingCode, type Case, type MetricUnit } from "../mock/data";
 import { soloAim } from "../lib/aims";
 import {
   clientsNeeded,
@@ -33,7 +34,6 @@ import {
   CATALOGUE_IS_PRIVATE,
   categoriesOf,
   clientRewardsFor,
-  clientRewardsRunning,
   clientRewardValue,
   defaultPay,
   fcShare,
@@ -66,8 +66,22 @@ import Sheet from "../components/Sheet";
 
 const TIER_LABEL = { mdrt: "MDRT", cot: "COT", tot: "TOT" } as const;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-/** The year MDRT credits production in: the calendar year, for the membership year after it. */
-const PRODUCTION_YEAR = TODAY.getFullYear();
+/** The first payment arrives this month; MDRT, Elite and the sprint all close on 31 Dec. */
+const THIS_MONTH = TODAY.getMonth();
+/** How the premium field reads for each way of paying. */
+const MODE_SUFFIX: Record<PayMode, string> = { annual: "a year", half: "every 6 months", quarter: "a quarter", month: "a month" };
+const MODE_WORD: Record<PayMode, string> = { annual: "yearly", half: "half-yearly", quarter: "quarterly", month: "monthly" };
+const perYearOf = (mode: PayMode) => PAY_MODES.find((m) => m.code === mode)?.perYear ?? 1;
+
+/** A per-payment amount moved to another way of paying, the year's premium kept: S$2,400 a year is S$200 a month. */
+function convertPayment(value: string, from: PayMode, to: PayMode): string {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0 || from === to) return value;
+  return String(Math.round(((n * perYearOf(from)) / perYearOf(to)) * 100) / 100);
+}
+
+/** A plan's typical premium as one payment: the year's premium split over the payments. */
+const typicalPayment = (policy: Policy, perYear: number) => String(Math.round((policy.typical_premium / perYear) * 100) / 100);
 
 interface Row {
   key: number;
@@ -76,7 +90,7 @@ interface Row {
   payKey: string;
   /** Premium term as typed, in years; unused for a fixed row. */
   years: string;
-  /** Premium as typed; pre-filled with the policy's typical case until the FC types over it. */
+  /** One payment as typed, for the way the client pays (the year's premium for a lump sum, one month's for monthly); pre-filled with the policy's typical case until the FC types over it. */
   premium: string;
   premiumTouched: boolean;
   /** Universal life only: the target premium, when lower than the premium. */
@@ -85,8 +99,6 @@ interface Row {
   parent?: number;
   /** How often the client pays; a rider goes with its plan. */
   mode: PayMode;
-  /** The month it is sold in (0 = Jan), for the part MDRT credits this year. */
-  sold: number;
 }
 
 /** The aim chosen in Goals, as the calculator reads it. */
@@ -127,19 +139,18 @@ function rowFor(policy: Policy): Row {
     premiumTouched: false,
     target: "",
     mode: "annual",
-    sold: TODAY.getMonth(),
   };
 }
 
-/** A row moved to another policy: the typed term and premium carry over when they still apply. */
-function switchPolicy(row: Row, policy: Policy): Partial<Row> {
+/** A row moved to another policy: the typed term and premium carry over when they still apply. `perYear` is how many payments the client makes a year. */
+function switchPolicy(row: Row, policy: Policy, perYear: number): Partial<Row> {
   const { option, years } = defaultPay(policy);
   const keep = !option.variant && row.years !== "" && rowForTerm(option, Number(row.years)) !== null;
   return {
     policyId: policy.id,
     payKey: option.key,
     years: keep ? row.years : years === null ? "" : String(years),
-    premium: row.premiumTouched ? row.premium : String(policy.typical_premium),
+    premium: row.premiumTouched ? row.premium : typicalPayment(policy, option.variant?.single ? 1 : perYear),
     target: "",
   };
 }
@@ -149,19 +160,11 @@ function firstPolicy(): Policy {
   return CATALOGUE.policies.find((p) => p.category === "Term" && !isRider(p)) ?? CATALOGUE.policies.find((p) => !isRider(p))!;
 }
 
-/** A rider row for a plan row: the plan's first rider, on the plan's premium term when the rider's schedule has it. */
+/** A rider row for a plan row: the plan's first rider, on the plan's premium term when the rider's schedule has it, paid the plan's way. */
 function riderRowFor(base: Row, rider: Policy): Row {
-  const row = { ...rowFor(rider), parent: base.key };
+  const row = { ...rowFor(rider), parent: base.key, mode: base.mode, premium: typicalPayment(rider, perYearOf(base.mode)) };
   const option = payOptionByKey(rider, row.payKey);
   return base.years !== "" && rowForTerm(option, Number(base.years)) ? { ...row, years: base.years } : row;
-}
-
-/** "share × (band − deduction) = N% of gross revenue", in the payout formula's own figures. */
-function formulaText(band: BandingCode, share: number): string {
-  const f = CATALOGUE.fc_formula;
-  if (f.share === 1 && f.band_deduction === 0) return `${Math.round(share * 100)}% of gross revenue at ${band}`;
-  const rate = share / f.share + f.band_deduction;
-  return `${f.share} × (${Math.round(rate * 100)}% − ${Math.round(f.band_deduction * 100)}%) = ${(share * 100).toFixed(2)}% of gross revenue`;
 }
 
 const pctText = (n: number) => `${Number(n.toFixed(2))}%`;
@@ -268,7 +271,7 @@ function Segmented<T extends string>({
   small = false,
 }: {
   label: string;
-  options: { value: T; label: string }[];
+  options: { value: T; label: string; sub?: string }[];
   value: T;
   onChange: (v: T) => void;
   /** 12px labels, for four choices on a phone. */
@@ -285,9 +288,10 @@ function Segmented<T extends string>({
             role="radio"
             aria-checked={on}
             onClick={() => onChange(o.value)}
-            className={`min-h-10 rounded-[9px] px-1 font-extrabold leading-tight ${small ? "whitespace-nowrap text-[12px]" : "text-[13px]"} ${on ? "bg-surface text-accent shadow-[0_1px_2px_rgba(20,35,94,.18)]" : "text-muted"}`}
+            className={`min-h-10 rounded-[9px] px-1 py-1 font-extrabold leading-tight ${small ? "whitespace-nowrap text-[12px]" : "text-[13px]"} ${on ? "bg-surface text-accent shadow-[0_1px_2px_rgba(20,35,94,.18)]" : "text-muted"}`}
           >
             {o.label}
+            {o.sub && <span className={`block text-[10.5px] font-semibold ${on ? "text-accent/80" : "text-faint"}`}>{o.sub}</span>}
           </button>
         );
       })}
@@ -349,6 +353,19 @@ const moneyIncentives = (p: Policy) => incentivesOnPolicy(p, TODAY).filter((i) =
 /** A plan's name without its insurer at the front, for tight spaces. */
 const shortName = (p: Policy) => (p.name.startsWith(`${p.insurer} `) ? p.name.slice(p.insurer.length + 1) : p.name);
 
+/** Broad types of plan for the picker's filter, from the schedule's own categories (first match wins). */
+const PLAN_TYPES: { label: string; test: RegExp }[] = [
+  { label: "Term", test: /^term/i },
+  { label: "Critical illness", test: /critical/i },
+  { label: "Whole life", test: /^whole life/i },
+  { label: "Investment", test: /investment/i },
+  { label: "Universal life", test: /universal life/i },
+  { label: "Savings & income", test: /endowment|retirement|income|savings/i },
+  { label: "Health", test: /hospital|health|accident|shield/i },
+];
+const typeOf = (p: Policy) => PLAN_TYPES.find((t) => t.test.test(p.category))?.label ?? "Other";
+const TYPE_ORDER = [...PLAN_TYPES.map((t) => t.label), "Other"];
+
 /** A pay option's label for a segmented control: "Regular pay" → "Regular", "Single pay (premium term 1 year)" → "Single"; "5 pay" stays. */
 function shortPayLabel(label: string): string {
   const bare = label.replace(/\s*\(.*\)\s*$/, "");
@@ -356,22 +373,12 @@ function shortPayLabel(label: string): string {
   return /^\d/.test(word) ? bare : word;
 }
 
-/** Every plan the search looks through, with the words it matches on. */
-const SEARCHABLE = COMPANIES.flatMap((c) => c.policies.map((p) => ({ p, text: `${p.insurer} ${p.name} ${p.category}`.toLowerCase() })));
-
-/** Plans whose company, name or kind holds every word typed. */
-function searchPolicies(query: string): Policy[] {
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return [];
-  return SEARCHABLE.filter((x) => words.every((w) => x.text.includes(w))).map((x) => x.p);
-}
-
 /** Opens the insurer's circular, when the catalogue says where it is. */
-function CircularLink({ href }: { href?: string }) {
+function CircularLink({ href, label = "Read the circular" }: { href?: string; label?: string }) {
   if (!href) return null;
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-accent underline-offset-2 hover:underline">
-      Read the circular
+    <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 whitespace-nowrap text-[11.5px] font-semibold text-accent underline-offset-2 hover:underline">
+      {label}
       <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
         <path d="M4.5 2.5h5v5M9.5 2.5L3 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
@@ -443,7 +450,10 @@ interface Resolved {
   option: PayOption;
   /** null when the typed term has no row in the schedule. */
   variant: PolicyVariant | null;
+  /** The year's premium: one payment times the payments a year (a single premium as it is). */
   premium: number;
+  /** One payment as the client makes it. */
+  payment: number;
   incentives: Incentive[];
   /** The client's side: the insurer's customer campaigns on this plan. */
   rewards: ClientReward[];
@@ -452,7 +462,6 @@ interface Resolved {
 /** How the client pays for a row and how much of year 1 lands in this production year: a rider goes with its plan. */
 interface PaySchedule {
   mode: PayMode;
-  sold: number;
   single: boolean;
   paid: number;
   of: number;
@@ -466,19 +475,31 @@ interface Computed {
   pay: PaySchedule;
 }
 
-/** In words, how the client pays and what of year 1 MDRT credits this year: "Monthly from Oct: 3 of 12 payments fall in 2026". */
+/** In words, how the client pays and what of the first year lands by 31 Dec: "Monthly from this month: 4 of 12 payments by 31 Dec". */
 function payText(pay: PaySchedule): string {
-  if (pay.single) return `A single premium is paid at once, so all of it counts in ${PRODUCTION_YEAR}`;
+  if (pay.single) return "A single premium is paid at once, so all of it counts this year";
+  if (pay.of === 1) return "A lump sum for the year is paid at once, so all of it counts this year";
   const mode = PAY_MODES.find((m) => m.code === pay.mode)!;
-  if (pay.of === 1) return `Paid yearly, so the whole first year counts in ${PRODUCTION_YEAR}`;
-  return `${mode.label} from ${MONTHS[pay.sold]}: ${pay.paid === pay.of ? `all ${pay.of}` : `${pay.paid} of ${pay.of}`} payments fall in ${PRODUCTION_YEAR}`;
+  return `${mode.label} from this month (${MONTHS[THIS_MONTH]}): ${pay.paid === pay.of ? `all ${pay.of}` : `${pay.paid} of ${pay.of}`} payments land by 31 Dec`;
 }
 
-/** The incentive lines of a quote (commission uplifts and cash) as money: to the firm, and the FC's share. */
-function incentiveOf(q: Quote | null): { gr: number; toYou: number } {
-  if (!q) return { gr: 0, toYou: 0 };
-  const gr = q.lines.filter((l) => l.kind !== "base").reduce((t, l) => t + l.amount, 0);
-  return { gr, toYou: gr * q.share };
+/** What a row brings in by 31 Dec: commission and uplift on the payments made by then, cash incentives in full. */
+function sprintOf(c: Computed & { q: Quote }) {
+  const { q, pay, r } = c;
+  const uplift = q.lines.filter((l) => l.kind === "uplift").reduce((t, l) => t + l.amount, 0);
+  const cash = q.lines.filter((l) => l.kind === "cash").reduce((t, l) => t + l.amount, 0);
+  const commissionGr = q.base * pay.share;
+  const incentiveGr = uplift * pay.share + cash;
+  return {
+    premium: r.premium * pay.share,
+    commissionGr,
+    commissionToYou: commissionGr * q.share,
+    incentiveGr,
+    incentiveToYou: incentiveGr * q.share,
+    toYou: (commissionGr + incentiveGr) * q.share,
+    /** Commission and uplift to the FC on one payment. */
+    perPayment: ((q.base + uplift) / pay.of) * q.share,
+  };
 }
 
 /** What the FC can change on an incentive: their other APE this quarter, and a one-off reward they say applies. */
@@ -633,12 +654,13 @@ function ScheduleRow({ r, compact = false }: { r: Resolved; compact?: boolean })
   );
 }
 
-/** Each rider group the plan's schedule lists, one to pick; its own premium and term; what it pays in year 1 and adds to you. */
+/** Each rider group the plan's schedule lists, one to pick; its own premium (paid the plan's way) and term; what it adds to you by 31 Dec. */
 function RiderBlock({
   c,
   n,
   multi,
   groups,
+  mode,
   onPatch,
   removeButton,
 }: {
@@ -646,11 +668,14 @@ function RiderBlock({
   n: number;
   multi: boolean;
   groups: Policy[];
+  /** How the client pays the plan, and so the rider. */
+  mode: PayMode;
   onPatch: (p: Partial<Row>) => void;
   removeButton: ReactNode;
 }) {
   const { r, q } = c;
   const { row, policy, option } = r;
+  const single = r.variant?.single ?? option.variant?.single ?? false;
   return (
     <div className={`flex flex-col gap-3 ${multi && n > 1 ? "border-t border-line pt-3.5" : ""}`}>
       {multi && (
@@ -668,7 +693,7 @@ function RiderBlock({
               type="button"
               role="radio"
               aria-checked={on}
-              onClick={() => onPatch(switchPolicy(row, g))}
+              onClick={() => onPatch(switchPolicy(row, g, perYearOf(mode)))}
               className={`flex min-h-[52px] items-center gap-2.5 px-3 py-2.5 text-left ${i > 0 ? "border-t border-well" : ""} ${on ? "bg-accent-soft/60" : "bg-surface hover:bg-canvas"}`}
             >
               <span aria-hidden="true" className={`box-border h-[18px] w-[18px] shrink-0 rounded-full ${on ? "border-[5px] border-accent" : "border-[1.5px] border-hairline"}`} />
@@ -702,6 +727,7 @@ function RiderBlock({
               onChange={(e) => onPatch({ premium: e.target.value, premiumTouched: e.target.value !== "" })}
               className="tnum w-full min-w-0 bg-transparent text-[18px] font-extrabold text-ink placeholder:text-faint focus:outline-none"
             />
+            <span className="whitespace-nowrap text-[11px] text-muted">{single ? "once" : MODE_SUFFIX[mode]}</span>
           </div>
         </div>
         {!option.variant && (
@@ -715,13 +741,13 @@ function RiderBlock({
         <span className="min-w-0 flex-1">
           <ScheduleRow r={r} compact />
         </span>
-        {q && <b className="tnum shrink-0 text-accent">+{sgd(q.earnings)} to you</b>}
+        {q && <b className="tnum shrink-0 text-accent">+{sgd(sprintOf({ ...c, q }).toYou)} to you</b>}
       </div>
     </div>
   );
 }
 
-/** One policy as the design's steps: ① the plan, ② the premium, riders, ③ what you earn. */
+/** One policy as numbered steps: ① the plan, ② the premium as the client pays it, riders, ③ what you earn by 31 Dec. */
 function PolicyBlock({
   n,
   total,
@@ -730,11 +756,11 @@ function PolicyBlock({
   band,
   inputs,
   onPatch,
+  onSetMode,
   onRemove,
   onAddRider,
   onRemoveRider,
   onChangePlan,
-  onOpenIncentives,
 }: {
   n: number;
   total: number;
@@ -743,32 +769,32 @@ function PolicyBlock({
   band: BandingCode;
   inputs: IncentiveInputs;
   onPatch: (key: number, p: Partial<Row>) => void;
+  /** How the client pays: the plan's and its riders' payments are converted, the year's premium kept. */
+  onSetMode: (mode: PayMode) => void;
   onRemove: () => void;
   onAddRider: () => void;
   onRemoveRider: (key: number) => void;
   onChangePlan: () => void;
-  onOpenIncentives: () => void;
 }) {
-  const { r } = plan;
+  const { r, pay } = plan;
   const { row, policy, option, variant } = r;
-  const [grInfo, setGrInfo] = useState(false);
-  const [open, setOpen] = useState(false);
   const single = variant?.single ?? option.variant?.single ?? false;
   const groups = ridersFor(policy);
   const items = [plan, ...riders];
   const quoted = items.filter((c): c is Computed & { q: Quote } => c.q !== null);
   const share = quoted[0]?.q.share ?? fcShare(band);
-  const toYou = quoted.reduce((t, c) => t + c.q.earnings, 0);
-  const later = quoted.reduce((t, c) => t + c.q.later.reduce((s, l) => s + l.earnings, 0), 0);
-  const lastYear = Math.max(1, ...quoted.map((c) => c.q.later.length + 1));
-  const onwards = quoted.some((c) => c.r.policy.onwards);
-  // Where the premium goes: the schedule's commission only; incentives are paid on top and shown apart.
-  const commissionGr = quoted.reduce((t, c) => t + c.q.base, 0);
+  const sprints = quoted.map((c) => ({ c, s: sprintOf(c) }));
+  const toYou = sprints.reduce((t, x) => t + x.s.toYou, 0);
+  const incentiveToYou = sprints.reduce((t, x) => t + x.s.incentiveToYou, 0);
+  const commissionGr = sprints.reduce((t, x) => t + x.s.commissionGr, 0);
   const commissionToYou = commissionGr * share;
-  const incentive = quoted.reduce((t, c) => t + incentiveOf(c.q).toYou, 0);
-  const premiumTotal = quoted.reduce((t, c) => t + c.r.premium, 0);
-  const grPct = Math.min(pctOf(commissionGr, premiumTotal), 100);
-  const youPct = Math.min(pctOf(commissionToYou, premiumTotal), grPct);
+  const premiumPaid = sprints.reduce((t, x) => t + x.s.premium, 0);
+  const perPayment = sprints.reduce((t, x) => t + x.s.perPayment, 0);
+  const paymentTotal = quoted.reduce((t, c) => t + c.r.payment, 0);
+  const yearPremium = quoted.reduce((t, c) => t + c.r.premium, 0);
+  const fullYear = quoted.reduce((t, c) => t + c.q.earnings, 0);
+  const grPct = Math.min(pctOf(commissionGr, premiumPaid), 100);
+  const youPct = Math.min(pctOf(commissionToYou, premiumPaid), grPct);
   const withIncentives = quoted.filter((c) => c.r.incentives.length > 0);
   const money = moneyIncentives(policy);
   const firstEnd = money.map((i) => i.period[1]).sort()[0];
@@ -779,9 +805,7 @@ function PolicyBlock({
       Remove rider
     </button>
   );
-  const grText = `What the insurer pays finexis: ${quoted
-    .map((c) => `${pctText(c.r.variant!.years[0] ?? 0)} of the ${c === plan ? "plan" : riders.length > 1 ? `rider ${riders.indexOf(c) + 1}` : "rider"} premium`)
-    .join(" and ")}, so ${sgd(commissionGr)} in all. Your band decides your share of it.`;
+  const lumpSum = single || pay.of === 1;
 
   return (
     <div className="flex flex-col gap-3">
@@ -802,6 +826,7 @@ function PolicyBlock({
           <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
             <span className="flex flex-wrap items-center gap-1.5">
               <Tag tone={insurerTone(policy.insurer)}>{policy.insurer}</Tag>
+              <Tag tone="bg-well text-body">{typeOf(policy)}</Tag>
               <Tag tone="bg-accent-soft text-accent">{MDRT_CATEGORY_LABEL[policy.mdrt_category]}</Tag>
             </span>
             <span className="text-[16px] font-extrabold leading-[21px] text-ink">{shortName(policy)}</span>
@@ -832,7 +857,14 @@ function PolicyBlock({
           id={`pay-${row.key}`}
           policy={policy}
           option={option}
-          onPick={(o) => onPatch(row.key, { payKey: o.key, years: o.variant ? "" : rowForTerm(o, Number(row.years)) ? row.years : defaultYears(o) })}
+          onPick={(o) =>
+            onPatch(row.key, {
+              payKey: o.key,
+              years: o.variant ? "" : rowForTerm(o, Number(row.years)) ? row.years : defaultYears(o),
+              // A single premium is one payment: the year's figure, whatever the way of paying was.
+              ...(o.variant?.single && row.mode !== "annual" ? { mode: "annual" as PayMode, premium: convertPayment(row.premium, row.mode, "annual") } : {}),
+            })
+          }
         />
         {!option.variant && (
           <div className="flex items-center gap-3">
@@ -849,7 +881,19 @@ function PolicyBlock({
       </StepCard>
 
       <StepCard label={`Policy ${n}: the premium`}>
-        <StepHead step={2} title={single ? "Enter the single premium" : "Enter the annual premium"} />
+        <StepHead step={2} title={single ? "Enter the single premium" : "Enter the premium"} />
+        {!single && (
+          <div className="flex flex-col gap-2">
+            <span className="text-[13px] font-bold text-ink">Client pays</span>
+            <Segmented
+              label="Client pays"
+              small
+              value={row.mode}
+              options={PAY_MODES.map((m) => ({ value: m.code, label: m.label, sub: m.perYear === 1 ? "lump sum" : `${m.perYear} payments` }))}
+              onChange={onSetMode}
+            />
+          </div>
+        )}
         <div className="flex h-[60px] items-center gap-1.5 rounded-[14px] border-2 border-accent bg-surface px-4 focus-within:ring-[3px] focus-within:ring-accent/16">
           <span aria-hidden="true" className="text-[20px] font-bold text-faint">
             S$
@@ -861,18 +905,21 @@ function PolicyBlock({
             min={0}
             value={row.premium}
             placeholder="0"
-            aria-label={single ? "Single premium in Singapore dollars" : "Annual premium in Singapore dollars"}
+            aria-label={single ? "Single premium in Singapore dollars" : `Premium ${MODE_SUFFIX[row.mode]} in Singapore dollars`}
             onChange={(e) => onPatch(row.key, { premium: e.target.value, premiumTouched: e.target.value !== "" })}
             className="tnum w-full min-w-0 bg-transparent text-[28px] font-extrabold text-ink placeholder:text-faint focus:outline-none"
           />
-          <span className="whitespace-nowrap text-[12px] text-muted">{single ? "once" : "a year"}</span>
+          <span className="whitespace-nowrap text-[12px] text-muted">{single ? "once" : MODE_SUFFIX[row.mode]}</span>
         </div>
-        <p className="-mt-1 text-[12px] leading-[17px] text-muted">Type the premium from the client's quote. Everything below updates as you type.</p>
+        <p className="-mt-1 text-[12px] leading-[17px] text-muted">
+          {single ? "Type the single premium from the client's quote." : row.mode === "annual" ? "Type the year's premium, paid at once." : `Type each ${MODE_WORD[row.mode]} payment from the client's quote; the first comes in this month.`}{" "}
+          Everything below updates as you type.
+        </p>
         {policy.target_premium && (
           <div>
             <div className="flex items-baseline justify-between gap-2">
               <label htmlFor={`target-${row.key}`} className="text-[13px] font-bold text-ink">
-                Target premium
+                Target premium a year
               </label>
               <span className="shrink-0 text-[11px] text-muted">optional, if below the premium</span>
             </div>
@@ -880,34 +927,6 @@ function PolicyBlock({
           </div>
         )}
         {policy.riders_in_premium && <p className="text-[12px] leading-[1.45] text-muted">Its riders pay this plan's rates: include their premium here.</p>}
-        {!single && (
-          <div className="flex flex-col gap-2">
-            <span className="text-[13px] font-bold text-ink">Client pays</span>
-            <Segmented label="Client pays" small value={row.mode} options={PAY_MODES.map((m) => ({ value: m.code, label: m.label }))} onChange={(m) => onPatch(row.key, { mode: m })} />
-            <div className="flex items-center gap-3">
-              <label htmlFor={`sold-${row.key}`} className="flex-1 text-[13px] font-bold text-ink">
-                Sold in
-              </label>
-              <div className="relative">
-                <select
-                  id={`sold-${row.key}`}
-                  value={row.sold}
-                  onChange={(e) => onPatch(row.key, { sold: Number(e.target.value) })}
-                  className="tnum h-11 appearance-none rounded-full border border-hairline bg-surface pl-4 pr-9 text-[14px] font-extrabold text-ink focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16"
-                >
-                  {MONTHS.map((m, i) => (
-                    <option key={m} value={i}>
-                      {m} {PRODUCTION_YEAR}
-                    </option>
-                  ))}
-                </select>
-                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted">
-                  <CaretIcon />
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
         {variant && <ClientRewards rewards={r.rewards} variant={variant} premium={r.premium} />}
       </StepCard>
 
@@ -923,7 +942,16 @@ function PolicyBlock({
             aside={riders.length === 1 ? removeRider(riders[0]!) : undefined}
           />
           {riders.map((c, i) => (
-            <RiderBlock key={c.r.row.key} c={c} n={i + 1} multi={riders.length > 1} groups={groups} onPatch={(p) => onPatch(c.r.row.key, p)} removeButton={removeRider(c)} />
+            <RiderBlock
+              key={c.r.row.key}
+              c={c}
+              n={i + 1}
+              multi={riders.length > 1}
+              groups={groups}
+              mode={row.mode}
+              onPatch={(p) => onPatch(c.r.row.key, p)}
+              removeButton={removeRider(c)}
+            />
           ))}
           {riders.length < groups.length && (
             <button
@@ -952,36 +980,46 @@ function PolicyBlock({
         ) : (
           <>
             <div className="flex flex-col">
-              <span className="text-[13px] text-muted">To you in year 1</span>
+              <span className="text-[13px] text-muted">To you by 31 Dec</span>
               <span className="tnum text-[52px] font-extrabold leading-[58px] tracking-[-.03em] text-accent">{sgd(toYou)}</span>
-              {later > 0 && (
-                <span className="tnum text-[13px] text-muted">
-                  plus <b className="text-ink">{sgd(later)}</b> {lastYear === 2 ? "in year 2" : `over years 2 to ${lastYear}`}
-                  {onwards ? ", and more after that" : ""}
-                </span>
-              )}
+              <span className="tnum text-[13px] leading-[1.45] text-muted">
+                {single ? (
+                  <>
+                    From the single premium of <b className="text-ink">{sgd(yearPremium)}</b>, paid at once.
+                  </>
+                ) : lumpSum ? (
+                  <>
+                    From the year's <b className="text-ink">{sgd(yearPremium)}</b>, paid at once this month.
+                  </>
+                ) : (
+                  <>
+                    <b className="text-ink">{pay.paid}</b> {MODE_WORD[row.mode]} {pay.paid === 1 ? "payment" : "payments"} of {sgd(paymentTotal)} land by 31 Dec, <b className="text-ink">{sgd(perPayment)}</b> to
+                    you from each. A full year of payments brings you {sgd(fullYear)}.
+                  </>
+                )}
+              </span>
             </div>
 
-            {(riders.length > 0 || incentive > 0) && (
+            {(riders.length > 0 || incentiveToYou > 0) && (
               <div className="tnum flex flex-col gap-1.5 rounded-[10px] bg-canvas px-3 py-2.5 text-[13px]">
-                {quoted.map((c) => (
+                {sprints.map(({ c, s }) => (
                   <span key={c.r.row.key} className="flex gap-3">
                     <span className="min-w-0 flex-1 truncate text-body">{nameOf(c)}</span>
-                    <b className="shrink-0 text-ink">{sgd(c.q.base * c.q.share)}</b>
+                    <b className="shrink-0 text-ink">{sgd(s.commissionToYou)}</b>
                   </span>
                 ))}
-                {incentive > 0 && (
+                {incentiveToYou > 0 && (
                   <span className="flex gap-3">
                     <span className="min-w-0 flex-1 text-body">Insurer incentives</span>
-                    <b className="shrink-0 text-ok">+{sgd(incentive)}</b>
+                    <b className="shrink-0 text-ok">+{sgd(incentiveToYou)}</b>
                   </span>
                 )}
               </div>
             )}
 
-            {premiumTotal > 0 && (
+            {premiumPaid > 0 && (
               <div className="flex flex-col gap-2.5">
-                <span className="tnum text-[13px] font-extrabold text-ink">Where the {sgd(premiumTotal)} of premium goes</span>
+                <span className="tnum text-[13px] font-extrabold text-ink">{lumpSum ? `Where the ${sgd(premiumPaid)} of premium goes` : `Where the ${sgd(premiumPaid)} paid by 31 Dec goes`}</span>
                 <div
                   className="flex h-7 gap-[2px] overflow-hidden rounded-lg"
                   role="img"
@@ -998,34 +1036,19 @@ function PolicyBlock({
                     swatch={<span className="h-3 w-3 shrink-0 rounded-[3px]" style={HATCH_KEY} />}
                     title="Stays with the insurer"
                     sub="not paid out as commission"
-                    value={sgd(Math.max(premiumTotal - commissionGr, 0))}
+                    value={sgd(Math.max(premiumPaid - commissionGr, 0))}
                     pct={100 - grPct}
                     last
                   />
                 </div>
-                <div className="flex flex-col gap-1.5 rounded-[10px] bg-canvas px-3 py-2.5">
-                  <button
-                    type="button"
-                    aria-expanded={grInfo}
-                    onClick={() => setGrInfo((o) => !o)}
-                    className="flex min-h-6 items-center gap-1.5 text-left text-[12px] font-extrabold text-accent"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
-                      <circle cx="12" cy="12" r="9" />
-                      <path d="M12 11v5M12 8h.01" />
-                    </svg>
-                    What is gross revenue?
-                  </button>
-                  {grInfo && <span className="tnum text-[12px] leading-[17px] text-body">{grText}</span>}
-                </div>
               </div>
             )}
 
-            {withIncentives.length > 0 ? (
+            {withIncentives.length > 0 && (
               <div className="flex flex-col gap-2">
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="text-[13px] font-extrabold text-ink">Insurer incentives</span>
-                  <span className={`tnum shrink-0 text-[14px] font-extrabold ${incentive > 0 ? "text-ok" : "text-muted"}`}>{incentive > 0 ? `+${sgd(incentive)} to you` : "S$0 so far"}</span>
+                  <span className={`tnum shrink-0 text-[14px] font-extrabold ${incentiveToYou > 0 ? "text-ok" : "text-muted"}`}>{incentiveToYou > 0 ? `+${sgd(incentiveToYou)} to you` : "S$0 so far"}</span>
                 </div>
                 {withIncentives.map((c) => (
                   <div key={c.r.row.key} className="flex flex-col gap-1.5">
@@ -1033,48 +1056,8 @@ function PolicyBlock({
                     <IncentivePanels r={c.r} q={c.q} inputs={inputs} />
                   </div>
                 ))}
-                <button type="button" onClick={onOpenIncentives} className="self-start py-1 text-[12px] font-extrabold text-ok-ink">
-                  See everything running ›
-                </button>
               </div>
-            ) : (
-              <button
-                type="button"
-                onClick={onOpenIncentives}
-                className="flex min-h-11 items-center gap-2 rounded-[10px] border border-dashed border-hairline px-3 py-2 text-left text-[12px] text-muted hover:border-ok"
-              >
-                <span aria-hidden="true" className="h-3 w-3 shrink-0 rounded-[3px] bg-ok/35" />
-                <span className="min-w-0 flex-1">
-                  Insurer incentive: <b className="text-body">S$0</b>, none on this plan
-                </span>
-                <span className="shrink-0 font-extrabold text-ok-ink">See what's running ›</span>
-              </button>
             )}
-
-            <div className="-mx-4 -mb-4 border-t border-line">
-              <button
-                type="button"
-                onClick={() => setOpen((o) => !o)}
-                aria-expanded={open}
-                aria-controls={`breakdown-${row.key}`}
-                className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left text-[12.5px] font-semibold text-accent"
-              >
-                Full breakdown, later years and fine print
-                <span className={`transition-transform duration-200 ${open ? "rotate-180" : ""}`}>
-                  <CaretIcon />
-                </span>
-              </button>
-              {open && (
-                <div id={`breakdown-${row.key}`} className="drop-in border-t border-line">
-                  {quoted.map((c) => (
-                    <div key={c.r.row.key}>
-                      {quoted.length > 1 && <div className="truncate bg-canvas px-4 py-2 text-[11px] font-bold uppercase tracking-[.08em] text-muted">{nameOf(c)}</div>}
-                      <Breakdown r={c.r} q={c.q} band={band} pay={c.pay} />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
           </>
         )}
       </StepCard>
@@ -1127,19 +1110,54 @@ function SheetHeader({ title, sub, onDone }: { title: string; sub?: string; onDo
   );
 }
 
-/** Pick a plan: search every insurer's plans, or browse one company's by category. */
+/** A row of filter chips that scrolls sideways when it runs out of room. */
+function ChipRow({ label, options, value, onChange }: { label: string; options: { value: string; label: string; disabled?: boolean }[]; value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <span className="w-[74px] shrink-0 text-[11px] font-bold uppercase tracking-[.06em] text-muted">{label}</span>
+      <div role="radiogroup" aria-label={label} className="-mr-4 flex min-w-0 flex-1 gap-1.5 overflow-x-auto pr-4 [scrollbar-width:none]">
+        {options.map((o) => {
+          const on = o.value === value;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              disabled={o.disabled}
+              onClick={() => onChange(o.value)}
+              className={`shrink-0 whitespace-nowrap rounded-full border px-3 py-[7px] text-[12px] font-bold ${on ? "border-brand bg-brand text-white" : "border-line bg-surface text-body"} disabled:text-faint`}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Pick a plan: search by name, and filter by provider and type of plan. */
 function PlanPicker({ open, current, onClose, onPick }: { open: boolean; current: Policy | null; onClose: () => void; onPick: (p: Policy) => void }) {
   const [query, setQuery] = useState("");
-  const [company, setCompany] = useState<string | null>(null);
-  const insurer = company ?? current?.insurer ?? COMPANIES[0]!.name;
-  const results = query.trim() ? searchPolicies(query) : null;
-  const plans = COMPANIES.find((c) => c.name === insurer)?.policies ?? [];
+  const [provider, setProvider] = useState("all");
+  const [type, setType] = useState("all");
+  const inProvider = COMPANIES.filter((c) => provider === "all" || c.name === provider).flatMap((c) => c.policies);
+  const types = TYPE_ORDER.filter((t) => inProvider.some((p) => typeOf(p) === t));
+  const typeInUse = types.includes(type) ? type : "all";
+  const filtered = inProvider.filter((p) => typeInUse === "all" || typeOf(p) === typeInUse);
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = words.length === 0 ? filtered : filtered.filter((p) => words.every((w) => `${p.insurer} ${p.name} ${p.category}`.toLowerCase().includes(w)));
+  // Grouped by provider when every provider is in, else by the schedule's category.
+  const groups =
+    provider === "all"
+      ? COMPANIES.map((c) => ({ label: c.name, policies: shown.filter((p) => p.insurer === c.name) })).filter((g) => g.policies.length > 0)
+      : categoriesOf(shown);
   const close = () => {
     setQuery("");
-    setCompany(null);
     onClose();
   };
-  const item = (p: Policy, sub: string) => {
+  const item = (p: Policy) => {
     const on = p.id === current?.id;
     return (
       <button
@@ -1154,7 +1172,9 @@ function PlanPicker({ open, current, onClose, onPick }: { open: boolean; current
       >
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="text-[14px] font-bold leading-snug text-ink">{shortName(p)}</span>
-          <span className="text-[11.5px] text-muted">{sub}</span>
+          <span className="text-[11.5px] text-muted">
+            {p.category} · {MDRT_CATEGORY_LABEL[p.mdrt_category]}
+          </span>
         </span>
         {on && <CheckIcon />}
       </button>
@@ -1162,8 +1182,8 @@ function PlanPicker({ open, current, onClose, onPick }: { open: boolean; current
   };
   return (
     <Sheet open={open} onClose={close} label="Choose the plan" height="92dvh">
-      <div className="flex shrink-0 flex-col gap-3 border-b border-line px-4 pb-3 pt-2">
-        <SheetHeader title="Choose the plan" onDone={close} />
+      <div className="flex shrink-0 flex-col gap-2.5 border-b border-line px-4 pb-3 pt-2">
+        <SheetHeader title="Choose the plan" sub={`${shown.length} ${shown.length === 1 ? "plan" : "plans"}`} onDone={close} />
         <div className="relative flex items-center">
           <svg className="pointer-events-none absolute left-3 text-muted" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <circle cx="7" cy="7" r="4.6" stroke="currentColor" strokeWidth="1.8" />
@@ -1179,41 +1199,22 @@ function PlanPicker({ open, current, onClose, onPick }: { open: boolean; current
             className="h-11 w-full rounded-xl border border-hairline bg-surface pl-9 pr-3 text-[15px] font-semibold text-ink placeholder:font-normal placeholder:text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/16"
           />
         </div>
-        {!results && (
-          <div role="radiogroup" aria-label="Company" className="flex flex-wrap gap-1.5">
-            {COMPANIES.map((c) => {
-              const on = c.name === insurer;
-              const none = c.policies.length === 0;
-              return (
-                <button
-                  key={c.name}
-                  type="button"
-                  role="radio"
-                  aria-checked={on}
-                  disabled={none}
-                  onClick={() => setCompany(c.name)}
-                  className={`rounded-full border px-3 py-[7px] text-[12px] font-bold ${on ? "border-brand bg-brand text-white" : "border-line bg-surface text-body"} disabled:text-faint`}
-                >
-                  {c.name}
-                  {none ? " (to come)" : ""}
-                </button>
-              );
-            })}
-          </div>
-        )}
+        <ChipRow
+          label="Provider"
+          value={provider}
+          onChange={setProvider}
+          options={[{ value: "all", label: "All" }, ...COMPANIES.map((c) => ({ value: c.name, label: c.policies.length === 0 ? `${c.name} (to come)` : c.name, disabled: c.policies.length === 0 }))]}
+        />
+        <ChipRow label="Type" value={typeInUse} onChange={setType} options={[{ value: "all", label: "All types" }, ...types.map((t) => ({ value: t, label: t }))]} />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6">
-        {results ? (
-          results.length === 0 ? (
-            <p className="px-4 py-4 text-[13px] text-muted">No plan matches “{query.trim()}”.</p>
-          ) : (
-            <div aria-label="Matching policies">{results.map((p) => item(p, `${p.insurer} · ${p.category}`))}</div>
-          )
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6" aria-label="Matching policies">
+        {shown.length === 0 ? (
+          <p className="px-4 py-4 text-[13px] text-muted">{words.length > 0 ? `No plan matches “${query.trim()}” here.` : "No plan of this type here."}</p>
         ) : (
-          categoriesOf(plans).map((g) => (
+          groups.map((g) => (
             <section key={g.label} aria-label={g.label}>
               <h3 className="bg-canvas px-4 py-1.5 text-[11px] font-bold uppercase tracking-[.08em] text-muted">{g.label}</h3>
-              {g.policies.map((p) => item(p, MDRT_CATEGORY_LABEL[p.mdrt_category]))}
+              {g.policies.map(item)}
             </section>
           ))
         )}
@@ -1222,251 +1223,78 @@ function PlanPicker({ open, current, onClose, onPick }: { open: boolean; current
   );
 }
 
-/** The plans a campaign names (riders aside), once each. */
-function plansOf(targets: { policy: string }[]): Policy[] {
-  return targets
-    .map((t) => policyById(t.policy))
-    .filter((p): p is Policy => !!p && !isRider(p))
-    .filter((p, i, all) => all.indexOf(p) === i);
-}
-
-/** Every insurer incentive and client offer running now, by insurer, with the plans each covers (tap one to use it) and its circular. */
-function IncentivesSheet({ open, onClose, onUse }: { open: boolean; onClose: () => void; onUse: (p: Policy) => void }) {
+/**
+ * The plans with an insurer incentive running today, by provider: what runs
+ * on each and when it ends, with a link to the circular to read more. Folded
+ * to one line until tapped.
+ */
+function IncentivesRunning() {
+  const [open, setOpen] = useState(false);
   const running = incentivesRunning(TODAY);
-  const rewards = clientRewardsRunning(TODAY);
-  const byInsurer = COMPANIES.map((c) => ({ name: c.name, items: running.filter((i) => i.insurer === c.name) })).filter((g) => g.items.length > 0);
-  const card = (key: string, name: string, meta: string, detail: string, plans: Policy[], circular?: string) => (
-    <article key={key} className="rounded-xl border border-line bg-surface p-3">
-      <div className="text-[14px] font-extrabold leading-snug text-ink">{name}</div>
-      <div className="text-[11px] text-muted">{meta}</div>
-      <p className="mt-1.5 text-[12px] leading-[1.45] text-body">{detail}</p>
-      {plans.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Plans it covers">
-          {plans.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => onUse(p)}
-              className="rounded-full border border-ok/40 bg-ok/7 px-2.5 py-1 text-left text-[11.5px] font-semibold text-ok-ink hover:border-ok hover:bg-ok/12"
-            >
-              {shortName(p)}
-            </button>
+  if (running.length === 0) return null;
+  const groups = COMPANIES.map((c) => ({
+    insurer: c.name,
+    plans: c.policies.map((p) => ({ p, items: running.filter((i) => i.targets.some((t) => t.policy === p.id)) })).filter((x) => x.items.length > 0),
+  })).filter((g) => g.plans.length > 0);
+  const planCount = groups.reduce((t, g) => t + g.plans.length, 0);
+  const ends = new Map<string, number>();
+  for (const i of running) ends.set(i.period[1], (ends.get(i.period[1]) ?? 0) + 1);
+  const [topEnd, topCount] = [...ends.entries()].sort((a, b) => b[1] - a[1])[0]!;
+  const day = (iso: string) => isoShort(iso).replace(/ \d{4}$/, "");
+  const endsText = running.length === 1 ? `ends ${day(topEnd)}` : topCount === running.length ? `all end ${day(topEnd)}` : `most end ${day(topEnd)}`;
+  return (
+    <section aria-label="Incentives running now" className="overflow-hidden rounded-[14px] border border-ok/30 bg-ok/7">
+      <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-3 px-3.5 py-3 text-left">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ok/15 text-ok-ink">
+          <StarIcon />
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="text-[14px] font-extrabold text-ink">
+            Incentives running now on {planCount} {planCount === 1 ? "plan" : "plans"}
+          </span>
+          <span className="truncate text-[12px] text-ok-ink">
+            {groups.map((g) => g.insurer).join(" and ")} · {endsText}
+          </span>
+        </span>
+        <ChevronIcon className={`text-muted transition-transform duration-200 ${open ? "-rotate-90" : "rotate-90"}`} />
+      </button>
+      {open && (
+        <div className="drop-in border-t border-ok/20 bg-surface">
+          {groups.map((g) => (
+            <div key={g.insurer}>
+              <h3 className="bg-canvas px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-[.08em] text-muted">{g.insurer}</h3>
+              {g.plans.map(({ p, items }) => {
+                const links = items.map((i) => i.circular).filter((h, n, all): h is string => !!h && all.indexOf(h) === n);
+                // Without a link yet, the circular's short name (its source up to the first comma) says where to look.
+                const sources = items.map((i) => i.source.split(",")[0]!).filter((x, n, all) => all.indexOf(x) === n);
+                const end = items.map((i) => i.period[1]).sort()[0]!;
+                return (
+                  <div key={p.id} className="flex items-start gap-3 border-t border-line px-3.5 py-2.5 first:border-t-0">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13.5px] font-bold leading-snug text-ink">{shortName(p)}</div>
+                      <div className="tnum text-[11.5px] leading-[1.4] text-muted">
+                        {items.length === 1 ? "1 incentive" : `${items.length} incentives`} · ends {day(end)}
+                      </div>
+                      <div className="truncate text-[11px] leading-[1.4] text-faint">{items.map((i) => i.name).join(" · ")}</div>
+                      {links.length === 0 && <div className="truncate text-[11px] leading-[1.4] text-faint">Circular: {sources.join("; ")}</div>}
+                    </div>
+                    {links.length > 0 && (
+                      <div className="flex shrink-0 flex-col items-end gap-1 pt-0.5">
+                        {links.map((h) => (
+                          <CircularLink key={h} href={h} label="Circular" />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           ))}
         </div>
       )}
-      {circular && (
-        <div className="mt-2">
-          <CircularLink href={circular} />
-        </div>
-      )}
-    </article>
-  );
-  const heading = (text: string) => <h3 className="px-1 pb-1.5 pt-3 text-[11px] font-bold uppercase tracking-[.08em] text-muted">{text}</h3>;
-  return (
-    <Sheet open={open} onClose={onClose} label="Incentives running now" height="92dvh">
-      <div className="shrink-0 border-b border-line px-4 pb-3 pt-2">
-        <SheetHeader
-          title="Running now"
-          sub={`${running.length} insurer ${running.length === 1 ? "incentive" : "incentives"}${rewards.length > 0 ? ` · ${rewards.length} client ${rewards.length === 1 ? "offer" : "offers"}` : ""} · tap a plan to use it`}
-          onDone={onClose}
-        />
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 pb-8">
-        {running.length === 0 && <p className="px-1 py-4 text-[13px] text-muted">No insurer incentive is running today.</p>}
-        {byInsurer.map((g) => (
-          <section key={g.name} aria-label={g.name}>
-            {heading(g.name)}
-            <div className="flex flex-col gap-2">{g.items.map((i) => card(i.id, i.name, `ends ${isoShort(i.period[1])}`, i.detail, plansOf(i.targets), i.circular))}</div>
-          </section>
-        ))}
-        {rewards.length > 0 && (
-          <section aria-label="For clients">
-            {heading("For clients")}
-            <div className="flex flex-col gap-2">
-              {rewards.map((r) => card(r.id, r.name, `${r.insurer} · ${r.coming_soon ? "coming soon" : `ends ${isoShort(r.period[1])}`}`, r.detail, plansOf(r.targets), r.circular))}
-            </div>
-          </section>
-        )}
-      </div>
-    </Sheet>
-  );
-}
-
-/** A numbered figure in the breakdown, ① to ④. */
-function Step({ n }: { n: number }) {
-  return (
-    <span aria-hidden="true" className="tnum flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-accent-soft text-[10px] font-bold text-accent">
-      {n}
-    </span>
-  );
-}
-
-/** A quote's money split: commission from the schedule, and the incentives on top, to the firm and to the FC. */
-function outputsOf(q: Quote) {
-  const incentiveLines = q.lines.filter((l) => l.kind !== "base");
-  const incentiveGr = incentiveLines.reduce((t, l) => t + l.amount, 0);
-  return { incentiveLines, incentiveGr, commissionToYou: q.base * q.share, incentiveToYou: incentiveGr * q.share };
-}
-
-// ───────────────────────── The breakdown, opened under a policy ─────────────────────────
-
-function Section({ n, title, children }: { n?: number; title: string; children: ReactNode }) {
-  return (
-    <section className="border-t border-line px-4 py-3 first:border-t-0">
-      <div className="flex items-center gap-2">
-        {n !== undefined && <Step n={n} />}
-        <Label>{title}</Label>
-      </div>
-      <div className="mt-2">{children}</div>
     </section>
   );
 }
-
-function Line({ label, detail, amount, strong = false }: { label: ReactNode; detail?: ReactNode; amount: ReactNode; strong?: boolean }) {
-  return (
-    <div className="flex items-start justify-between gap-3 py-1">
-      <span className="min-w-0">
-        <span className={`block text-[12.5px] ${strong ? "font-bold text-ink" : "font-semibold text-body"}`}>{label}</span>
-        {detail && <span className="tnum block text-[11.5px] leading-[1.45] text-muted">{detail}</span>}
-      </span>
-      <span className={`tnum shrink-0 ${strong ? "text-[15px] font-bold text-ink" : "text-[13px] font-semibold text-body"}`}>{amount}</span>
-    </div>
-  );
-}
-
-/** Everything behind one policy's figures. */
-function Breakdown({ r, q, band, pay }: { r: Resolved; q: Quote; band: BandingCode; pay: PaySchedule }) {
-  const { policy, variant } = r;
-  const out = outputsOf(q);
-  const running = variant ? incentivesFor(policy, variant, TODAY) : [];
-  const lineFor = (id: string) => q.lines.find((l) => l.id === id);
-  const noteFor = (id: string) => q.notes.find((n) => n.id === id);
-  const laterEarnings = q.later.reduce((t, l) => t + l.earnings, 0);
-  return (
-    <div>
-      <Section n={1} title="Commission, year 1">
-        {q.lines
-          .filter((l) => l.kind === "base")
-          .map((l) => (
-            <Line key={l.id} label={l.label} detail={l.detail} amount={sgd(l.amount)} />
-          ))}
-        <div className="mt-1 border-t border-line pt-1.5">
-          <Line label="Gross revenue from the schedule" amount={sgd(q.base)} strong />
-          <Line label={`To you @ ${band}`} detail={formulaText(band, q.share)} amount={sgd(out.commissionToYou)} strong />
-        </div>
-      </Section>
-
-      <Section n={2} title="Insurer incentives">
-        {running.length === 0 ? (
-          <p className="text-[12px] leading-normal text-muted">None of the insurer's incentives this quarter covers this plan{variant ? ` on the ${variant.label.toLowerCase()} row` : ""}.</p>
-        ) : (
-          <div className="flex flex-col divide-y divide-line">
-            {running.map((i) => {
-              const l = lineFor(i.id);
-              const n = noteFor(i.id);
-              return (
-                <div key={i.id} className="py-2.5 first:pt-0 last:pb-0">
-                  <div className="flex items-start justify-between gap-3">
-                    <span className="min-w-0">
-                      <span className="block text-[13px] font-semibold text-ink">{i.name}</span>
-                      <span className="block text-[11px] text-muted">
-                        {i.insurer} · {isoShort(i.period[0])} to {isoShort(i.period[1])}
-                      </span>
-                    </span>
-                    <span className={`tnum shrink-0 text-[13px] font-bold ${l ? "text-ok" : "text-muted"}`}>{l ? `+${sgd(l.amount)} GR` : "—"}</span>
-                  </div>
-                  <p className="mt-1.5 text-[12px] leading-[1.5] text-body">{i.detail}</p>
-                  {l && <p className="tnum mt-1 text-[11.5px] leading-[1.45] text-ok-ink">Here: {l.detail}.</p>}
-                  {n && <p className="tnum mt-1 text-[11.5px] leading-[1.45] text-muted">Here: {n.detail}</p>}
-                  {i.conditions && i.conditions.length > 0 && (
-                    <ul className="mt-1.5 flex list-disc flex-col gap-0.5 pl-4 text-[11px] leading-[1.45] text-muted">
-                      {i.conditions.map((c) => (
-                        <li key={c}>{c}</li>
-                      ))}
-                    </ul>
-                  )}
-                  {i.circular && (
-                    <div className="mt-1.5">
-                      <CircularLink href={i.circular} />
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-        {out.incentiveGr > 0 && (
-          <div className="mt-2 border-t border-line pt-1.5">
-            <Line label="Incentives in gross revenue" amount={sgd(out.incentiveGr)} strong />
-            <Line label={`To you @ ${band}`} detail={`the same ${(q.share * 100).toFixed(2)}% as commission`} amount={sgd(out.incentiveToYou)} strong />
-          </div>
-        )}
-      </Section>
-
-      <Section n={3} title="MDRT credit">
-        <Line label="Commission credit, policy year 1" detail="Your share of the schedule's year-1 commission." amount={sgd(q.mdrtCommission)} />
-        <Line label={`Commission credit in ${PRODUCTION_YEAR}`} detail={`${payText(pay)}.`} amount={sgd(q.mdrtCommission * pay.share)} strong />
-        <Line label="Premium credit, policy year 1" detail={variant?.single ? "6% of a single premium." : "The annual premium in full."} amount={sgd(q.mdrtPremium)} />
-        {pay.share < 1 && <Line label={`Premium credit in ${PRODUCTION_YEAR}`} detail="The premium paid by 31 Dec." amount={sgd(q.mdrtPremium * pay.share)} strong />}
-        <p className="mt-1 text-[11.5px] leading-[1.45] text-muted">
-          Counts as {MDRT_CATEGORY_LABEL[policy.mdrt_category]}. MDRT counts Other Products only once Risk-Protection commission reaches its floor.
-        </p>
-      </Section>
-
-      <Section n={4} title={`finexis ${ELITE.name}`}>
-        <Line label="First-year gross revenue (FYGR)*" detail="The schedule's year-1 commission and any commission uplift. Insurer cash incentives and later years don't count toward Elite." amount={sgd(q.fygr)} />
-        <div className="mt-1 border-t border-line pt-1.5">
-          <Line label="Elite credits" amount={`+${count(q.elite)}`} strong />
-        </div>
-        <p className="mt-1 text-[11.5px] leading-[1.45] text-muted">* FYGR assumes the premium is paid yearly.</p>
-        <p className="mt-1 text-[11.5px] leading-[1.45] text-muted">{ELITE.basis} Credits count year by year, apart from MDRT.</p>
-      </Section>
-
-      {q.later.length > 0 && q.later.some((l) => l.rate > 0) && (
-        <Section title="Later years">
-          <p className="text-[11.5px] leading-[1.45] text-muted">
-            {q.later.length === 1 ? `${policy.onwards ?? "Year 2"} at the schedule's rate: ${sgd(laterEarnings)} a year to you.` : `Years 2 to ${q.later.length + 1} at the schedule's rates${policy.onwards ? ", the last rate continuing" : ""}: ${sgd(laterEarnings)} to you in all.`}
-          </p>
-          <table className="tnum mt-2 w-full text-[12px] text-muted">
-            <thead>
-              <tr className="text-left">
-                <th className="py-1 font-semibold">Year</th>
-                <th className="py-1 text-right font-semibold">Rate</th>
-                <th className="py-1 text-right font-semibold">Gross revenue</th>
-                <th className="py-1 text-right font-semibold">To you</th>
-              </tr>
-            </thead>
-            <tbody>
-              {q.later.map((l) => (
-                <tr key={l.year} className="border-t border-well">
-                  <td className="py-1.5">{l.year === q.later.length + 1 && policy.onwards ? `${l.year}+` : l.year}</td>
-                  <td className="py-1.5 text-right">{Number(l.rate.toFixed(2))}%</td>
-                  <td className="py-1.5 text-right">{sgd(l.gr)}</td>
-                  <td className="py-1.5 text-right text-body">{sgd(l.earnings)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Section>
-      )}
-
-      {policy.notes && policy.notes.length > 0 && (
-        <Section title="Fine print from the schedule">
-          <p className="text-[11.5px] leading-[1.45] text-muted">The insurer's own notes on this plan: top-ups, renewals and clawbacks that change the figures.</p>
-          <ul className="mt-1.5 flex list-disc flex-col gap-1 pl-4 text-[12px] leading-[1.5] text-body">
-            {policy.notes.map((n) => (
-              <li key={n}>{n}</li>
-            ))}
-          </ul>
-        </Section>
-      )}
-
-      <p className="border-t border-line px-4 py-2.5 text-[11px] leading-normal text-muted">Source: {policy.source}.</p>
-    </div>
-  );
-}
-
-// ───────────────────────── The screen ─────────────────────────
 
 export default function Calculator({
   advisor,
@@ -1474,7 +1302,6 @@ export default function Calculator({
   goalSet,
   primary,
   band,
-  onBandChange,
   onGoToGoals,
   personal = true,
 }: {
@@ -1482,8 +1309,8 @@ export default function Calculator({
   cases: Case[];
   goalSet: GoalSet;
   primary: PrimaryGoal;
+  /** The FC's own band: the Calculator works at it alone. */
   band: BandingCode;
-  onBandChange: (band: BandingCode) => void;
   onGoToGoals: () => void;
   /** False in a manager's team view: the policies and their figures only, none of the viewer's own goals. */
   personal?: boolean;
@@ -1495,21 +1322,23 @@ export default function Calculator({
   const [flatOn, setFlatOn] = useState<Record<string, boolean>>({});
   /** The plan row whose plan the picker is changing, while it is open. */
   const [picking, setPicking] = useState<number | null>(null);
-  /** While the incentives sheet is open: the plan row a plan tapped in it goes to. */
-  const [incentivesTarget, setIncentivesTarget] = useState<number | null>(null);
 
   // ── Per-row maths. Tiered incentives look across the rows: each row's tier counts the others. ──
   const resolved: Resolved[] = rows.map((row) => {
     const policy = policyById(row.policyId)!;
     const option = payOptionByKey(policy, row.payKey);
     const variant = rowForTerm(option, Number(row.years));
-    const premium = parseMoney(row.premium);
+    // A rider is paid the plan's way: one payment times the payments a year makes the year's premium.
+    const planRow = row.parent !== undefined ? (rows.find((x) => x.key === row.parent) ?? row) : row;
+    const single = variant?.single ?? option.variant?.single ?? false;
+    const payment = parseMoney(row.premium);
     return {
       row,
       policy,
       option,
       variant,
-      premium,
+      premium: payment * (single ? 1 : perYearOf(planRow.mode)),
+      payment,
       incentives: variant ? incentivesFor(policy, variant, TODAY) : [],
       rewards: variant ? clientRewardsFor(policy, variant, TODAY) : [],
     };
@@ -1518,8 +1347,8 @@ export default function Calculator({
   const payOf = (r: Resolved): PaySchedule => {
     const plan = r.row.parent !== undefined ? (rows.find((x) => x.key === r.row.parent) ?? r.row) : r.row;
     const single = r.variant?.single ?? r.option.variant?.single ?? false;
-    const inYear = single ? { paid: 1, of: 1, share: 1 } : paidInYear(plan.mode, plan.sold);
-    return { mode: plan.mode, sold: plan.sold, single, ...inYear };
+    const inYear = single ? { paid: 1, of: 1, share: 1 } : paidInYear(plan.mode, THIS_MONTH);
+    return { mode: plan.mode, single, ...inYear };
   };
   const quarterIncentives = new Map<string, Incentive>();
   for (const r of resolved) for (const i of r.incentives) if (i.quarter_input) quarterIncentives.set(i.id, i);
@@ -1566,8 +1395,10 @@ export default function Calculator({
   const ridersOf = (key: number) => computed.filter((c) => c.r.row.parent === key);
 
   const quotes = computed.map((c) => c.q).filter((q): q is Quote => q !== null);
-  const totalGr = quotes.reduce((t, q) => t + q.gr, 0);
-  const totalEarnings = quotes.reduce((t, q) => t + q.earnings, 0);
+  // By 31 Dec: commission on the payments made by then, cash incentives in full.
+  const sprints = computed.filter((c): c is Computed & { q: Quote } => c.q !== null).map(sprintOf);
+  const totalGr = sprints.reduce((t, s) => t + s.commissionGr + s.incentiveGr, 0);
+  const totalEarnings = sprints.reduce((t, s) => t + s.toYou, 0);
   const totalElite = quotes.reduce((t, q) => t + q.elite, 0);
   // MDRT credits what the client pays inside the production year, and only the schedule's commission.
   const mdrtIn = (category: "risk_protection" | "other", figure: "mdrtCommission" | "mdrtPremium") =>
@@ -1623,16 +1454,7 @@ export default function Calculator({
     const [risk, other] = route.metric === "mdrt_commission" ? [mdrtRisk, mdrtOther] : [premRisk, premOther];
     return { route, left: Math.max(route.goalThreshold - route.achieved, 0), n: clientsNeededOnRoute(route.credit, route.goalThreshold, risk, other) };
   });
-  const mdrtNote = `MDRT counts the schedule's commission alone. ${plans.map((c) => `${plans.length > 1 ? `${shortName(c.r.policy)}: ` : ""}${payText(c.pay)}.`).join(" ")}`;
-
-  // ── The banner: every insurer incentive running today ──
-  const running = incentivesRunning(TODAY);
-  const runningInsurers = COMPANIES.map((c) => c.name).filter((name) => running.some((i) => i.insurer === name));
-  const ends = new Map<string, number>();
-  for (const i of running) ends.set(i.period[1], (ends.get(i.period[1]) ?? 0) + 1);
-  const [topEnd, topCount] = [...ends.entries()].sort((a, b) => b[1] - a[1])[0] ?? ["", 0];
-  const endDay = topEnd ? isoShort(topEnd).replace(/ \d{4}$/, "") : "";
-  const endsText = running.length === 1 ? `ends ${endDay}` : topCount === running.length ? `all end ${endDay}` : `${topCount} end ${endDay}`;
+  const mdrtNote = `MDRT counts the schedule's commission alone, on what is paid by 31 Dec. ${plans.map((c) => `${plans.length > 1 ? `${shortName(c.r.policy)}: ` : ""}${payText(c.pay)}.`).join(" ")}`;
 
   // A plan moved to another product keeps only the riders that go on the new one; removing a plan removes its riders.
   const patch = (key: number, p: Partial<Row>) =>
@@ -1651,40 +1473,26 @@ export default function Calculator({
     });
   const usePlan = (key: number | null, p: Policy) => {
     const row = rows.find((r) => r.key === key) ?? rows.find((r) => r.parent === undefined);
-    if (row) patch(row.key, switchPolicy(row, p));
+    if (row) patch(row.key, switchPolicy(row, p, perYearOf(row.mode)));
   };
+  /** How the client pays a plan: its payments and its riders' are converted, the year's premium kept. */
+  const setMode = (key: number, mode: PayMode) =>
+    setRows((rs) => {
+      const from = rs.find((r) => r.key === key)!.mode;
+      return rs.map((r) => (r.key === key || r.parent === key ? { ...r, mode, premium: convertPayment(r.premium, from, mode) } : r));
+    });
   const incentiveInputs: IncentiveInputs = {
     quarter,
     setQuarter: (id, value) => setQuarter((m) => ({ ...m, [id]: value })),
     flatOn,
     setFlat: (id, on) => setFlatOn((m) => ({ ...m, [id]: on })),
   };
-  const maxBand = totalGr * fcShare(bandings[bandings.length - 1]!.code) || 1;
   const countLabel = `${filledPlans} ${filledPlans === 1 ? "policy" : "policies"}${filledRiders > 0 ? ` + ${filledRiders} ${filledRiders === 1 ? "rider" : "riders"}` : ""}`;
 
   return (
     <>
       <div className="flex flex-col gap-3 px-4 pb-24 pt-4">
-        {running.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setIncentivesTarget(plans[0]?.r.row.key ?? null)}
-            className="flex items-center gap-3 rounded-[14px] border border-ok/30 bg-ok/7 px-3.5 py-3 text-left hover:border-ok/60"
-          >
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ok/15 text-ok-ink">
-              <StarIcon />
-            </span>
-            <span className="flex min-w-0 flex-1 flex-col">
-              <span className="text-[14px] font-extrabold text-ink">
-                {running.length} {running.length === 1 ? "incentive" : "incentives"} running now
-              </span>
-              <span className="truncate text-[12px] text-ok-ink">
-                {runningInsurers.join(" and ")} · {endsText}
-              </span>
-            </span>
-            <ChevronIcon className="text-muted" />
-          </button>
-        )}
+        <IncentivesRunning />
 
         {plans.map((c, i) => (
           <PolicyBlock
@@ -1700,7 +1508,7 @@ export default function Calculator({
             onAddRider={() => addRider(c.r.row.key)}
             onRemoveRider={(key) => remove(key)}
             onChangePlan={() => setPicking(c.r.row.key)}
-            onOpenIncentives={() => setIncentivesTarget(c.r.row.key)}
+            onSetMode={(mode) => setMode(c.r.row.key, mode)}
           />
         ))}
 
@@ -1813,34 +1621,6 @@ export default function Calculator({
           </StepCard>
         )}
 
-        <StepCard label="Same case, every band">
-          <div className="flex items-baseline gap-2">
-            <h2 className="m-0 min-w-0 flex-1 text-[16px] font-extrabold text-ink">Same case, every band</h2>
-            <span className="shrink-0 text-[12px] text-muted">year 1 to you</span>
-          </div>
-          <div className="flex h-[130px] items-end gap-2">
-            {bandings.map((b) => {
-              const v = totalGr * fcShare(b.code);
-              const on = b.code === band;
-              return (
-                <button
-                  key={b.code}
-                  type="button"
-                  onClick={() => onBandChange(b.code)}
-                  aria-pressed={on}
-                  aria-label={`Band ${b.code}, ${sgd(v)}`}
-                  className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1"
-                >
-                  <span className={`tnum text-[11px] font-extrabold ${on ? "text-accent" : "text-muted"}`}>{sgd(v)}</span>
-                  <span className={`w-full rounded-t-md transition-[height] duration-300 ${on ? "bg-accent" : "bg-bar"}`} style={{ height: `${Math.max(4, Math.round((v / maxBand) * 90))}px` }} />
-                  <span className={`text-[12px] ${on ? "font-extrabold text-ink" : "font-medium text-muted"}`}>{b.code}</span>
-                </button>
-              );
-            })}
-          </div>
-          <span className="-mt-1 text-[12px] text-muted">Tap a band to see this case at that band.</span>
-        </StepCard>
-
         <button
           type="button"
           onClick={() => setRows((rs) => [...rs, rowFor(firstPolicy())])}
@@ -1861,21 +1641,12 @@ export default function Calculator({
         onClose={() => setPicking(null)}
         onPick={(p) => usePlan(picking, p)}
       />
-      <IncentivesSheet
-        open={incentivesTarget !== null}
-        onClose={() => setIncentivesTarget(null)}
-        onUse={(p) => {
-          usePlan(incentivesTarget, p);
-          setIncentivesTarget(null);
-        }}
-      />
-
       <section
         aria-label="Total per client"
         className="fixed inset-x-0 bottom-[calc(82px+env(safe-area-inset-bottom))] z-10 mx-auto flex w-full max-w-[430px] items-center gap-3 bg-brand-hover px-4 py-3 text-white"
       >
         <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-[11px] font-extrabold uppercase tracking-[.08em] text-white/78">{countLabel} · year 1 to you</span>
+          <span className="truncate text-[11px] font-extrabold uppercase tracking-[.08em] text-white/78">{countLabel} · to you by 31 Dec</span>
           <span className="tnum truncate text-[12px] text-[#54d4a0]">
             +{sgd(mdrtRisk + mdrtOther)} MDRT · +{count(totalElite)} Elite
           </span>

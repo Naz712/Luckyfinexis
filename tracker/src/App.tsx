@@ -6,10 +6,10 @@
 // the signed-in FA's own rows from the server. Everything else is derived.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import "./lib/privateRates";
-import { bandings, case_records, DEFAULT_USER_ID, import_rows, MANAGER_USER_ID, TODAY, type BandingCode, type ImportRow, type Tier } from "./mock/data";
+import { case_records, DEFAULT_USER_ID, import_rows, MANAGER_USER_ID, TODAY, type BandingCode, type ImportRow, type Tier } from "./mock/data";
 import { casesForAdvisor, defaultGoalSet, periodBounds, weeksLeftIn, withAdvisorTier, type GoalSet, type PrimaryGoal } from "./lib/calc";
 import { advisorsFromRows, asOf, entriesFromRows } from "./lib/importer";
-import { isoDay, pct } from "./lib/format";
+import { isoDay } from "./lib/format";
 import { fetchMe, loadApiSettings, loadSession, saveApiSettings, saveSession, type ApiSettings, type DataSource, type Session } from "./lib/api";
 import Home from "./screens/Home";
 import Goals from "./screens/Goals";
@@ -126,11 +126,8 @@ export default function App() {
   // Self-set goals, in memory only. Goals edits them in place; Home and Calculator read them.
   const [goalSet, setGoalSet] = useState<GoalSet>(defaultGoalSet);
   const [primaryGoal, setPrimaryGoal] = useState<PrimaryGoal>({ kind: "tier" });
-  // The Calculator's band lives in the header strip, so the shell holds it.
-  const [band, setBand] = useState<BandingCode | null>(null);
-  const bandInUse = band ?? me.banding_code;
-  /** The band picker under the Calculator's header: folded into a pill until tapped. */
-  const [bandOpen, setBandOpen] = useState(false);
+  // The Calculator works at the FC's own band only.
+  const bandInUse: BandingCode = me.banding_code;
   const setTier = (tier: Tier) => setGoalSet((set) => withAdvisorTier(set, me.id, TODAY.getFullYear(), tier));
 
   const onApiChange = (next: ApiSettings) => {
@@ -145,7 +142,6 @@ export default function App() {
   /** Stand-in only: flips between the sample FC and their manager (who opens on the team) so every screen can be reviewed. */
   const switchUser = () => {
     setPrimaryGoal({ kind: "tier" });
-    setBand(null);
     setView(null);
     const manager = advisors.find((a) => advisors.some((b) => b.manager_id === a.id))?.id ?? MANAGER_USER_ID;
     const fc = advisors.find((a) => a.manager_id !== null)?.id ?? DEFAULT_USER_ID;
@@ -154,7 +150,6 @@ export default function App() {
   };
   /** A signed-in manager: between the team and their own numbers. */
   const switchView = () => {
-    setBand(null);
     setView(teamView ? "me" : "team");
     setTab(teamView ? "home" : "team");
   };
@@ -220,47 +215,6 @@ export default function App() {
             </div>
             <div className="flex shrink-0 items-center gap-2">{headerExtra}</div>
           </div>
-          {activeTab === "calculator" && (
-            <div className="mt-2.5 flex flex-col gap-1.5">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  aria-expanded={bandOpen}
-                  aria-controls="band-picker"
-                  onClick={() => setBandOpen((o) => !o)}
-                  className="tnum flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-accent-soft px-3 text-[13px] font-extrabold text-accent"
-                >
-                  Band {bandInUse} · {pct(bandings.find((b) => b.code === bandInUse)?.commission_rate ?? 0)}
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" className={`transition-transform duration-200 ${bandOpen ? "rotate-180" : ""}`}>
-                    <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
-              </div>
-              {bandOpen && (
-                <div id="band-picker" className="drop-in flex flex-col gap-1.5">
-                  <span className="text-[12px] text-muted">Your band sets your share of gross revenue.</span>
-                  <div role="radiogroup" aria-label="Band" className="grid grid-cols-5 gap-1 rounded-xl bg-well p-1">
-                    {bandings.map((b) => {
-                      const on = b.code === bandInUse;
-                      return (
-                        <button
-                          key={b.code}
-                          type="button"
-                          role="radio"
-                          aria-checked={on}
-                          onClick={() => setBand(b.code)}
-                          className={`flex h-12 flex-col items-center justify-center rounded-[9px] ${on ? "bg-surface text-accent shadow-[0_1px_2px_rgba(20,35,94,.18)]" : "text-muted"}`}
-                        >
-                          <span className="text-[14px] font-extrabold">{b.code}</span>
-                          <span className="tnum text-[11px]">{pct(b.commission_rate)}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
         </header>
       )}
 
@@ -279,7 +233,6 @@ export default function App() {
             goalSet={goalSet}
             primary={primaryGoal}
             band={bandInUse}
-            onBandChange={setBand}
             onGoToGoals={() => setTab("goals")}
             personal={!teamView}
           />
