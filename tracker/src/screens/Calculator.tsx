@@ -46,7 +46,6 @@ import {
   isRider,
   PAY_MODES,
   paidInYear,
-  payOptionByKey,
   payOptions,
   policyById,
   quote,
@@ -160,6 +159,37 @@ function switchPolicy(row: Row, policy: Policy, perYear: number): Partial<Row> {
   };
 }
 
+/**
+ * The pay options as the Calculator offers them. Term groups that pay the
+ * same in year 1 wherever their terms overlap (regular and limited pay) are
+ * one choice: the Calculator shows the first year only, so the adviser just
+ * enters how many years the client pays. Groups whose year-1 rates differ
+ * (a plan's own options) and single-premium rows stay separate choices.
+ */
+function calcOptions(policy: Policy): PayOption[] {
+  const out: PayOption[] = [];
+  for (const o of payOptions(policy)) {
+    const into = o.variant ? undefined : out.find((m) => !m.variant && sameYearOne(m, o));
+    if (into) into.rows = [...into.rows, ...o.rows];
+    else out.push(o.variant ? o : { ...o, rows: [...o.rows] });
+  }
+  return out;
+}
+
+function sameYearOne(a: PayOption, b: PayOption): boolean {
+  for (let t = 1; t <= 99; t++) {
+    const ra = rowForTerm(a, t);
+    const rb = rowForTerm(b, t);
+    if (ra && rb && (ra.years[0] ?? 0) !== (rb.years[0] ?? 0)) return false;
+  }
+  return true;
+}
+
+function calcOptionByKey(policy: Policy, key: string): PayOption {
+  const all = calcOptions(policy);
+  return all.find((o) => o.key === key) ?? all[0]!;
+}
+
 /** The first policy the screen opens with, so it is never empty: the first term plan in the catalogue. */
 function firstPolicy(): Policy {
   return CATALOGUE.policies.find((p) => p.category === "Term" && !isRider(p)) ?? CATALOGUE.policies.find((p) => !isRider(p))!;
@@ -168,7 +198,7 @@ function firstPolicy(): Policy {
 /** A rider row for a plan row: the plan's first rider, on the plan's premium term when the rider's schedule has it, paid the plan's way. */
 function riderRowFor(base: Row, rider: Policy): Row {
   const row = { ...rowFor(rider), parent: base.key, mode: base.mode, premium: typicalPayment(rider, perYearOf(base.mode)) };
-  const option = payOptionByKey(rider, row.payKey);
+  const option = calcOptionByKey(rider, row.payKey);
   return base.years !== "" && rowForTerm(option, Number(base.years)) ? { ...row, years: base.years } : row;
 }
 
@@ -632,15 +662,15 @@ function IncentivePanels({ r, q, inputs }: { r: Resolved; q: Quote; inputs: Ince
  * premium (one payment). Anything else keeps the schedule's own label.
  */
 function payWords(label: string): { label: string; sub?: string; desc?: string } {
-  if (/^regular/i.test(label)) return { label: "Every year", sub: "regular pay", desc: "The client pays every year of the premium term." };
-  if (/^limited/i.test(label)) return { label: "Fewer years", sub: "limited pay", desc: "The client pays for fewer years than the cover lasts, such as 15 or 20 years for cover to age 99." };
-  if (/^single/i.test(label)) return { label: "Once", sub: "single premium", desc: "One payment for the whole policy. The schedule pays a much lower rate on it." };
+  if (/^regular/i.test(label)) return { label: "Regular", sub: "paid over the years", desc: "The client pays a premium for the number of years below, yearly or in instalments." };
+  if (/^limited/i.test(label)) return { label: "Limited", sub: "fewer years than the cover", desc: "The client pays for fewer years than the cover lasts." };
+  if (/^single/i.test(label)) return { label: "Single", sub: "paid once", desc: "One payment for the whole policy. The schedule pays a much lower rate on it." };
   return { label: shortPayLabel(label) };
 }
 
 /** How long the client pays for the plan: a segmented control in plain words when the choices are few and short, else a dropdown. */
 function PayOptionPicker({ id, policy, option, onPick }: { id: string; policy: Policy; option: PayOption; onPick: (o: PayOption) => void }) {
-  const options = payOptions(policy);
+  const options = calcOptions(policy);
   if (options.length < 2) {
     return option.variant ? (
       <div className="text-[12px] text-muted">
@@ -648,7 +678,7 @@ function PayOptionPicker({ id, policy, option, onPick }: { id: string; policy: P
       </div>
     ) : null;
   }
-  const label = policy.variant_label === "Premium term" ? "How long the client pays" : policy.variant_label;
+  const label = policy.variant_label === "Premium term" ? "How the client pays for the plan" : policy.variant_label;
   const words = options.map((o) => payWords(o.label));
   if (options.length <= 3 && words.every((w) => w.label.length <= 14)) {
     const desc = words[options.findIndex((o) => o.key === option.key)]?.desc;
@@ -931,10 +961,13 @@ function PolicyBlock({
         />
         {!option.variant && (
           <div className="flex items-center gap-3">
-            <span className="flex-1 text-[13px] font-bold text-ink">{/investment/i.test(policy.variant_label) ? "Investment period" : "Premium term"}</span>
+            <span className="flex-1 text-[13px] font-bold leading-tight text-ink">
+              {/investment/i.test(policy.variant_label) ? "Investment period" : "Years the client pays"}
+              {!/investment/i.test(policy.variant_label) && <span className="block text-[11px] font-medium text-muted">the premium term</span>}
+            </span>
             <YearsStepper
               id={`years-${row.key}`}
-              label={/investment/i.test(policy.variant_label) ? "Investment period in years" : "Premium term in years"}
+              label={/investment/i.test(policy.variant_label) ? "Investment period in years" : "Years the client pays"}
               value={row.years}
               onChange={(v) => onPatch(row.key, { years: v })}
             />
@@ -1438,7 +1471,7 @@ export default function Calculator({
   // ── Per-row maths. Tiered incentives look across the rows: each row's tier counts the others. ──
   const resolved: Resolved[] = rows.map((row) => {
     const policy = policyById(row.policyId)!;
-    const option = payOptionByKey(policy, row.payKey);
+    const option = calcOptionByKey(policy, row.payKey);
     const variant = rowForTerm(option, Number(row.years));
     // A rider is paid the plan's way: one payment times the payments a year makes the year's premium.
     const planRow = row.parent !== undefined ? (rows.find((x) => x.key === row.parent) ?? row) : row;

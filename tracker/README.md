@@ -131,10 +131,12 @@ part of the deployment choice, written up separately.
   with the insurer, the type of plan and the MDRT category, opening a picker
   with a search box and filters for the provider and the type of plan (term,
   critical illness, whole life, investment, universal life, savings and
-  income, health; Singlife greyed out until its schedule comes); how long
-  the client pays, in plain words where there is a choice (every year for
-  regular pay, fewer years for limited pay, once for a single premium), with
-  a line on what the chosen one means; and the premium term
+  income, health; Singlife greyed out until its schedule comes); how the
+  client pays for the plan where there is a choice (regular premiums or a
+  single premium), with a line on what the chosen one means; and the years
+  the client pays (the premium term). Regular and limited pay are one choice
+  wherever they pay the same in year 1, since the Calculator shows the first
+  year only; the term
   with − and +, which lands on the schedule row that covers it ("20" → "10 to
   24 years"; a term the schedule doesn't list says so). ② **Enter the
   premium**: on a plan whose schedule pays on top-ups, first a lump sum paid
