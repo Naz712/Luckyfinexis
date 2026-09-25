@@ -147,10 +147,10 @@ export default function Team({
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <span className="truncate text-[15px] font-semibold text-ink">{advisor.name}</span>
-                      <span className="ml-2 text-[11px] text-muted">
+                      <div className="truncate text-[15px] font-semibold text-ink">{advisor.name}</div>
+                      <div className="truncate text-[11px] text-muted">
                         {advisor.fc_code} · <span className="font-semibold text-body">{bandLabel(advisor.banding_code)}</span>
-                      </span>
+                      </div>
                     </div>
                     <div className="shrink-0 whitespace-nowrap">
                       <OnTrackFlag snapshot={commission} />
