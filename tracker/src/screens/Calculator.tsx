@@ -1,18 +1,19 @@
-// The Calculator, for the final sprint: what a case brings in by 31 Dec, at
-// the FC's own band. A card lists the plans with an insurer incentive
-// running now, each with a link to its circular. Then, per policy, numbered
-// steps: ① choose the plan (a picker with search, and filters for the
-// provider and the type of plan; the premium type and the term, which lands
-// on the schedule row that covers it), ② the premium as the client pays it
-// (a lump sum for the year, or half-yearly, quarterly or monthly payments,
-// the first arriving this month) and what the client gets from the
-// insurer's customer campaigns, riders (optional, each with its own premium
-// and term, paid with the plan) and ③ what the FC earns by 31 Dec: from the
-// payments made by then, where that premium goes, and the insurer
-// incentives on it. Under the policies: what the case adds to the goals
-// (MDRT credit is the schedule's commission alone on what is paid by 31 Dec;
-// Elite credits are the first-year GR), the aim set in Goals and the other
-// one under it. Nothing here is saved.
+// The Calculator, for the final sprint, at the FC's own band. A card lists
+// the plans with an insurer incentive running now, each with a link to its
+// circular. Then, per policy, numbered steps: ① choose the plan (a picker
+// with search, and filters for the provider and the type of plan; the premium
+// type and the term, which lands on the schedule row that covers it), ② the
+// premium as the client pays it (a lump sum for the year, or half-yearly,
+// quarterly or monthly payments, the first arriving this month) and what the
+// client gets from the insurer's customer campaigns, riders (optional, each
+// with its own premium and term, paid with the plan) and ③ what the FC
+// earns: the first-year commission (FYC) however the client pays, the
+// insurer incentives on top, where the first year's premium goes, and what
+// the case adds toward the year-end goals. MDRT and Elite count only what is
+// paid by 31 Dec (monthly from September is 4 of 12 payments); MDRT counts
+// the schedule's commission alone, Elite the first-year GR. Under the
+// policies: the case's total toward the goals, the aim set in Goals and the
+// other one under it. Nothing here is saved.
 import { useState, type ReactNode } from "react";
 import { MDRT_MEMBERSHIP_YEAR, TODAY, type Advisor, type BandingCode, type Case, type MetricUnit } from "../mock/data";
 import { soloAim } from "../lib/aims";
@@ -480,10 +481,15 @@ function payText(pay: PaySchedule): string {
   if (pay.single) return "A single premium is paid at once, so all of it counts this year";
   if (pay.of === 1) return "A lump sum for the year is paid at once, so all of it counts this year";
   const mode = PAY_MODES.find((m) => m.code === pay.mode)!;
-  return `${mode.label} from this month (${MONTHS[THIS_MONTH]}): ${pay.paid === pay.of ? `all ${pay.of}` : `${pay.paid} of ${pay.of}`} payments land by 31 Dec`;
+  const rest = pay.of - pay.paid;
+  return `${mode.label} from this month (${MONTHS[THIS_MONTH]}): ${pay.paid === pay.of ? `all ${pay.of}` : `${pay.paid} of ${pay.of}`} payments land by 31 Dec${rest > 0 ? `; the other ${rest} count next year` : ""}`;
 }
 
-/** What a row brings in by 31 Dec: commission and uplift on the payments made by then, cash incentives in full. */
+/**
+ * What a row brings in by 31 Dec: commission and uplift on the payments made
+ * by then, cash incentives in full. MDRT and Elite count this part; the
+ * first-year commission (FYC) shown to the FC is the whole first year.
+ */
 function sprintOf(c: Computed & { q: Quote }) {
   const { q, pay, r } = c;
   const uplift = q.lines.filter((l) => l.kind === "uplift").reduce((t, l) => t + l.amount, 0);
@@ -497,8 +503,8 @@ function sprintOf(c: Computed & { q: Quote }) {
     incentiveGr,
     incentiveToYou: incentiveGr * q.share,
     toYou: (commissionGr + incentiveGr) * q.share,
-    /** Commission and uplift to the FC on one payment. */
-    perPayment: ((q.base + uplift) / pay.of) * q.share,
+    /** Elite credits: the first-year GR (commission and uplift) on the payments made by 31 Dec. */
+    elite: q.elite * pay.share,
   };
 }
 
@@ -654,7 +660,7 @@ function ScheduleRow({ r, compact = false }: { r: Resolved; compact?: boolean })
   );
 }
 
-/** Each rider group the plan's schedule lists, one to pick; its own premium (paid the plan's way) and term; what it adds to you by 31 Dec. */
+/** Each rider group the plan's schedule lists, one to pick; its own premium (paid the plan's way) and term; its first-year commission to you. */
 function RiderBlock({
   c,
   n,
@@ -741,13 +747,13 @@ function RiderBlock({
         <span className="min-w-0 flex-1">
           <ScheduleRow r={r} compact />
         </span>
-        {q && <b className="tnum shrink-0 text-accent">+{sgd(sprintOf({ ...c, q }).toYou)} to you</b>}
+        {q && <b className="tnum shrink-0 text-accent">+{sgd(q.base * q.share)} FYC</b>}
       </div>
     </div>
   );
 }
 
-/** One policy as numbered steps: ① the plan, ② the premium as the client pays it, riders, ③ what you earn by 31 Dec. */
+/** One policy as numbered steps: ① the plan, ② the premium as the client pays it, riders, ③ what you earn (FYC) and what counts by 31 Dec. */
 function PolicyBlock({
   n,
   total,
@@ -783,18 +789,17 @@ function PolicyBlock({
   const items = [plan, ...riders];
   const quoted = items.filter((c): c is Computed & { q: Quote } => c.q !== null);
   const share = quoted[0]?.q.share ?? fcShare(band);
-  const sprints = quoted.map((c) => ({ c, s: sprintOf(c) }));
-  const toYou = sprints.reduce((t, x) => t + x.s.toYou, 0);
-  const incentiveToYou = sprints.reduce((t, x) => t + x.s.incentiveToYou, 0);
-  const commissionGr = sprints.reduce((t, x) => t + x.s.commissionGr, 0);
-  const commissionToYou = commissionGr * share;
-  const premiumPaid = sprints.reduce((t, x) => t + x.s.premium, 0);
-  const perPayment = sprints.reduce((t, x) => t + x.s.perPayment, 0);
+  // The FC's figure is the first-year commission (FYC), however the client pays; incentives are shown on top.
+  const commissionGr = quoted.reduce((t, c) => t + c.q.base, 0);
+  const fyc = commissionGr * share;
+  const incentiveYear = quoted.reduce((t, c) => t + (c.q.gr - c.q.base) * c.q.share, 0);
   const paymentTotal = quoted.reduce((t, c) => t + c.r.payment, 0);
   const yearPremium = quoted.reduce((t, c) => t + c.r.premium, 0);
-  const fullYear = quoted.reduce((t, c) => t + c.q.earnings, 0);
-  const grPct = Math.min(pctOf(commissionGr, premiumPaid), 100);
-  const youPct = Math.min(pctOf(commissionToYou, premiumPaid), grPct);
+  const grPct = Math.min(pctOf(commissionGr, yearPremium), 100);
+  const youPct = Math.min(pctOf(fyc, yearPremium), grPct);
+  // Toward the year-end goals: only what the client pays by 31 Dec.
+  const mdrtIn = quoted.reduce((t, c) => t + c.q.mdrtCommission * c.pay.share, 0);
+  const eliteIn = quoted.reduce((t, c) => t + sprintOf(c).elite, 0);
   const withIncentives = quoted.filter((c) => c.r.incentives.length > 0);
   const money = moneyIncentives(policy);
   const firstEnd = money.map((i) => i.period[1]).sort()[0];
@@ -980,46 +985,66 @@ function PolicyBlock({
         ) : (
           <>
             <div className="flex flex-col">
-              <span className="text-[13px] text-muted">To you by 31 Dec</span>
-              <span className="tnum text-[52px] font-extrabold leading-[58px] tracking-[-.03em] text-accent">{sgd(toYou)}</span>
+              <span className="text-[13px] text-muted">First-year commission (FYC) to you</span>
+              <span className="tnum text-[52px] font-extrabold leading-[58px] tracking-[-.03em] text-accent">{sgd(fyc)}</span>
               <span className="tnum text-[13px] leading-[1.45] text-muted">
                 {single ? (
                   <>
-                    From the single premium of <b className="text-ink">{sgd(yearPremium)}</b>, paid at once.
+                    On the single premium of <b className="text-ink">{sgd(yearPremium)}</b>.
                   </>
                 ) : lumpSum ? (
                   <>
-                    From the year's <b className="text-ink">{sgd(yearPremium)}</b>, paid at once this month.
+                    On the year's <b className="text-ink">{sgd(yearPremium)}</b>, paid at once.
                   </>
                 ) : (
                   <>
-                    <b className="text-ink">{pay.paid}</b> {MODE_WORD[row.mode]} {pay.paid === 1 ? "payment" : "payments"} of {sgd(paymentTotal)} land by 31 Dec, <b className="text-ink">{sgd(perPayment)}</b> to
-                    you from each. A full year of payments brings you {sgd(fullYear)}.
+                    <b className="text-ink">{sgd(fyc / pay.of)}</b> from each {MODE_WORD[row.mode]} payment of {sgd(paymentTotal)}, over {pay.of} payments.
+                  </>
+                )}
+                {incentiveYear > 0 && (
+                  <>
+                    {" "}
+                    Plus <b className="text-ok">{sgd(incentiveYear)}</b> from insurer incentives.
                   </>
                 )}
               </span>
             </div>
 
-            {(riders.length > 0 || incentiveToYou > 0) && (
+            <div className="flex flex-col gap-1.5 rounded-xl bg-ok/10 px-3 py-2.5">
+              <span className="text-[11px] font-bold uppercase tracking-[.08em] text-ok-ink">Toward your goals by 31 Dec</span>
+              <div className="grid grid-cols-2 gap-2">
+                <span className="flex flex-col">
+                  <span className="text-[11.5px] text-ok-ink">MDRT commission</span>
+                  <span className="tnum text-[20px] font-extrabold leading-tight text-ok-ink">+{sgd(mdrtIn)}</span>
+                </span>
+                <span className="flex flex-col">
+                  <span className="text-[11.5px] text-ok-ink">Elite credits</span>
+                  <span className="tnum text-[20px] font-extrabold leading-tight text-ok-ink">+{count(eliteIn)}</span>
+                </span>
+              </div>
+              <span className="tnum text-[11.5px] leading-[1.45] text-ok-ink">{payText(pay)}.</span>
+            </div>
+
+            {(riders.length > 0 || incentiveYear > 0) && (
               <div className="tnum flex flex-col gap-1.5 rounded-[10px] bg-canvas px-3 py-2.5 text-[13px]">
-                {sprints.map(({ c, s }) => (
+                {quoted.map((c) => (
                   <span key={c.r.row.key} className="flex gap-3">
                     <span className="min-w-0 flex-1 truncate text-body">{nameOf(c)}</span>
-                    <b className="shrink-0 text-ink">{sgd(s.commissionToYou)}</b>
+                    <b className="shrink-0 text-ink">{sgd(c.q.base * c.q.share)}</b>
                   </span>
                 ))}
-                {incentiveToYou > 0 && (
+                {incentiveYear > 0 && (
                   <span className="flex gap-3">
                     <span className="min-w-0 flex-1 text-body">Insurer incentives</span>
-                    <b className="shrink-0 text-ok">+{sgd(incentiveToYou)}</b>
+                    <b className="shrink-0 text-ok">+{sgd(incentiveYear)}</b>
                   </span>
                 )}
               </div>
             )}
 
-            {premiumPaid > 0 && (
+            {yearPremium > 0 && (
               <div className="flex flex-col gap-2.5">
-                <span className="tnum text-[13px] font-extrabold text-ink">{lumpSum ? `Where the ${sgd(premiumPaid)} of premium goes` : `Where the ${sgd(premiumPaid)} paid by 31 Dec goes`}</span>
+                <span className="tnum text-[13px] font-extrabold text-ink">Where the first year's {sgd(yearPremium)} goes</span>
                 <div
                   className="flex h-7 gap-[2px] overflow-hidden rounded-lg"
                   role="img"
@@ -1030,13 +1055,13 @@ function PolicyBlock({
                   <span className="flex-1" style={HATCH} />
                 </div>
                 <div className="flex flex-col">
-                  <SplitRow swatch={<span className="h-3 w-3 shrink-0 rounded-[3px] bg-accent" />} title="To you" sub={`${pctText(share * 100)} of gross revenue at Band ${band}`} value={sgd(commissionToYou)} pct={youPct} strong />
-                  <SplitRow swatch={<span className="h-3 w-3 shrink-0 rounded-[3px] bg-pend" />} title="finexis share and deductions" sub="the rest of the gross revenue" value={sgd(commissionGr - commissionToYou)} pct={grPct - youPct} />
+                  <SplitRow swatch={<span className="h-3 w-3 shrink-0 rounded-[3px] bg-accent" />} title="To you" sub={`${pctText(share * 100)} of gross revenue at Band ${band}`} value={sgd(fyc)} pct={youPct} strong />
+                  <SplitRow swatch={<span className="h-3 w-3 shrink-0 rounded-[3px] bg-pend" />} title="finexis share and deductions" sub="the rest of the gross revenue" value={sgd(commissionGr - fyc)} pct={grPct - youPct} />
                   <SplitRow
                     swatch={<span className="h-3 w-3 shrink-0 rounded-[3px]" style={HATCH_KEY} />}
                     title="Stays with the insurer"
                     sub="not paid out as commission"
-                    value={sgd(Math.max(premiumPaid - commissionGr, 0))}
+                    value={sgd(Math.max(yearPremium - commissionGr, 0))}
                     pct={100 - grPct}
                     last
                   />
@@ -1048,7 +1073,7 @@ function PolicyBlock({
               <div className="flex flex-col gap-2">
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="text-[13px] font-extrabold text-ink">Insurer incentives</span>
-                  <span className={`tnum shrink-0 text-[14px] font-extrabold ${incentiveToYou > 0 ? "text-ok" : "text-muted"}`}>{incentiveToYou > 0 ? `+${sgd(incentiveToYou)} to you` : "S$0 so far"}</span>
+                  <span className={`tnum shrink-0 text-[14px] font-extrabold ${incentiveYear > 0 ? "text-ok" : "text-muted"}`}>{incentiveYear > 0 ? `+${sgd(incentiveYear)} to you` : "S$0 so far"}</span>
                 </div>
                 {withIncentives.map((c) => (
                   <div key={c.r.row.key} className="flex flex-col gap-1.5">
@@ -1399,7 +1424,8 @@ export default function Calculator({
   const sprints = computed.filter((c): c is Computed & { q: Quote } => c.q !== null).map(sprintOf);
   const totalGr = sprints.reduce((t, s) => t + s.commissionGr + s.incentiveGr, 0);
   const totalEarnings = sprints.reduce((t, s) => t + s.toYou, 0);
-  const totalElite = quotes.reduce((t, q) => t + q.elite, 0);
+  const totalElite = sprints.reduce((t, s) => t + s.elite, 0);
+  const totalFyc = quotes.reduce((t, q) => t + q.base * q.share, 0);
   // MDRT credits what the client pays inside the production year, and only the schedule's commission.
   const mdrtIn = (category: "risk_protection" | "other", figure: "mdrtCommission" | "mdrtPremium") =>
     computed.filter((c) => c.r.policy.mdrt_category === category).reduce((t, c) => t + (c.q ? c.q[figure] * c.pay.share : 0), 0);
@@ -1454,7 +1480,7 @@ export default function Calculator({
     const [risk, other] = route.metric === "mdrt_commission" ? [mdrtRisk, mdrtOther] : [premRisk, premOther];
     return { route, left: Math.max(route.goalThreshold - route.achieved, 0), n: clientsNeededOnRoute(route.credit, route.goalThreshold, risk, other) };
   });
-  const mdrtNote = `MDRT counts the schedule's commission alone, on what is paid by 31 Dec. ${plans.map((c) => `${plans.length > 1 ? `${shortName(c.r.policy)}: ` : ""}${payText(c.pay)}.`).join(" ")}`;
+  const mdrtNote = `MDRT and Elite count what the client pays by 31 Dec; MDRT counts the schedule's commission alone. ${plans.map((c) => `${plans.length > 1 ? `${shortName(c.r.policy)}: ` : ""}${payText(c.pay)}.`).join(" ")}`;
 
   // A plan moved to another product keeps only the riders that go on the new one; removing a plan removes its riders.
   const patch = (key: number, p: Partial<Row>) =>
@@ -1519,7 +1545,7 @@ export default function Calculator({
               {[
                 { label: "MDRT commission", value: `+${sgd(mdrtRisk + mdrtOther)}` },
                 { label: "MDRT premium", value: `+${sgd(premRisk + premOther)}` },
-                { label: "Elite credits*", value: `+${count(totalElite)}` },
+                { label: "Elite credits", value: `+${count(totalElite)}` },
               ].map((t) => (
                 <div key={t.label} className="flex min-w-0 flex-col gap-0.5 rounded-xl bg-ok/10 p-2.5">
                   <span className="text-[11px] font-bold leading-tight text-ok-ink">{t.label}</span>
@@ -1528,7 +1554,7 @@ export default function Calculator({
               ))}
             </div>
             <p className="-mt-1 text-[11.5px] leading-[1.45] text-muted">
-              {mdrtNote} * Elite credits are the first-year GR (FYGR), assuming the premium is paid yearly.
+              {mdrtNote}
             </p>
 
             <div className="flex flex-col gap-2 pt-1">
@@ -1646,12 +1672,12 @@ export default function Calculator({
         className="fixed inset-x-0 bottom-[calc(82px+env(safe-area-inset-bottom))] z-10 mx-auto flex w-full max-w-[430px] items-center gap-3 bg-brand-hover px-4 py-3 text-white"
       >
         <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-[11px] font-extrabold uppercase tracking-[.08em] text-white/78">{countLabel} · to you by 31 Dec</span>
+          <span className="truncate text-[11px] font-extrabold uppercase tracking-[.08em] text-white/78">{countLabel} · first-year commission</span>
           <span className="tnum truncate text-[12px] text-[#54d4a0]">
-            +{sgd(mdrtRisk + mdrtOther)} MDRT · +{count(totalElite)} Elite
+            By 31 Dec: +{sgd(mdrtRisk + mdrtOther)} MDRT · +{count(totalElite)} Elite
           </span>
         </div>
-        <span className="tnum shrink-0 text-[26px] font-extrabold leading-none">{sgd(totalEarnings)}</span>
+        <span className="tnum shrink-0 text-[26px] font-extrabold leading-none">{sgd(totalFyc)}</span>
       </section>
     </>
   );
