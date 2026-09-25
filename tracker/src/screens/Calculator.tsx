@@ -8,8 +8,8 @@
 // client gets from the insurer's customer campaigns, riders (optional, each
 // with its own premium and term, paid with the plan) and ③ what the FC
 // earns: the first-year commission (FYC) however the client pays, the
-// insurer incentives on top, where the first year's premium goes, and what
-// the case adds toward the year-end goals. MDRT and Elite count only what is
+// insurer incentives on top, what the case adds toward the year-end goals,
+// and the working behind every figure. The firm's own share is never shown. MDRT and Elite count only what is
 // paid by 31 Dec (monthly from September is 4 of 12 payments); MDRT counts
 // the schedule's commission alone, Elite the first-year GR. Under the
 // policies: the case's total toward the goals, the aim set in Goals and the
@@ -172,14 +172,6 @@ function riderRowFor(base: Row, rider: Policy): Row {
   return base.years !== "" && rowForTerm(option, Number(base.years)) ? { ...row, years: base.years } : row;
 }
 
-/** How the FC's share of gross revenue at a band is worked out, in the payout formula's own figures: "share × (band rate − deduction)". */
-function shareWorking(band: BandingCode, share: number): string {
-  const f = CATALOGUE.fc_formula;
-  if (f.share === 1 && f.band_deduction === 0) return `${band}'s rate`;
-  const rate = share / f.share + f.band_deduction;
-  return `${f.share} × (${Math.round(rate * 100)}% − ${Math.round(f.band_deduction * 100)}%)`;
-}
-
 /** One line of the working: what it is, how it is worked out, and the result. */
 function MathRow({ label, expr, value, strong = false }: { label: string; expr?: ReactNode; value: ReactNode; strong?: boolean }) {
   return (
@@ -194,8 +186,6 @@ function MathRow({ label, expr, value, strong = false }: { label: string; expr?:
 }
 
 const pctText = (n: number) => `${Number(n.toFixed(2))}%`;
-/** A share of a whole as a whole percent, 0 when there is no whole. */
-const pctOf = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
 
 /**
  * The aim chosen in Goals. A tier aim reads the MDRT commission route
@@ -610,7 +600,7 @@ function IncentivePanels({ r, q, inputs }: { r: Resolved; q: Quote; inputs: Ince
             <p className="mt-1.5 text-[12px] leading-[1.45] text-body">{i.detail}</p>
             {line && (
               <p className="tnum mt-1 text-[11.5px] leading-[1.45] text-ok-ink">
-                Here: {line.detail} = {sgd(line.amount)} to the firm, your {(q.share * 100).toFixed(2)}% is {sgd(line.amount * q.share)}.
+                Here: {line.detail} = {sgd(line.amount)}, of which you earn {sgd(line.amount * q.share)}.
               </p>
             )}
             {line?.next && <p className="tnum mt-1 text-[11.5px] leading-[1.45] text-body">Next tier: {line.next}.</p>}
@@ -636,7 +626,19 @@ function IncentivePanels({ r, q, inputs }: { r: Resolved; q: Quote; inputs: Ince
   );
 }
 
-/** The pay options as the design shows them: a segmented control when they are few and short, else a dropdown. */
+/**
+ * The schedule's usual pay groups in plain words: regular pay (every year of
+ * the term), limited pay (fewer years than the cover lasts) and a single
+ * premium (one payment). Anything else keeps the schedule's own label.
+ */
+function payWords(label: string): { label: string; sub?: string; desc?: string } {
+  if (/^regular/i.test(label)) return { label: "Every year", sub: "regular pay", desc: "The client pays every year of the premium term." };
+  if (/^limited/i.test(label)) return { label: "Fewer years", sub: "limited pay", desc: "The client pays for fewer years than the cover lasts, such as 15 or 20 years for cover to age 99." };
+  if (/^single/i.test(label)) return { label: "Once", sub: "single premium", desc: "One payment for the whole policy. The schedule pays a much lower rate on it." };
+  return { label: shortPayLabel(label) };
+}
+
+/** How long the client pays for the plan: a segmented control in plain words when the choices are few and short, else a dropdown. */
 function PayOptionPicker({ id, policy, option, onPick }: { id: string; policy: Policy; option: PayOption; onPick: (o: PayOption) => void }) {
   const options = payOptions(policy);
   if (options.length < 2) {
@@ -646,10 +648,22 @@ function PayOptionPicker({ id, policy, option, onPick }: { id: string; policy: P
       </div>
     ) : null;
   }
-  const label = policy.variant_label === "Premium term" ? "Premium type" : policy.variant_label;
-  const short = options.map((o) => shortPayLabel(o.label));
-  if (options.length <= 3 && short.every((s) => s.length <= 14)) {
-    return <Segmented label={label} value={option.key} options={options.map((o, n) => ({ value: o.key, label: short[n]! }))} onChange={(k) => onPick(options.find((o) => o.key === k)!)} />;
+  const label = policy.variant_label === "Premium term" ? "How long the client pays" : policy.variant_label;
+  const words = options.map((o) => payWords(o.label));
+  if (options.length <= 3 && words.every((w) => w.label.length <= 14)) {
+    const desc = words[options.findIndex((o) => o.key === option.key)]?.desc;
+    return (
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[13px] font-bold text-ink">{label}</span>
+        <Segmented
+          label={label}
+          value={option.key}
+          options={options.map((o, n) => ({ value: o.key, label: words[n]!.label, sub: words[n]!.sub }))}
+          onChange={(k) => onPick(options.find((o) => o.key === k)!)}
+        />
+        {desc && <p className="text-[11.5px] leading-[1.45] text-muted">{desc}</p>}
+      </div>
+    );
   }
   return (
     <div>
@@ -843,10 +857,7 @@ function PolicyBlock({
   const premCreditYear = quoted.reduce((t, c) => t + c.q.mdrtPremium, 0);
   const paymentTotal = quoted.reduce((t, c) => t + c.r.payment, 0);
   const yearPremium = quoted.reduce((t, c) => t + c.r.premium, 0);
-  const premiumTotal = yearPremium + lump;
   const paidByEoy = yearPremium * pay.share + lump;
-  const grPct = Math.min(pctOf(commissionGr, premiumTotal), 100);
-  const youPct = Math.min(pctOf(fyc, premiumTotal), grPct);
   const partYear = !single && pay.share < 1;
   const fraction = `${pay.paid}/${pay.of}`;
   const withIncentives = quoted.filter((c) => c.r.incentives.length > 0);
@@ -1120,13 +1131,13 @@ function PolicyBlock({
                     expr={`${c.q.lines
                       .filter((l) => l.kind === "base")
                       .map((l) => l.detail)
-                      .join(" + ")}, year 1 (${c.r.variant!.label})`}
+                      .join(" + ")} in year 1 · ${c.r.variant!.label}`}
                     value={sgd(c.q.base)}
                   />
                 </div>
               ))}
               {lump > 0 && <MathRow label="Lump sum top-up" expr={`${pctText(lumpRate)} of ${sgd(lump)}`} value={sgd(lumpGr)} />}
-              <MathRow label={`Your share at Band ${band}`} expr={shareWorking(band, share)} value={pctText(share * 100)} />
+              <MathRow label={`Your payout at Band ${band}`} expr="of gross revenue" value={pctText(share * 100)} />
               <MathRow label="FYC to you" expr={`${pctText(share * 100)} × ${sgd(commissionGr)} gross revenue`} value={sgd(fyc)} strong />
 
               <div className="pb-0.5 pt-3 text-[11px] font-bold uppercase tracking-[.08em] text-muted">By 31 Dec</div>
@@ -1141,7 +1152,11 @@ function PolicyBlock({
               />
               <MathRow
                 label="MDRT commission"
-                expr={`${pctText(share * 100)} × (${sgd(regularGr)}${partYear ? ` × ${fraction}` : ""}${lump > 0 ? ` + ${sgd(lumpGr)}` : ""})`}
+                expr={
+                  partYear || lump > 0
+                    ? `${pctText(share * 100)} × (${sgd(regularGr)}${partYear ? ` × ${fraction}` : ""}${lump > 0 ? ` + ${sgd(lumpGr)}` : ""})`
+                    : `${pctText(share * 100)} × ${sgd(regularGr)}`
+                }
                 value={sgd(mdrtIn)}
               />
               <MathRow
@@ -1162,35 +1177,6 @@ function PolicyBlock({
               )}
             </section>
 
-            {premiumTotal > 0 && (
-              <div className="flex flex-col gap-2.5">
-                <span className="tnum text-[13px] font-extrabold text-ink">
-                  Where the first year's {sgd(premiumTotal)} goes{lump > 0 ? " (with the lump sum)" : ""}
-                </span>
-                <div
-                  className="flex h-7 gap-[2px] overflow-hidden rounded-lg"
-                  role="img"
-                  aria-label={`To you ${youPct}%, finexis share and deductions ${grPct - youPct}%, stays with the insurer ${100 - grPct}%`}
-                >
-                  <span className="bg-accent" style={{ width: `${youPct}%` }} />
-                  <span className="bg-pend" style={{ width: `${grPct - youPct}%` }} />
-                  <span className="flex-1" style={HATCH} />
-                </div>
-                <div className="flex flex-col">
-                  <SplitRow swatch={<span className="h-3 w-3 shrink-0 rounded-[3px] bg-accent" />} title="To you" sub={`${pctText(share * 100)} of gross revenue at Band ${band}`} value={sgd(fyc)} pct={youPct} strong />
-                  <SplitRow swatch={<span className="h-3 w-3 shrink-0 rounded-[3px] bg-pend" />} title="finexis share and deductions" sub="the rest of the gross revenue" value={sgd(commissionGr - fyc)} pct={grPct - youPct} />
-                  <SplitRow
-                    swatch={<span className="h-3 w-3 shrink-0 rounded-[3px]" style={HATCH_KEY} />}
-                    title="Stays with the insurer"
-                    sub="not paid out as commission"
-                    value={sgd(Math.max(premiumTotal - commissionGr, 0))}
-                    pct={100 - grPct}
-                    last
-                  />
-                </div>
-              </div>
-            )}
-
             {withIncentives.length > 0 && (
               <div className="flex flex-col gap-2">
                 <div className="flex items-baseline justify-between gap-3">
@@ -1208,27 +1194,6 @@ function PolicyBlock({
           </>
         )}
       </StepCard>
-    </div>
-  );
-}
-
-/** "Stays with the insurer": grey stripes, in the bar and its key. */
-const HATCH = { background: "repeating-linear-gradient(135deg, var(--color-line) 0 4px, var(--color-canvas) 4px 8px)" } as const;
-const HATCH_KEY = { background: "repeating-linear-gradient(135deg, var(--color-hairline) 0 2px, var(--color-canvas) 2px 4px)" } as const;
-
-/** One line of "Where the premium goes": key, who, the amount and its share of the premium. */
-function SplitRow({ swatch, title, sub, value, pct, strong = false, last = false }: { swatch: ReactNode; title: string; sub: string; value: string; pct: number; strong?: boolean; last?: boolean }) {
-  return (
-    <div className={`flex items-center gap-2.5 py-2 ${last ? "" : "border-b border-well"}`}>
-      {swatch}
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className={`text-[14px] text-ink ${strong ? "font-extrabold" : "font-bold"}`}>{title}</span>
-        <span className="tnum text-[12px] text-muted">{sub}</span>
-      </span>
-      <span className="tnum flex shrink-0 flex-col items-end">
-        <span className={`text-[15px] font-extrabold ${strong ? "text-accent" : "text-ink"}`}>{value}</span>
-        <span className="text-[11px] text-faint">{pct}%</span>
-      </span>
     </div>
   );
 }

@@ -131,8 +131,10 @@ part of the deployment choice, written up separately.
   with the insurer, the type of plan and the MDRT category, opening a picker
   with a search box and filters for the provider and the type of plan (term,
   critical illness, whole life, investment, universal life, savings and
-  income, health; Singlife greyed out until its schedule comes); the premium
-  type as a segmented control where there is a choice, and the premium term
+  income, health; Singlife greyed out until its schedule comes); how long
+  the client pays, in plain words where there is a choice (every year for
+  regular pay, fewer years for limited pay, once for a single premium), with
+  a line on what the chosen one means; and the premium term
   with − and +, which lands on the schedule row that covers it ("20" → "10 to
   24 years"; a term the schedule doesn't list says so). ② **Enter the
   premium**: on a plan whose schedule pays on top-ups, first a lump sum paid
@@ -152,10 +154,9 @@ part of the deployment choice, written up separately.
   from what is paid by then: the lump sum and a lump-sum year in full,
   monthly from September 4 of 12 payments); "How it's worked out", every
   figure line by line (premium × payments, the schedule's year-1 rate, the
-  top-up rate, the band's share in the payout formula's own figures, then
-  each goal by 31 Dec and what the rest of the payments add next year);
-  where the first year's premium goes (the FC's share, the firm's, what
-  stays with the insurer); and the insurer incentives, one panel each:
+  top-up rate, the FC's payout rate at the band, then
+  each goal by 31 Dec and what the rest of the payments add next year); and
+  the insurer incentives, one panel each:
   whether this case qualifies (or what it is short of, the next tier up, a
   yes/no the FC ticks, or trip credits only), what the FC earns, the rest of
   the quarter where a tier depends on it, and the circular. Incentives are
